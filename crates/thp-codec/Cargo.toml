@@ -1,0 +1,13 @@
+[package]
+name = "thp-codec"
+version = "0.1.0"
+edition = "2021"
+description = "THP transport framing utilities (length-prefix, chunking, CRC)"
+license = "Apache-2.0 OR MIT"
+
+[dependencies]
+crc32fast = "1"
+thiserror = "1"
+
+[dev-dependencies]
+proptest = "1"

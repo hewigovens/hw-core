@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "crates/thp-codec",
+    "crates/thp-crypto",
+    "crates/thp-core",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
