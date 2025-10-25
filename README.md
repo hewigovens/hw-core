@@ -7,6 +7,7 @@ Early-stage Rust workspace implementing the Trezor Host Protocol (THP). Referenc
 - `thp-codec`: Frame chunking + CRC verification with property tests.
 - `thp-crypto`: Noise XX cipher suite helpers (X25519 + AES-GCM).
 - `thp-core`: Async handshake + encrypted request pipeline with mock `Link`.
+- `trezor-connect`: WIP high-level THP workflow orchestration (channel + pairing glue) mirroring the TypeScript `trezor-connect` implementation, plus freshly ported THP crypto helpers (Noise handshake, credential lookup, QR/NFC/code-entry validators).
 
 Bring your own Link implementation (BLE/USB). APIs are unstable while we wire UniFFI bindings and integrate device transports.
 
