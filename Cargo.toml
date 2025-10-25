@@ -3,6 +3,7 @@ members = [
     "crates/thp-codec",
     "crates/thp-crypto",
     "crates/thp-core",
+    "crates/trezor-connect",
 ]
 resolver = "2"
 
