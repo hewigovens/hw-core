@@ -5,6 +5,11 @@ edition = "2021"
 description = "Experimental Rust port of trezor-connect THP workflows"
 license = "Apache-2.0 OR MIT"
 
+[features]
+default = []
+ble = []
+usb = []
+
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
