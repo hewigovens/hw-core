@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use rand::RngCore;
+use rand::rngs::StdRng;
+use rand::{RngCore, SeedableRng};
 use tracing::debug;
 
 use super::{
@@ -19,7 +20,7 @@ pub struct ThpWorkflow<B> {
     backend: B,
     config: HostConfig,
     state: ThpState,
-    rng: rand::rngs::ThreadRng,
+    rng: StdRng,
     storage: Option<Arc<dyn ThpStorage>>,
 }
 
@@ -32,7 +33,7 @@ where
             backend,
             config,
             state: ThpState::new(),
-            rng: rand::thread_rng(),
+            rng: StdRng::from_entropy(),
             storage: None,
         }
     }
@@ -55,7 +56,7 @@ where
             backend,
             config,
             state: ThpState::new(),
-            rng: rand::thread_rng(),
+            rng: StdRng::from_entropy(),
             storage: Some(storage),
         })
     }
