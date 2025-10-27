@@ -41,7 +41,6 @@ impl BleManager {
         let services: Vec<Uuid> = profiles.iter().map(|p| p.service_uuid).collect();
         let filter = ScanFilter {
             services: services.clone(),
-            ..Default::default()
         };
 
         self.adapter.start_scan(filter).await?;
@@ -81,7 +80,6 @@ impl BleManager {
 
         let filter = ScanFilter {
             services: services.clone(),
-            ..Default::default()
         };
 
         let mut events = self.adapter.events().await?;

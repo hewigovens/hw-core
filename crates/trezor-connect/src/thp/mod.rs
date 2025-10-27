@@ -11,6 +11,7 @@ pub use backend::{BackendError, ThpBackend};
 pub use error::{Result as WorkflowResult, ThpWorkflowError};
 pub use state::{Phase, ThpState};
 pub use storage::{FileStorage, HostSnapshot, StorageError, ThpStorage};
+pub use thp_proto::hw::trezor::messages::thp as proto;
 pub use transport::{ThpTransport, TransportError};
 pub use types::{
     CreateSessionRequest, HostConfig, PairingController, PairingDecision, PairingMethod,
