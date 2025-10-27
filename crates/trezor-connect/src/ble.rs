@@ -115,8 +115,7 @@ impl ThpBackend for BleBackend {
 
     async fn abort(&mut self) -> BackendResult<()> {
         self.inner
-            .link_mut()
-            .disconnect()
+            .abort()
             .await
             .map_err(|e| BackendError::Transport(e.to_string()))
     }
