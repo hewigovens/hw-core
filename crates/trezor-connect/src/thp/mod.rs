@@ -5,6 +5,7 @@ pub mod state;
 pub mod storage;
 pub mod transport;
 pub mod types;
+pub mod proto_conversions;
 pub mod workflow;
 
 pub use backend::{BackendError, ThpBackend};

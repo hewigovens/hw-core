@@ -330,7 +330,7 @@ where
                                 trezor_cpace_public_key: handshake.trezor_cpace_public_key.clone(),
                             };
                             match self.backend.send_pairing_tag(request).await? {
-                                super::types::PairingTagResponse::Accepted => {
+                                super::types::PairingTagResponse::Accepted { .. } => {
                                     break;
                                 }
                                 super::types::PairingTagResponse::Retry(reason) => {
@@ -395,7 +395,7 @@ where
                             };
 
                             match self.backend.send_pairing_tag(request).await? {
-                                super::types::PairingTagResponse::Accepted => {
+                                super::types::PairingTagResponse::Accepted { .. } => {
                                     break;
                                 }
                                 super::types::PairingTagResponse::Retry(reason) => {
@@ -490,6 +490,10 @@ mod tests {
                     channel: 1,
                     handshake_hash: b"hash".to_vec(),
                     properties: ThpProperties {
+                        internal_model: "T2T1".into(),
+                        model_variant: 0,
+                        protocol_version_major: 1,
+                        protocol_version_minor: 0,
                         pairing_methods: vec![PairingMethod::SkipPairing],
                     },
                 },
@@ -540,6 +544,10 @@ mod tests {
                     channel: 2,
                     handshake_hash: b"pair".to_vec(),
                     properties: ThpProperties {
+                        internal_model: "T2T1".into(),
+                        model_variant: 0,
+                        protocol_version_major: 1,
+                        protocol_version_minor: 0,
                         pairing_methods: vec![PairingMethod::QrCode],
                     },
                 },
@@ -567,7 +575,7 @@ mod tests {
                     autoconnect: false,
                 }),
                 select_responses: Mutex::new(select),
-                tag_response: Mutex::new(Some(PairingTagResponse::Accepted)),
+                tag_response: Mutex::new(Some(PairingTagResponse::Accepted { secret: vec![1, 2] })),
                 pairing_requested: Mutex::new(false),
                 end_called: Mutex::new(false),
             }

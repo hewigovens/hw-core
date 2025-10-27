@@ -11,6 +11,10 @@ pub enum PairingMethod {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThpProperties {
+    pub internal_model: String,
+    pub model_variant: u32,
+    pub protocol_version_major: u32,
+    pub protocol_version_minor: u32,
     pub pairing_methods: Vec<PairingMethod>,
 }
 
@@ -122,7 +126,7 @@ pub enum PairingTagRequest {
 
 #[derive(Debug, Clone)]
 pub enum PairingTagResponse {
-    Accepted,
+    Accepted { secret: Vec<u8> },
     Retry(String),
 }
 
