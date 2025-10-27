@@ -1,11 +1,14 @@
 #![cfg(feature = "ble")]
 
+use std::time::Duration;
+
 use async_trait::async_trait;
-use ble_transport::{BleBackend as TransportBackend, BleLink, BleSession};
+use ble_transport::{BleBackend as TransportBackend, BleLink, BleSession, DeviceInfo};
 use thiserror::Error;
 
 use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
 use crate::thp::types::*;
+use crate::thp::ThpTransport;
 
 #[derive(Debug, Error)]
 pub enum BleWorkflowError {
@@ -15,17 +18,24 @@ pub enum BleWorkflowError {
 
 pub struct BleBackend {
     inner: TransportBackend,
+    device: DeviceInfo,
+    transport: ThpTransport,
+    handshake_timeout: Duration,
 }
 
 impl BleBackend {
-    pub fn new(link: BleLink) -> Self {
+    pub fn new(link: BleLink, device: DeviceInfo) -> Self {
         Self {
             inner: TransportBackend::new(link),
+            device,
+            transport: ThpTransport::new(),
+            handshake_timeout: Duration::from_secs(10),
         }
     }
 
     pub fn from_session(session: BleSession) -> Self {
-        Self::new(session.into_link())
+        let (device, link) = session.into_parts();
+        Self::new(link, device)
     }
 
     pub fn link_mut(&mut self) -> &mut BleLink {
@@ -114,6 +124,7 @@ impl ThpBackend for BleBackend {
     }
 
     async fn abort(&mut self) -> BackendResult<()> {
+        self.transport.reset();
         self.inner
             .abort()
             .await

@@ -29,6 +29,7 @@ rand_core = "0.6"
 hex = "0.4"
 serde_json = "1"
 ble-transport = { path = "../ble-transport", optional = true }
+thp-core = { path = "../thp-core" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
