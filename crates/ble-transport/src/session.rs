@@ -87,6 +87,11 @@ impl BleSession {
             mtu: self.mtu,
         }
     }
+
+    pub fn into_parts(self) -> (DeviceInfo, BleLink) {
+        let info = self.device.clone();
+        (info, self.into_link())
+    }
 }
 
 pub struct BleLink {
