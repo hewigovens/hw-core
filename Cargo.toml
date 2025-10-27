@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/ble-transport",
     "crates/thp-codec",
     "crates/thp-crypto",
     "crates/thp-core",
