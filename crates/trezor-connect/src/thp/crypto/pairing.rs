@@ -313,3 +313,319 @@ pub fn validate_nfc_tag(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::thp::crypto::curve25519::get_curve25519_key_pair;
+    use crate::thp::types::KnownCredential;
+    use hex::encode as hex_encode;
+    use num_traits::ToPrimitive;
+    use rand_chacha::ChaCha20Rng;
+    use rand_core::SeedableRng;
+    use sha2::Sha512;
+
+    fn encode_handshake_payload(credential: Option<&str>) -> Vec<u8> {
+        match credential {
+            Some(value) => format!("cred:{value}").into_bytes(),
+            None => b"cred:<none>".to_vec(),
+        }
+    }
+
+    #[test]
+    fn handle_handshake_init_matches_expected() {
+        let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
+
+        let host_static = get_curve25519_key_pair(&mut rng);
+        let host_ephemeral = get_curve25519_key_pair(&mut rng);
+        let trezor_static = get_curve25519_key_pair(&mut rng);
+        let trezor_ephemeral = get_curve25519_key_pair(&mut rng);
+
+        let device_properties = b"fixture-device-properties";
+        let handshake_hash = get_handshake_hash(device_properties);
+        let mut h = handshake_hash;
+
+        let send_nonce = 0u64;
+        let recv_nonce = 1u64;
+        let iv0 = get_iv_from_nonce(send_nonce);
+        let iv1 = get_iv_from_nonce(recv_nonce);
+        let try_to_unlock = true;
+
+        h = hash_of_two(&h, &host_ephemeral.public_key);
+        h = hash_of_two(&h, &[try_to_unlock as u8]);
+        h = hash_of_two(&h, &trezor_ephemeral.public_key);
+
+        let mut ck_k = hkdf(
+            &protocol_name(),
+            &diffie_hellman(&host_ephemeral.private_key, &trezor_ephemeral.public_key),
+        );
+        let mut ck = ck_k.0;
+        let mut k = ck_k.1;
+
+        let mask_scalar = hash_of_two(&trezor_static.public_key, &trezor_ephemeral.public_key);
+        let trezor_masked_static_pubkey = curve25519(&mask_scalar, &trezor_static.public_key);
+
+        let (trezor_static_ciphertext, trezor_static_tag) =
+            aes256gcm_encrypt(&k, &iv0, &h, &trezor_masked_static_pubkey).unwrap();
+        let mut trezor_encrypted_static_pubkey = trezor_static_ciphertext.clone();
+        trezor_encrypted_static_pubkey.extend_from_slice(&trezor_static_tag);
+
+        h = hash_of_two(&h, &trezor_encrypted_static_pubkey);
+
+        let diff_masked = diffie_hellman(&host_ephemeral.private_key, &trezor_masked_static_pubkey);
+        ck_k = hkdf(&ck, &diff_masked);
+        ck = ck_k.0;
+        k = ck_k.1;
+
+        let (_, empty_tag) = aes256gcm_encrypt(&k, &iv0, &h, &[]).unwrap();
+        h = hash_of_two(&h, &empty_tag);
+
+        let correct_credential = KnownCredential {
+            credential: "cred-known".into(),
+            trezor_static_public_key: Some(trezor_static.public_key.to_vec()),
+            autoconnect: true,
+        };
+        let bogus_credential = KnownCredential {
+            credential: "other".into(),
+            trezor_static_public_key: Some(vec![0xAA; 32]),
+            autoconnect: false,
+        };
+        let known_credentials = vec![correct_credential.clone(), bogus_credential];
+
+        let expected_credentials = find_known_pairing_credentials(
+            &known_credentials,
+            &trezor_masked_static_pubkey,
+            &trezor_ephemeral.public_key,
+        );
+        assert_eq!(expected_credentials.len(), 1);
+
+        let (host_static_ciphertext, host_static_tag) =
+            aes256gcm_encrypt(&k, &iv1, &h, &host_static.public_key).unwrap();
+        let mut expected_host_encrypted_static_pubkey = host_static_ciphertext.clone();
+        expected_host_encrypted_static_pubkey.extend_from_slice(&host_static_tag);
+
+        h = hash_of_two(&h, &expected_host_encrypted_static_pubkey);
+
+        let diff_static = diffie_hellman(&host_static.private_key, &trezor_ephemeral.public_key);
+        ck_k = hkdf(&ck, &diff_static);
+        ck = ck_k.0;
+        k = ck_k.1;
+
+        let payload_bytes = encode_handshake_payload(Some(&correct_credential.credential));
+        let (payload_ciphertext, payload_tag) =
+            aes256gcm_encrypt(&k, &iv0, &h, &payload_bytes).unwrap();
+        let mut expected_encrypted_payload = payload_ciphertext.clone();
+        expected_encrypted_payload.extend_from_slice(&payload_tag);
+
+        h = hash_of_two(&h, &expected_encrypted_payload);
+
+        let (expected_host_key, expected_trezor_key) = hkdf(&ck, &[]);
+
+        let response = HandshakeInitResponse {
+            trezor_ephemeral_pubkey: trezor_ephemeral.public_key,
+            trezor_encrypted_static_pubkey: trezor_encrypted_static_pubkey.as_slice(),
+            tag: empty_tag,
+        };
+
+        let result = handle_handshake_init(HandshakeInitInput {
+            handshake_hash,
+            send_nonce,
+            recv_nonce,
+            host_static_private: host_static.private_key,
+            host_static_public: host_static.public_key,
+            host_ephemeral_private: host_ephemeral.private_key,
+            host_ephemeral_public: host_ephemeral.public_key,
+            try_to_unlock,
+            known_credentials: &known_credentials,
+            response,
+            encode_handshake_payload: &encode_handshake_payload,
+        })
+        .expect("handshake init succeeds");
+
+        assert_eq!(
+            result.trezor_encrypted_static_pubkey,
+            trezor_encrypted_static_pubkey
+        );
+        assert_eq!(
+            result.host_encrypted_static_pubkey,
+            expected_host_encrypted_static_pubkey
+        );
+        assert_eq!(result.encrypted_payload, expected_encrypted_payload);
+        assert_eq!(result.host_key, expected_host_key);
+        assert_eq!(result.trezor_key, expected_trezor_key);
+        assert_eq!(result.handshake_hash, h);
+        assert_eq!(result.credentials.len(), 1);
+        assert_eq!(
+            result
+                .selected_credential
+                .as_ref()
+                .map(|c| c.credential.as_str()),
+            Some(correct_credential.credential.as_str())
+        );
+        assert_eq!(
+            result.credentials[0].trezor_static_public_key.as_deref(),
+            Some(
+                correct_credential
+                    .trezor_static_public_key
+                    .as_ref()
+                    .unwrap()
+                    .as_slice()
+            )
+        );
+    }
+
+    #[test]
+    fn cpace_keys_match_curve25519_generator() {
+        let mut rng = ChaCha20Rng::from_seed([0x55; 32]);
+        let code = b"123456";
+        let handshake_hash = [0xAA; 32];
+
+        let keys = get_cpace_host_keys(code, &handshake_hash, &mut rng);
+
+        // Derive the generator deterministically per spec.
+        let mut sha = Sha512::new();
+        sha.update([0x08, 0x43, 0x50, 0x61, 0x63, 0x65, 0x32, 0x35, 0x35, 0x06]);
+        sha.update(code);
+        let mut padding = vec![0u8; 113];
+        padding[0] = 0x6f;
+        padding[112] = 0x20;
+        sha.update(&padding);
+        sha.update(handshake_hash);
+        sha.update([0x00]);
+        let mut pregenerator = [0u8; 32];
+        pregenerator.copy_from_slice(&sha.finalize()[..32]);
+
+        let generator = elligator2(&pregenerator);
+        let expected_public = curve25519(&keys.private_key, &generator);
+
+        assert_eq!(keys.public_key, expected_public);
+        assert_ne!(keys.public_key, [0u8; 32]);
+    }
+
+    #[test]
+    fn validate_code_entry_tag_accepts_matching_inputs() {
+        let handshake_hash = [0x10; 32];
+        let secret = [0x22; 32];
+        let handshake_commitment = sha256(&secret);
+        let challenge = [0x33; 32];
+
+        let mut sha = Sha256::new();
+        sha.update([2]);
+        sha.update(handshake_hash);
+        sha.update(secret);
+        sha.update(challenge);
+        let digest = sha.finalize();
+        let calc = (big_endian_bytes_to_bigint(&digest) % BigInt::from(1_000_000u32)).to_string();
+        let value = format!("{calc:0>6}");
+        let secret_hex = hex_encode(secret);
+
+        validate_code_entry_tag(
+            &handshake_hash,
+            &handshake_commitment,
+            &challenge,
+            &value,
+            &secret_hex,
+        )
+        .expect("validator succeeds");
+    }
+
+    #[test]
+    fn validate_code_entry_tag_rejects_mismatch() {
+        let handshake_hash = [0x44; 32];
+        let secret = [0x55; 32];
+        let handshake_commitment = sha256(&secret);
+        let challenge = [0x66; 32];
+        let secret_hex = hex_encode(secret);
+
+        let mut sha = Sha256::new();
+        sha.update([2]);
+        sha.update(handshake_hash);
+        sha.update(secret);
+        sha.update(challenge);
+        let digest = sha.finalize();
+        let mut calc = (big_endian_bytes_to_bigint(&digest) % BigInt::from(1_000_000u32))
+            .to_u32()
+            .unwrap();
+        calc = (calc + 1) % 1_000_000;
+        let value = format!("{calc:0>6}");
+
+        let err = validate_code_entry_tag(
+            &handshake_hash,
+            &handshake_commitment,
+            &challenge,
+            &value,
+            &secret_hex,
+        )
+        .expect_err("validator should fail");
+        assert!(matches!(err, PairingCryptoError::CodeMismatch));
+    }
+
+    #[test]
+    fn validate_qr_code_tag_accepts_matching_inputs() {
+        let handshake_hash = [0x12; 32];
+        let secret = [0xAB; 32];
+        let mut sha = Sha256::new();
+        sha.update([3]);
+        sha.update(handshake_hash);
+        sha.update(secret);
+        let digest = sha.finalize();
+
+        let value_hex = hex_encode(&digest[..16]);
+        let secret_hex = hex_encode(secret);
+
+        validate_qr_code_tag(&handshake_hash, &value_hex, &secret_hex)
+            .expect("QR validator succeeds");
+    }
+
+    #[test]
+    fn validate_qr_code_tag_rejects_mismatch() {
+        let handshake_hash = [0x12; 32];
+        let secret = [0xAB; 32];
+        let mut sha = Sha256::new();
+        sha.update([3]);
+        sha.update(handshake_hash);
+        sha.update(secret);
+        let digest = sha.finalize();
+
+        let mut value_bytes = digest[..16].to_vec();
+        value_bytes[0] ^= 0xFF;
+        let value_hex = hex_encode(value_bytes);
+        let secret_hex = hex_encode(secret);
+
+        let err =
+            validate_qr_code_tag(&handshake_hash, &value_hex, &secret_hex).expect_err("mismatch");
+        assert!(matches!(err, PairingCryptoError::CodeMismatch));
+    }
+
+    #[test]
+    fn validate_nfc_tag_accepts_matching_inputs() {
+        let handshake_hash = [0x34; 32];
+        let secret = [0x56; 16];
+        let mut sha = Sha256::new();
+        sha.update([4]);
+        sha.update(handshake_hash);
+        sha.update(secret);
+        let digest = sha.finalize();
+        let value_hex = hex_encode(&digest[..16]);
+
+        validate_nfc_tag(&handshake_hash, &value_hex, &secret).expect("NFC validator succeeds");
+    }
+
+    #[test]
+    fn validate_nfc_tag_rejects_mismatch() {
+        let handshake_hash = [0x34; 32];
+        let secret = [0x56; 16];
+        let mut sha = Sha256::new();
+        sha.update([4]);
+        sha.update(handshake_hash);
+        sha.update(secret);
+        let digest = sha.finalize();
+        let mut value = digest[..16].to_vec();
+        value[5] ^= 0x01;
+        let value_hex = hex_encode(value);
+
+        let err =
+            validate_nfc_tag(&handshake_hash, &value_hex, &secret).expect_err("validator fails");
+        assert!(matches!(err, PairingCryptoError::CodeMismatch));
+    }
+}

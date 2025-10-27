@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rand::RngCore;
 use tracing::debug;
 
@@ -5,6 +7,7 @@ use super::{
     backend::ThpBackend,
     error::{Result, ThpWorkflowError},
     state::{HandshakeCache, HandshakeCredentials, Phase, ThpState},
+    storage::{HostSnapshot, ThpStorage},
     types::{
         CreateChannelRequest, CreateSessionRequest, HandshakeCompletionRequest,
         HandshakeCompletionState, HandshakeInitRequest, HostConfig, PairingController,
@@ -17,6 +20,7 @@ pub struct ThpWorkflow<B> {
     config: HostConfig,
     state: ThpState,
     rng: rand::rngs::ThreadRng,
+    storage: Option<Arc<dyn ThpStorage>>,
 }
 
 impl<B> ThpWorkflow<B>
@@ -29,7 +33,31 @@ where
             config,
             state: ThpState::new(),
             rng: rand::thread_rng(),
+            storage: None,
         }
+    }
+
+    pub async fn with_storage(
+        backend: B,
+        mut config: HostConfig,
+        storage: Arc<dyn ThpStorage>,
+    ) -> Result<Self> {
+        let snapshot = storage.load().await.map_err(ThpWorkflowError::Storage)?;
+
+        if let Some(static_key) = snapshot.static_key {
+            config.static_key = Some(static_key);
+        }
+        if !snapshot.known_credentials.is_empty() {
+            config.known_credentials = snapshot.known_credentials;
+        }
+
+        Ok(Self {
+            backend,
+            config,
+            state: ThpState::new(),
+            rng: rand::thread_rng(),
+            storage: Some(storage),
+        })
     }
 
     pub fn state(&self) -> &ThpState {
@@ -42,6 +70,20 @@ where
 
     pub fn into_parts(self) -> (B, HostConfig, ThpState) {
         (self.backend, self.config, self.state)
+    }
+
+    async fn persist_host_state(&self) -> Result<()> {
+        if let Some(storage) = &self.storage {
+            let snapshot = HostSnapshot {
+                static_key: self.config.static_key.clone(),
+                known_credentials: self.config.known_credentials.clone(),
+            };
+            storage
+                .persist(&snapshot)
+                .await
+                .map_err(ThpWorkflowError::Storage)?;
+        }
+        Ok(())
     }
 
     pub async fn create_channel(&mut self) -> Result<()> {
@@ -162,6 +204,7 @@ where
             }
         }
 
+        self.persist_host_state().await?;
         Ok(())
     }
 
@@ -199,7 +242,7 @@ where
 
             let new_cred = super::types::KnownCredential {
                 credential: response.credential.clone(),
-                trezor_static_public_key: None,
+                trezor_static_public_key: Some(response.trezor_static_public_key.clone()),
                 autoconnect: response.autoconnect,
             };
             self.config
@@ -209,6 +252,7 @@ where
             self.state.set_pairing_credentials(vec![new_cred]);
             self.backend.end_request().await?;
             self.state.set_phase(Phase::Paired);
+            self.persist_host_state().await?;
             return Ok(());
         }
 
@@ -379,7 +423,7 @@ where
 
         let new_cred = super::types::KnownCredential {
             credential: credential_resp.credential.clone(),
-            trezor_static_public_key: None,
+            trezor_static_public_key: Some(credential_resp.trezor_static_public_key.clone()),
             autoconnect: credential_resp.autoconnect,
         };
 
@@ -391,6 +435,7 @@ where
         self.state.set_is_paired(true);
         self.state.set_phase(Phase::Paired);
         self.backend.end_request().await?;
+        self.persist_host_state().await?;
 
         Ok(())
     }
@@ -460,12 +505,12 @@ mod tests {
                     pairing_methods: vec![PairingMethod::SkipPairing],
                     credentials: vec![KnownCredential {
                         credential: "cred1".into(),
-                        trezor_static_public_key: None,
+                        trezor_static_public_key: Some(vec![0x11; 32]),
                         autoconnect: true,
                     }],
                     selected_credential: Some(KnownCredential {
                         credential: "cred1".into(),
-                        trezor_static_public_key: None,
+                        trezor_static_public_key: Some(vec![0x11; 32]),
                         autoconnect: true,
                     }),
                     nfc_data: None,
@@ -475,6 +520,7 @@ mod tests {
                 },
                 handshake_state: HandshakeCompletionState::AutoPaired,
                 credential_response: Some(CredentialResponse {
+                    trezor_static_public_key: vec![0x11; 32],
                     credential: "cred1".into(),
                     autoconnect: true,
                 }),
@@ -516,6 +562,7 @@ mod tests {
                 },
                 handshake_state: HandshakeCompletionState::RequiresPairing,
                 credential_response: Some(CredentialResponse {
+                    trezor_static_public_key: vec![0x22; 32],
                     credential: "new-cred".into(),
                     autoconnect: false,
                 }),

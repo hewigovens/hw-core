@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 use super::backend::BackendError;
+use super::storage::StorageError;
 
 #[derive(Debug, Error)]
 pub enum ThpWorkflowError {
@@ -24,6 +25,8 @@ pub enum ThpWorkflowError {
     PairingInteractionRequired,
     #[error("pairing controller error: {0}")]
     PairingController(String),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
 }
 
 pub type Result<T> = std::result::Result<T, ThpWorkflowError>;
