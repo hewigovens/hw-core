@@ -31,6 +31,7 @@ serde_json = "1"
 ble-transport = { path = "../ble-transport", optional = true }
 thp-core = { path = "../thp-core" }
 thp-proto = { path = "../thp-proto" }
+prost = "0.12"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
