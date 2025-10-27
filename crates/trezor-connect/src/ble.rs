@@ -1,5 +1,3 @@
-#![cfg(feature = "ble")]
-
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -40,6 +38,14 @@ impl BleBackend {
 
     pub fn link_mut(&mut self) -> &mut BleLink {
         self.inner.link_mut()
+    }
+
+    pub fn device_info(&self) -> &DeviceInfo {
+        &self.device
+    }
+
+    pub fn handshake_timeout(&self) -> Duration {
+        self.handshake_timeout
     }
 }
 

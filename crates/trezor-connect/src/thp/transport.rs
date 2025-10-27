@@ -45,7 +45,7 @@ impl ThpTransport {
                 trust_store: Arc::new(MemoryTrustStore::default()),
                 app_id,
             };
-            let session = ThpSession::handshake(link, opts, |event| on_event(event)).await?;
+            let session = ThpSession::handshake(link, opts, on_event).await?;
             self.session = Some(session);
         }
         Ok(self.session.as_ref().expect("session initialized"))

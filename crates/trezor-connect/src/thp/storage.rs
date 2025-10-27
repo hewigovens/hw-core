@@ -82,13 +82,14 @@ mod tests {
         let path = dir.path().join("thp.json");
         let storage = FileStorage::new(&path);
 
-        let mut snapshot = HostSnapshot::default();
-        snapshot.static_key = Some(vec![1, 2, 3]);
-        snapshot.known_credentials.push(KnownCredential {
-            credential: "cred".into(),
-            trezor_static_public_key: Some(vec![4; 32]),
-            autoconnect: true,
-        });
+        let snapshot = HostSnapshot {
+            static_key: Some(vec![1, 2, 3]),
+            known_credentials: vec![KnownCredential {
+                credential: "cred".into(),
+                trezor_static_public_key: Some(vec![4; 32]),
+                autoconnect: true,
+            }],
+        };
 
         storage.persist(&snapshot).await.unwrap();
         let loaded = storage.load().await.unwrap();
