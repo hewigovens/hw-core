@@ -32,6 +32,8 @@ ble-transport = { path = "../ble-transport", optional = true }
 thp-core = { path = "../thp-core" }
 thp-proto = { path = "../thp-proto" }
 prost = "0.12"
+tokio = { version = "1", features = ["time"] }
+crc32fast = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

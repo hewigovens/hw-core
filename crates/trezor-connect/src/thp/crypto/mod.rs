@@ -8,3 +8,4 @@ pub use pairing::{
     handle_handshake_init, validate_code_entry_tag, validate_nfc_tag, validate_qr_code_tag,
     HandshakeInitInput, HandshakeInitResult, PairingCryptoError,
 };
+pub use tools::{aes256gcm_decrypt, aes256gcm_encrypt, get_iv_from_nonce};
