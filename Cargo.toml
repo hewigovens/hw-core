@@ -6,6 +6,7 @@ members = [
     "crates/thp-core",
     "crates/thp-proto",
     "crates/trezor-connect",
+    "crates/hw-ffi",
 ]
 resolver = "2"
 

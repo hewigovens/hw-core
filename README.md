@@ -8,6 +8,7 @@ Early-stage Rust workspace for host-to-hardware crypto wallets. The first milest
 - `thp-proto`: vendored `messages-thp.proto` with prost types + conversions to workflow structs.
 - `thp-core`, `thp-codec`, `thp-crypto`: Noise XX session driver, transport framing (CRC/fragmentation), AES/X25519 helpers, and credential discovery logic.
 - `ble-transport`: btleplug-powered scaffolding (scan/connect/session) leveraged by the new BLE backend, with channel tests verifying frame encode/decode and state tracking.
+- `hw-ffi`: UniFFI-based FFI surface that wraps BLE discovery and THP workflows for mobile/desktop consumers.
 
 ## Roadmap / gaps
 
@@ -26,6 +27,7 @@ APIs are unstable while we iterate on the transport abstraction and vendor-agnos
 - `crates/thp-core`: async session state machine that drives Noise handshakes and encrypted THP requests.
 - `crates/thp-proto`: prost-generated THP protobufs and helper adapters.
 - `crates/trezor-connect`: host-facing workflow API plus transport backends (BLE today, USB soon™).
+- `crates/hw-ffi`: cdylib exposing the BLE manager + THP workflow over UniFFI.
 
 ## Feature flags
 
@@ -54,6 +56,21 @@ just lint    # clippy (workspace)
 just test    # cargo test --workspace
 just ci      # fmt check + lint + test (mirrors GitHub CI)
 ```
+
+## FFI bindings
+
+The `hw-ffi` crate builds a UniFFI-powered `cdylib` for consumers that need Rust-powered BLE scanning and THP workflows (e.g., mobile apps). Generate language bindings with:
+
+```bash
+cargo build -p hw-ffi
+uniffi-bindgen generate \
+  target/debug/libhw_ffi.dylib \  # use .so / .dll on Linux/Windows
+  --library \
+  --language swift \
+  --out-dir bindings/swift
+```
+
+Replace the language flag with `kotlin`, `python`, etc., as needed.
 
 Contributions and specs welcome! When renaming the repository on GitHub, update your remotes to `hw-core`:
 
