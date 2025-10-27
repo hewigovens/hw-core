@@ -27,7 +27,7 @@ pub struct CreateChannelResponse {
     pub properties: ThpProperties,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnownCredential {
     pub credential: String,
     pub trezor_static_public_key: Option<Vec<u8>>,
@@ -135,6 +135,7 @@ pub struct CredentialRequest {
 
 #[derive(Debug, Clone)]
 pub struct CredentialResponse {
+    pub trezor_static_public_key: Vec<u8>,
     pub credential: String,
     pub autoconnect: bool,
 }
