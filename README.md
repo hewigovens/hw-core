@@ -4,6 +4,7 @@ Early-stage Rust workspace implementing the Trezor Host Protocol (THP). Referenc
 
 ## Workspace Layout
 
+- `crates/ble-transport`: btleplug-based BLE management (scan/connect/session) with pluggable wallet profiles, exposed for UniFFI/mobile bindings and higher-level workflows.
 - `crates/thp-codec`: Transport framing (length prefix, CRC, chunking) with property tests.
 - `crates/thp-crypto`: Noise XX cipher helpers (X25519 + AES-GCM) used by both the codec and higher layers.
 - `crates/thp-core`: Asynchronous session state machine that drives Noise handshakes and encrypted request/response over an abstract `Link`.
