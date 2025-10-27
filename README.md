@@ -1,38 +1,38 @@
-# thp-rs (WIP)
+# hw-core (WIP)
 
-Early-stage Rust workspace implementing the Trezor Host Protocol (THP). The in-flight design is tracked in [`doc/`](doc) with the canonical protocol reference in the [THP documentation](https://github.com/trezor/trezor-firmware/blob/m1nd3r/thp-documentation/docs/common/communication/thp.md).
+Early-stage Rust workspace for host-to-hardware crypto wallets. The first milestone targets the Trezor Host Protocol (THP) with a transport/core stack intended to be shared across multiple vendors. Specs and planning notes live in [`doc/`](doc). THP reference documentation: [trezor-firmware/docs/common/communication/thp.md](https://github.com/trezor/trezor-firmware/blob/m1nd3r/thp-documentation/docs/common/communication/thp.md).
 
-## Implementation status
+## What’s implemented
 
-- `trezor-connect` workflow layer exposes pairing + channel set-up flows backed by the ported Noise/CPace helpers and protobuf conversions.
-- `thp-proto` venders the upstream `messages-thp.proto` definitions and derives prost structs for the rest of the workspace.
-- `thp-core`, `thp-codec`, and `thp-crypto` cover the core state machine, transport framing, and Noise crypto used by the workflows.
-- `ble-transport` hosts btleplug-driven scaffolding for scanning and session management, ready to be wired to real THP traffic.
+- `trezor-connect`: host workflow layer covering create-channel, Noise handshake, pairing (QR/NFC/code entry), credential issuance, and session creation. Uses the shared THP wire helpers for BLE.
+- `thp-proto`: vendored `messages-thp.proto` with prost types + conversions to workflow structs.
+- `thp-core`, `thp-codec`, `thp-crypto`: Noise XX session driver, transport framing (CRC/fragmentation), AES/X25519 helpers, and credential discovery logic.
+- `ble-transport`: btleplug-powered scaffolding (scan/connect/session) leveraged by the new BLE backend, with channel tests verifying frame encode/decode and state tracking.
 
-Still missing:
+## Roadmap / gaps
 
-- Real BLE/USB transport backends that speak the protobuf messages (current `NotImplemented` stubs in `trezor-connect`).
-- Persisting/validating pairing tag secrets returned by devices during authentication.
-- End-to-end tests across the protobuf conversions and transport boundaries once the backends land.
+- USB transport: implement a THP link on top of HID/bridge transport and expose via the `usb` feature.
+- Persistence: surface pairing credential/tag secrets in a pluggable storage layer for multi-device reuse.
+- Multi-vendor abstraction: generalise link/workflow traits so Ledger/Secure Element protocols can share the same host surface.
+- Integration tests: flesh out mocked link scenarios (BLE/USB) that exercise protobuf routes end-to-end.
 
-APIs are unstable while we integrate UniFFI bindings and device transports.
+APIs are unstable while we iterate on the transport abstraction and vendor-agnostic workflow surface.
 
 ## Workspace layout
 
-- `crates/ble-transport`: btleplug-based BLE management (scan/connect/session) with pluggable wallet profiles.
-- `crates/thp-codec`: transport framing (length prefix, CRC, chunking) with property tests.
-- `crates/thp-crypto`: Noise XX cipher helpers (X25519 + AES-GCM) reused by codec and higher layers.
-- `crates/thp-core`: async session state machine that drives Noise handshakes and encrypted request/response over an abstract `Link`.
-- `crates/thp-proto`: generated THP protobuf messages plus helper traits.
-- `crates/trezor-connect`: host-facing workflow API, protobuf conversions, and (future) transport backends.
+- `crates/ble-transport`: btleplug-based BLE manager with pluggable wallet profiles (ready for UniFFI/mobile bindings).
+- `crates/thp-codec`: length/CRC framed Thunderbolt Host Protocol packets with property tests.
+- `crates/thp-crypto`: Noise XX + CPace helpers shared by higher layers.
+- `crates/thp-core`: async session state machine that drives Noise handshakes and encrypted THP requests.
+- `crates/thp-proto`: prost-generated THP protobufs and helper adapters.
+- `crates/trezor-connect`: host-facing workflow API plus transport backends (BLE today, USB soon™).
 
 ## Feature flags
 
-- `trezor-connect` exposes opt-in channel features:
-  - `usb`: gate code that depends on a USB THP backend (stub today).
-  - `ble`: gate code that depends on a BLE THP backend (stub today).
+- `ble`: enables the BLE transport stack (btleplug, Noise handshake, pairing).
+- `usb`: placeholder for the upcoming USB/HID transport implementation.
 
-Build everything: `cargo build -p trezor-connect --all-features`. Pick a channel: `cargo build -p trezor-connect --features ble`.
+Build everything: `cargo build -p trezor-connect --all-features`. Build BLE-only: `cargo build -p trezor-connect --features ble`.
 
 ## Dev quickstart
 
@@ -55,4 +55,8 @@ just test    # cargo test --workspace
 just ci      # fmt check + lint + test (mirrors GitHub CI)
 ```
 
-Contributions and specs welcome!
+Contributions and specs welcome! When renaming the repository on GitHub, update your remotes to `hw-core`:
+
+```bash
+git remote set-url origin git@github.com:<org>/hw-core.git
+```
