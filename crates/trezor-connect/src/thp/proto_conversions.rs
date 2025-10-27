@@ -6,9 +6,8 @@ use thiserror::Error;
 
 use super::proto;
 use super::types::{
-    CredentialRequest, CredentialResponse, PairingMethod, PairingRequest,
-    PairingRequestApproved, PairingTagResponse, SelectMethodRequest, SelectMethodResponse,
-    ThpProperties,
+    CredentialRequest, CredentialResponse, PairingMethod, PairingRequest, PairingRequestApproved,
+    PairingTagResponse, SelectMethodRequest, SelectMethodResponse, ThpProperties,
 };
 
 #[derive(Debug, Error)]
@@ -95,14 +94,14 @@ pub fn decode_select_method_response(
 
 pub fn encode_qr_tag(tag: &str) -> Result<EncodedMessage, ProtoMappingError> {
     let message = proto::ThpQrCodeTag {
-        tag: tag.as_bytes().to_vec(),
+        tag: Vec::from_hex(tag)?,
     };
     encode_message(proto::ThpMessageType::ThpQrCodeTag, &message)
 }
 
 pub fn encode_nfc_tag(tag: &str) -> Result<EncodedMessage, ProtoMappingError> {
     let message = proto::ThpNfcTagHost {
-        tag: tag.as_bytes().to_vec(),
+        tag: Vec::from_hex(tag)?,
     };
     encode_message(proto::ThpMessageType::ThpNfcTagHost, &message)
 }
@@ -176,11 +175,7 @@ pub fn proto_to_pairing_methods(values: &[i32]) -> Result<Vec<PairingMethod>, Pr
 pub fn encode_credential_request(
     request: &CredentialRequest,
 ) -> Result<EncodedMessage, ProtoMappingError> {
-    let credential_bytes = request
-        .credential
-        .as_ref()
-        .map(|cred| Vec::from_hex(cred))
-        .transpose()?;
+    let credential_bytes = request.credential.as_ref().map(Vec::from_hex).transpose()?;
 
     let message = proto::ThpCredentialRequest {
         host_static_public_key: request.host_static_public_key.clone(),
@@ -202,7 +197,10 @@ pub fn decode_credential_response(payload: &[u8]) -> Result<CredentialResponse, 
 }
 
 pub fn encode_end_request() -> Result<EncodedMessage, ProtoMappingError> {
-    encode_message(proto::ThpMessageType::ThpEndRequest, &proto::ThpEndRequest {})
+    encode_message(
+        proto::ThpMessageType::ThpEndRequest,
+        &proto::ThpEndRequest {},
+    )
 }
 
 pub fn decode_device_properties(payload: &[u8]) -> Result<ThpProperties, ProtoMappingError> {

@@ -1608,6 +1608,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "ble-transport",
+ "crc32fast",
  "hex",
  "hmac",
  "num-bigint",
