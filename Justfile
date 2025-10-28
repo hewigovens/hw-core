@@ -17,3 +17,8 @@ ci:
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo test --workspace
+
+bindings:
+    cargo build -p hw-ffi
+    mkdir -p target/bindings/swift target/bindings/kotlin
+    cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin

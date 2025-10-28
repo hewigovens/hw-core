@@ -6,11 +6,31 @@ edition.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+bindings-cli = [
+    "dep:anyhow",
+    "dep:camino",
+    "dep:cargo_metadata",
+    "dep:clap",
+    "dep:uniffi_bindgen",
+]
+
+[[bin]]
+name = "generate-bindings"
+path = "bin/generate_bindings.rs"
+required-features = ["bindings-cli"]
+
 [dependencies]
 ble-transport = { path = "../ble-transport", features = ["backend-btleplug", "trezor-safe7"] }
-thiserror = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 trezor-connect = { path = "../trezor-connect", features = ["ble"] }
 uniffi = { version = "0.30", features = ["tokio"] }
 uniffi_macros = "0.30"
-uuid = "1"
+uuid = { workspace = true }
+anyhow = { workspace = true, optional = true }
+clap = { version = "4.5", features = ["derive"], optional = true }
+camino = { version = "1", optional = true }
+cargo_metadata = { version = "0.19", optional = true }
+uniffi_bindgen = { version = "0.30", features = ["cargo-metadata"], optional = true }

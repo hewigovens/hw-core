@@ -6,15 +6,15 @@ description = "Core host-side state machine for the Trezor Host Protocol"
 license = "Apache-2.0 OR MIT"
 
 [dependencies]
-anyhow = "1"
-async-trait = "0.1"
-parking_lot = "0.12"
-thiserror = "1"
-tokio = { version = "1", features = ["time", "sync"] }
-tracing = "0.1"
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time", "sync"] }
+tracing = { workspace = true }
 thp-codec = { path = "../thp-codec" }
 thp-crypto = { path = "../thp-crypto" }
 snow = "0.9"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

@@ -247,7 +247,7 @@ pub(crate) async fn fetch_device_info(peripheral: &Peripheral) -> BleResult<Opti
     Ok(Some(DeviceInfo {
         id: peripheral.id().to_string(),
         name: properties.local_name.clone(),
-        rssi: properties.rssi,
+        rssi: properties.rssi.map(|value| value as i32),
         services: properties.services.clone(),
     }))
 }
