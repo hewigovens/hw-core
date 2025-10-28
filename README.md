@@ -1,6 +1,10 @@
-# hw-core (WIP)
+# hw-core
 
-Early-stage Rust workspace for host-to-hardware crypto wallets. The first milestone targets the Trezor Host Protocol (THP) with a transport/core stack intended to be shared across multiple vendors. Specs and planning notes live in [`doc/`](doc). THP reference documentation: [trezor-firmware/docs/common/communication/thp.md](https://github.com/trezor/trezor-firmware/blob/m1nd3r/thp-documentation/docs/common/communication/thp.md).
+[![CI](https://github.com/hewigovens/hw-core/actions/workflows/ci.yml/badge.svg)](https://github.com/hewigovens/hw-core/actions/workflows/ci.yml)
+
+Early-stage Rust workspace for host-to-hardware crypto wallets. The first milestone targets the Trezor Host Protocol (THP) with a transport/core stack intended to be shared across multiple vendors. 
+
+- THP reference documentation: [trezor-firmware/docs/common/communication/thp.md](https://github.com/trezor/trezor-firmware/blob/m1nd3r/thp-documentation/docs/common/communication/thp.md).
 
 ## What’s implemented
 
@@ -10,7 +14,7 @@ Early-stage Rust workspace for host-to-hardware crypto wallets. The first milest
 - `ble-transport`: btleplug-powered scaffolding (scan/connect/session) leveraged by the new BLE backend, with channel tests verifying frame encode/decode and state tracking.
 - `hw-ffi`: UniFFI-based FFI surface that wraps BLE discovery and THP workflows for mobile/desktop consumers.
 
-## Roadmap / gaps
+## Roadmap
 
 - USB transport: implement a THP link on top of HID/bridge transport and expose via the `usb` feature.
 - Persistence: surface pairing credential/tag secrets in a pluggable storage layer for multi-device reuse.
@@ -79,10 +83,4 @@ On Ubuntu runners (including CI) install the Bluetooth dependencies before build
 ```bash
 sudo apt-get update
 sudo apt-get install -y libdbus-1-dev pkg-config
-```
-
-Contributions and specs welcome! When renaming the repository on GitHub, update your remotes to `hw-core`:
-
-```bash
-git remote set-url origin git@github.com:<org>/hw-core.git
 ```
