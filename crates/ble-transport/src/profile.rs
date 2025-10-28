@@ -39,7 +39,7 @@ impl BleProfile {
 pub struct DeviceInfo {
     pub id: String,
     pub name: Option<String>,
-    pub rssi: Option<i16>,
+    pub rssi: Option<i32>,
     pub services: Vec<Uuid>,
 }
 

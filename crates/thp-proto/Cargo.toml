@@ -6,7 +6,7 @@ description = "Generated Trezor Host Protocol protobuf messages"
 license = "Apache-2.0 OR MIT"
 
 [dependencies]
-prost = "0.12"
+prost = { workspace = true }
 bytes = "1"
 
 [build-dependencies]

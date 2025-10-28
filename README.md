@@ -62,15 +62,17 @@ just ci      # fmt check + lint + test (mirrors GitHub CI)
 The `hw-ffi` crate builds a UniFFI-powered `cdylib` for consumers that need Rust-powered BLE scanning and THP workflows (e.g., mobile apps). Generate language bindings with:
 
 ```bash
-cargo build -p hw-ffi
-uniffi-bindgen generate \
-  target/debug/libhw_ffi.dylib \  # use .so / .dll on Linux/Windows
-  --library \
-  --language swift \
-  --out-dir bindings/swift
+just bindings  # writes Swift & Kotlin bindings under target/bindings/
 ```
 
-Replace the language flag with `kotlin`, `python`, etc., as needed.
+The helper CLI supports additional languages. For manual invocation or alternate output locations:
+
+```bash
+cargo run -p hw-ffi --features bindings-cli --bin generate-bindings \
+  --auto target/bindings/swift target/bindings/kotlin
+```
+
+Use `--lib <path>` if you want to point at a prebuilt library instead of auto-discovering `target/{debug,release}`.
 
 On Ubuntu runners (including CI) install the Bluetooth dependencies before building the real BLE backend:
 

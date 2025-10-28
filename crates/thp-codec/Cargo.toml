@@ -6,8 +6,8 @@ description = "THP transport framing utilities (length-prefix, chunking, CRC)"
 license = "Apache-2.0 OR MIT"
 
 [dependencies]
-crc32fast = "1"
-thiserror = "1"
+crc32fast = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 proptest = "1"

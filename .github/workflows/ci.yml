@@ -15,7 +15,7 @@ jobs:
       - name: Install BLE build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev pkg-config
+          sudo apt-get install -y libdbus-1-dev pkg-config just
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -32,8 +32,10 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Tests
         run: cargo test --workspace
+      - name: Generate Swift and Kotlin bindings
+        run: just bindings
 
-  mobile-check:
+  mobile-ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
