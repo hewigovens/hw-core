@@ -12,6 +12,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Install BLE build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -28,3 +32,26 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Tests
         run: cargo test --workspace
+
+  mobile-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust with mobile targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,aarch64-apple-ios
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: mobile-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            mobile-
+      - name: Android cargo check
+        run: cargo check -p hw-ffi --target aarch64-linux-android
+      - name: iOS cargo check
+        run: cargo check -p hw-ffi --target aarch64-apple-ios
