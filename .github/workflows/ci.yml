@@ -41,6 +41,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,aarch64-apple-ios
+      - name: Install just
+        run: |
+          sudo apt-get install -y just
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
