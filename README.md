@@ -72,6 +72,13 @@ uniffi-bindgen generate \
 
 Replace the language flag with `kotlin`, `python`, etc., as needed.
 
+On Ubuntu runners (including CI) install the Bluetooth dependencies before building the real BLE backend:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libdbus-1-dev pkg-config
+```
+
 Contributions and specs welcome! When renaming the repository on GitHub, update your remotes to `hw-core`:
 
 ```bash

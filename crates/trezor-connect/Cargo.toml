@@ -7,7 +7,7 @@ license = "Apache-2.0 OR MIT"
 
 [features]
 default = []
-ble = ["dep:ble-transport", "ble-transport/trezor-safe7"]
+ble = ["dep:ble-transport", "ble-transport/backend-btleplug", "ble-transport/trezor-safe7"]
 usb = []
 
 [dependencies]

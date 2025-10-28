@@ -7,7 +7,7 @@ edition.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-ble-transport = { path = "../ble-transport", features = ["trezor-safe7"] }
+ble-transport = { path = "../ble-transport", features = ["backend-btleplug", "trezor-safe7"] }
 thiserror = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 trezor-connect = { path = "../trezor-connect", features = ["ble"] }
