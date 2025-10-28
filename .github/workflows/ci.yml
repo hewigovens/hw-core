@@ -2,11 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
 
 jobs:
-  build:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,8 +32,6 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Tests
         run: cargo test --workspace
-      - name: Generate Swift and Kotlin bindings
-        run: just bindings
 
   mobile-ci:
     runs-on: ubuntu-latest
@@ -57,3 +55,5 @@ jobs:
         run: cargo check -p hw-ffi --target aarch64-linux-android
       - name: iOS cargo check
         run: cargo check -p hw-ffi --target aarch64-apple-ios
+      - name: Generate Swift and Kotlin bindings
+        run: just bindings
