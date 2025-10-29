@@ -55,10 +55,30 @@ Or use the `just` helpers described below.
 Install [just](https://github.com/casey/just) and run:
 
 ```bash
-just fmt     # format
-just lint    # clippy (workspace)
-just test    # cargo test --workspace
-just ci      # fmt check + lint + test (mirrors GitHub CI)
+just fmt            # format
+just lint           # clippy (workspace)
+just test           # cargo test --workspace
+just ci             # fmt check + lint + test (mirrors GitHub CI)
+just scan-demo      # scan for Trezor devices over BLE (trezor-safe7 feature)
+just workflow-demo  # drive the THP BLE workflow (requires a device)
+```
+
+## Examples
+
+The BLE transport crate ships with a simple scanner that lists nearby Trezor devices:
+
+```bash
+cargo run -p ble-transport \
+  --features trezor-safe7,backend-btleplug \
+  --example scan_trezor
+```
+
+The `trezor-connect` crate includes an end-to-end BLE workflow demo:
+
+```bash
+cargo run -p trezor-connect \
+  --features ble \
+  --example ble_handshake
 ```
 
 ## FFI bindings
