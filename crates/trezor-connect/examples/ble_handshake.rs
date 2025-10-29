@@ -15,8 +15,8 @@ use trezor_connect::thp::ThpWorkflow;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Discover devices
-    let profile = BleProfile::trezor_safe7()
-        .ok_or_else(|| anyhow!("trezor_safe7 profile not enabled"))?;
+    let profile =
+        BleProfile::trezor_safe7().ok_or_else(|| anyhow!("trezor_safe7 profile not enabled"))?;
     let manager = ble_transport::BleManager::new().await?;
 
     println!("Scanning for {:?}…", profile.name);

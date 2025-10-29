@@ -7,6 +7,9 @@ default:
 fmt:
     cargo fmt --all
 
+format:
+    just fmt
+
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
