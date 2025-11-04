@@ -1,6 +1,7 @@
 # hw-core
 
 [![CI](https://github.com/hewigovens/hw-core/actions/workflows/ci.yml/badge.svg)](https://github.com/hewigovens/hw-core/actions/workflows/ci.yml)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/hewigovens/hw-core)
 
 Early-stage Rust workspace for host-to-hardware crypto wallets. The first milestone targets the Trezor Host Protocol (THP) with a transport/core stack intended to be shared across multiple vendors. 
 
