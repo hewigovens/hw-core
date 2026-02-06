@@ -3,7 +3,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use hkdf::Hkdf;
-use rand_core::{CryptoRng, OsRng, RngCore};
+use rand::{CryptoRng, Rng};
 use sha2::Sha256;
 use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -13,10 +13,12 @@ use crate::traits::{CipherSuite, CryptoError, Keys};
 pub struct NoiseCipherSuite;
 
 impl NoiseCipherSuite {
-    pub fn generate_keypair_with_rng<R: RngCore + CryptoRng>(
+    pub fn generate_keypair_with_rng<R: Rng + CryptoRng>(
         rng: &mut R,
     ) -> (StaticSecret, [u8; 32]) {
-        let privkey = StaticSecret::random_from_rng(rng);
+        let mut secret = [0u8; 32];
+        rng.fill(&mut secret);
+        let privkey = StaticSecret::from(secret);
         let pubkey = PublicKey::from(&privkey);
         (privkey, pubkey.to_bytes())
     }
@@ -26,7 +28,8 @@ impl CipherSuite for NoiseCipherSuite {
     type EphemeralPriv = StaticSecret;
 
     fn generate_keypair() -> (Self::EphemeralPriv, Vec<u8>) {
-        let (privkey, pubkey) = Self::generate_keypair_with_rng(&mut OsRng);
+        let mut rng = rand::rng();
+        let (privkey, pubkey) = Self::generate_keypair_with_rng(&mut rng);
         (privkey, pubkey.to_vec())
     }
 

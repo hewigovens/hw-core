@@ -13,6 +13,9 @@ format:
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+build:
+    cargo build --workspace
+
 test:
     cargo test --workspace
 

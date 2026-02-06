@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use ble_transport::{BleBackend as TransportBackend, BleLink, BleSession, DeviceInfo};
 use hex;
 use prost::Message;
-use rand_core::OsRng;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use tokio::time;
 
 use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
@@ -389,7 +390,7 @@ impl ThpBackend for BleBackend {
             .handshake_hash()
             .ok_or_else(|| BackendError::Transport("missing handshake hash".into()))?;
 
-        let mut rng = OsRng;
+        let mut rng = StdRng::from_rng(&mut rand::rng());
 
         let (host_static_private, host_static_public, host_static_vec) =
             if let Some(ref key) = request.static_key {
@@ -673,7 +674,7 @@ impl ThpBackend for BleBackend {
                     ));
                 }
 
-                let mut rng = OsRng;
+                let mut rng = StdRng::from_rng(&mut rand::rng());
                 let keys = get_cpace_host_keys(code.as_bytes(), &handshake_hash, &mut rng);
                 let trezor_key = trezor_cpace_public_key.as_ref().ok_or_else(|| {
                     BackendError::Transport("missing trezor cpace public key".into())

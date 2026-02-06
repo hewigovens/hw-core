@@ -8,7 +8,7 @@ license = "Apache-2.0 OR MIT"
 [dependencies]
 aes-gcm = { workspace = true }
 hkdf = "0.12"
-rand_core = { workspace = true }
+rand = { workspace = true }
 sha2 = { workspace = true }
 subtle = "2"
 thiserror = { workspace = true }
@@ -17,4 +17,3 @@ zeroize = "1"
 
 [dev-dependencies]
 hex = { workspace = true }
-rand = { workspace = true }

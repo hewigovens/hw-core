@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use num_bigint::BigInt;
 use num_traits::{One, ToPrimitive, Zero};
-use rand_core::{CryptoRng, RngCore};
+use rand::{CryptoRng, Rng};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use super::tools::{
@@ -139,9 +139,9 @@ pub fn curve25519(private_key: &[u8; 32], public_key: &[u8; 32]) -> [u8; 32] {
     encode_coordinate(x)
 }
 
-pub fn get_curve25519_key_pair<R: RngCore + CryptoRng>(rng: &mut R) -> Curve25519KeyPair {
+pub fn get_curve25519_key_pair<R: Rng + CryptoRng>(rng: &mut R) -> Curve25519KeyPair {
     let mut random_priv = [0u8; 32];
-    rng.fill_bytes(&mut random_priv);
+    rng.fill(&mut random_priv);
     random_priv[0] &= 248;
     random_priv[31] &= 127;
     random_priv[31] |= 64;
