@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rand::rngs::StdRng;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use tracing::debug;
 
 use super::{
@@ -29,11 +29,12 @@ where
     B: ThpBackend + Send,
 {
     pub fn new(backend: B, config: HostConfig) -> Self {
+        let mut os_rng = rand::rng();
         Self {
             backend,
             config,
             state: ThpState::new(),
-            rng: StdRng::from_entropy(),
+            rng: StdRng::from_rng(&mut os_rng),
             storage: None,
         }
     }
@@ -56,7 +57,7 @@ where
             backend,
             config,
             state: ThpState::new(),
-            rng: StdRng::from_entropy(),
+            rng: StdRng::from_rng(&mut rand::rng()),
             storage: Some(storage),
         })
     }
@@ -93,7 +94,7 @@ where
         }
 
         let mut nonce = [0u8; 8];
-        self.rng.fill_bytes(&mut nonce);
+        self.rng.fill(&mut nonce);
         let response = self
             .backend
             .create_channel(CreateChannelRequest { nonce })

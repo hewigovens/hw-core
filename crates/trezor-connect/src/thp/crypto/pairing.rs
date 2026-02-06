@@ -1,6 +1,6 @@
 use hex::FromHex;
 use num_bigint::BigInt;
-use rand_core::{CryptoRng, RngCore};
+use rand::{CryptoRng, Rng};
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
 
@@ -214,7 +214,7 @@ pub struct CpaceHostKeys {
     pub public_key: [u8; 32],
 }
 
-pub fn get_cpace_host_keys<R: RngCore + CryptoRng>(
+pub fn get_cpace_host_keys<R: Rng + CryptoRng>(
     code: &[u8],
     handshake_hash: &[u8],
     rng: &mut R,
@@ -235,7 +235,7 @@ pub fn get_cpace_host_keys<R: RngCore + CryptoRng>(
     let generator = elligator2(&sha_bytes);
 
     let mut private_key = [0u8; 32];
-    rng.fill_bytes(&mut private_key);
+    rng.fill(&mut private_key);
     let public_key = curve25519(&private_key, &generator);
 
     CpaceHostKeys {
@@ -321,8 +321,8 @@ mod tests {
     use crate::thp::types::KnownCredential;
     use hex::encode as hex_encode;
     use num_traits::ToPrimitive;
-    use rand_chacha::ChaCha20Rng;
-    use rand_core::SeedableRng;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use sha2::Sha512;
 
     fn encode_handshake_payload(credential: Option<&str>) -> Vec<u8> {
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn handle_handshake_init_matches_expected() {
-        let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
+        let mut rng = StdRng::seed_from_u64(42);
 
         let host_static = get_curve25519_key_pair(&mut rng);
         let host_ephemeral = get_curve25519_key_pair(&mut rng);
@@ -476,7 +476,7 @@ mod tests {
 
     #[test]
     fn cpace_keys_match_curve25519_generator() {
-        let mut rng = ChaCha20Rng::from_seed([0x55; 32]);
+        let mut rng = StdRng::seed_from_u64(1337);
         let code = b"123456";
         let handshake_hash = [0xAA; 32];
 
