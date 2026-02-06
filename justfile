@@ -34,3 +34,12 @@ scan-demo:
 
 workflow-demo:
     cargo run -p trezor-connect --features ble --example ble_handshake
+
+cli-help:
+    cargo run -p hw-cli -- --help
+
+cli-scan:
+    cargo run -p hw-cli -- scan
+
+cli-pair:
+    cargo run -p hw-cli -- pair

@@ -1,0 +1,15 @@
+[package]
+name = "hw-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Interactive CLI for Trezor Safe 7 workflows over BLE"
+license = "Apache-2.0 OR MIT"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+ble-transport = { path = "../ble-transport", features = ["backend-btleplug", "trezor-safe7"] }
+clap = { version = "4.5", features = ["derive"] }
+hex = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+trezor-connect = { path = "../trezor-connect", features = ["ble"] }

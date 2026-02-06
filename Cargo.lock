@@ -827,6 +827,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hw-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ble-transport",
+ "clap",
+ "hex",
+ "tokio",
+ "trezor-connect",
+]
+
+[[package]]
 name = "hw-ffi"
 version = "0.1.0"
 dependencies = [

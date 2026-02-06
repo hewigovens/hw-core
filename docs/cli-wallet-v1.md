@@ -1,129 +1,139 @@
-# CLI Wallet v1 Plan (Trezor Safe 7)
+# CLI Wallet v1 Execution Plan and Task Tracker (Trezor Safe 7)
 
-## Goal
-Deliver a CLI that can, with a real Trezor Safe 7 over BLE:
-1. Connect
-2. Pair
-3. View ETH address
-4. Sign ETH transaction
+Last updated: 2026-02-06
+Status legend: TODO | IN_PROGRESS | BLOCKED | DONE
+
+## Mission
+Deliver an interactive CLI that can, with a real Trezor Safe 7 over BLE:
+1. Connect and pair
+2. Read an Ethereum address
+3. Sign an Ethereum transaction
 
 Priorities:
-- Chain focus: Ethereum first
-- UX focus: human-friendly interactive CLI first (JSON output optional later)
+- Chain focus: Ethereum only for v1
+- UX focus: human-friendly terminal flow first, machine-JSON output later
 
 ## Scope
-In scope for v1:
-- BLE discovery + connection to Safe 7
-- THP handshake + pairing (QR / NFC / code entry)
+In scope:
+- BLE discovery and connection to Safe 7
+- THP handshake and pairing (QR, NFC, code entry)
 - Session creation
 - Ethereum address retrieval
 - Ethereum transaction signing
-- Local persistence for host static key + pairing credentials
+- Local persistence for host static key and pairing credentials
 
-Out of scope for v1:
-- Multi-chain support (BTC/Cardano) beyond design hooks
+Out of scope:
+- BTC/Cardano or multi-chain workflow beyond extension hooks
 - USB transport
-- Full non-interactive automation-first UX
+- Full automation-first non-interactive UX
 
-## Milestones
+## Current Baseline (Repo Audit)
+- [x] `trezor-connect` supports THP create-channel, handshake, pairing, and session creation over BLE.
+- [x] Local persistence exists via `ThpStorage` and `FileStorage` in `crates/trezor-connect/src/thp/storage.rs`.
+- [x] BLE workflow example exists in `crates/trezor-connect/examples/ble_handshake.rs`.
+- [x] Workspace task helpers exist in `justfile` (`scan-demo`, `workflow-demo`).
+- [x] CLI crate `crates/hw-cli` exists with `scan`, `pair`, `address eth`, and `sign eth` command surface.
+- [x] CLI `--pairing-method` currently supports `ble` only.
+- [x] CLI `pair` timeout is configurable via `--timeout-secs` (default: `30`).
+- [ ] ETH address/signing flows are not implemented in host workflow/backend.
+- [ ] `address eth` and `sign eth` are scaffolded as explicit not-implemented stubs pending P3/P4.
+- [ ] End-to-end CLI tests for `scan -> pair -> address -> sign` do not exist yet.
 
-### Milestone 1: CLI skeleton and command surface
-Create `crates/hw-cli` with initial commands:
-- `scan`
-- `pair`
-- `address eth`
-- `sign eth`
+## Phase Gates
+1. P0 Protocol contract ready: ETH message contract and protobuf source are confirmed.
+2. P1 CLI skeleton ready: `hw-cli` builds and command help works for all v1 commands.
+3. P2 Pairing UX ready: manual pair works and re-run reuses stored credentials.
+4. P3 Address flow ready: `address eth` returns a checksummed address from a paired device.
+5. P4 Signing flow ready: `sign eth` returns signature data and local verification output.
+6. P5 Hardening ready: tests pass and manual smoke checklist is green on hardware.
 
-Implementation notes:
-- Use `trezor-connect` directly (faster iteration than FFI path)
-- Use a command parser (`clap`) and interactive prompts for human UX
-- Add root `just` helpers for common CLI flows
+## Task Tracker
 
-Deliverable:
-- CLI binary builds and shows usable command help and prompts
+### P0 - Protocol Contract and Design
+- [x] `P0-01` Audit current implementation and identify done vs missing v1 pieces. `DONE`
+- [ ] `P0-02` Confirm ETH wire contract for address/sign (message IDs, payload schema, chunking rules). `BLOCKED`
+- [ ] `P0-03` Add or vendor required protobuf definitions for ETH flows. `TODO`
+- [ ] `P0-04` Define CLI input/output schema for `sign eth` (required fields, output fields, error shape). `TODO`
 
-### Milestone 2: Pairing UX and persistence
-Wire pairing flow end-to-end in CLI:
-- Implement interactive `PairingController`
-- Show clear prompts per method (QR/NFC/code-entry)
-- Persist host config and credentials using `thp::storage`
-- Add explicit re-pair/reset option (`pair --force`)
+Exit criteria:
+- ETH address/sign protocol is documented and implementable without guessing firmware behavior.
 
-Deliverable:
-- First run can pair manually; subsequent runs can reuse stored credentials
+### P1 - CLI Skeleton (`crates/hw-cli`)
+- [x] `P1-01` Create `crates/hw-cli` and add it to workspace members in `Cargo.toml`. `DONE`
+- [x] `P1-02` Add command surface with `clap`: `scan`, `pair`, `address eth`, `sign eth`. `DONE`
+- [x] `P1-03` Add shared CLI config path and storage bootstrap logic. `DONE`
+- [x] `P1-04` Wire BLE discovery/connection for `scan` command output. `DONE`
+- [x] `P1-05` Add root `just` helpers for CLI dev loops. `DONE`
 
-### Milestone 3: Ethereum address support in trezor-connect
-Extend THP host layer for ETH address retrieval:
-- Add request/response types in `crates/trezor-connect/src/thp/types.rs`
-- Add backend trait methods in `crates/trezor-connect/src/thp/backend.rs`
-- Implement encrypted BLE message handling in `crates/trezor-connect/src/ble.rs`
-- Add protobuf encode/decode mapping in `crates/trezor-connect/src/thp/proto_conversions.rs`
-- Expose workflow API in `crates/trezor-connect/src/thp/workflow.rs`
+Exit criteria:
+- `cargo run -p hw-cli -- --help` and subcommand help work for all v1 commands.
 
-CLI behavior:
-- `address eth --path <bip32>` prints checksummed address with clear labels
+### P2 - Pairing UX and Persistence
+- [x] `P2-01` Implement interactive `PairingController` with method-specific prompts. `DONE`
+- [x] `P2-02` Implement `pair` command end-to-end using `ThpWorkflow` + storage. `DONE`
+- [x] `P2-03` Add `pair --force` to clear/recreate credential path safely. `DONE`
+- [x] `P2-04` Ensure re-run path uses saved static key and credentials by default. `DONE`
+- [x] `P2-05` Make pair timeout configurable and raise default to 30s. `DONE`
+- [ ] `P2-06` Add focused tests for pairing command state transitions and storage reuse. `TODO`
 
-Deliverable:
-- Address retrieval works on paired device from CLI
+Exit criteria:
+- First run pairs manually; second run avoids re-pair unless `--force`.
 
-### Milestone 4: Ethereum transaction signing
-Implement ETH signing flow:
-- Add THP request/response path for ETH signing messages
-- Handle multi-step/chunked message exchanges if required
-- CLI command accepts tx input (file/string), validates, sends to device, prints signature
+### P3 - Ethereum Address Flow
+- [ ] `P3-01` Add ETH address request/response types in `crates/trezor-connect/src/thp/types.rs`. `TODO`
+- [ ] `P3-02` Extend `ThpBackend` trait for ETH address operation. `TODO`
+- [ ] `P3-03` Add proto encode/decode mapping in `crates/trezor-connect/src/thp/proto_conversions.rs`. `TODO`
+- [ ] `P3-04` Implement encrypted BLE request/response handling in `crates/trezor-connect/src/ble.rs`. `TODO`
+- [ ] `P3-05` Expose workflow API in `crates/trezor-connect/src/thp/workflow.rs`. `TODO`
+- [ ] `P3-06` Wire CLI command `address eth --path <bip32>` with checksummed output formatting. `TODO`
+- [ ] `P3-07` Add unit and integration tests for address mapping and command behavior. `TODO`
 
-CLI behavior:
-- `sign eth --tx <file-or-json> --path <bip32>`
-- User confirmations clearly surfaced in terminal
+Exit criteria:
+- `hw-cli address eth --path "m/44'/60'/0'/0/0"` returns a valid checksummed address from device.
 
-Deliverable:
-- Signed result from device, with local verification output where possible
+### P4 - Ethereum Signing Flow
+- [ ] `P4-01` Add ETH signing request/response and multi-step exchange support in host layer. `TODO`
+- [ ] `P4-02` Implement BLE transport handling for sign flow (including chunking if required). `TODO`
+- [ ] `P4-03` Add workflow method for signing transactions and surfacing device prompts. `TODO`
+- [ ] `P4-04` Implement CLI `sign eth --path <bip32> --tx <file-or-json>`. `TODO`
+- [ ] `P4-05` Validate tx input schema before device send. `TODO`
+- [ ] `P4-06` Add local post-sign verification output where possible. `TODO`
+- [ ] `P4-07` Add tests for happy path and common malformed input/device failure paths. `TODO`
 
-### Milestone 5: Reliability and validation
-Testing and hardening:
-- Unit tests for proto conversions and workflow methods
-- Integration tests with mocked wire/backend for command flows
-- Manual hardware smoke checklist: `scan -> pair -> address -> sign`
-- Improve errors/timeouts/retries for BLE and user prompts
+Exit criteria:
+- CLI prints signature payload from device and verification metadata for accepted tx input.
 
-Deliverable:
-- Stable CLI behavior for normal and common failure paths
+### P5 - Reliability, Validation, Docs
+- [ ] `P5-01` Improve BLE timeout/retry strategy and classify actionable errors. `TODO`
+- [ ] `P5-02` Add mocked integration tests for full command flow orchestration. `TODO`
+- [ ] `P5-03` Run and document manual hardware smoke checklist:
+  - `scan -> pair -> address eth -> sign eth`
+  - repeated run without re-pair
+  - forced re-pair flow
+- [ ] `P5-04` Update root docs (`README.md`) with CLI usage and caveats. `TODO`
 
-## Proposed command UX (human-first)
+Exit criteria:
+- Stable behavior across normal flow and common failure cases with documented recovery steps.
+
+## Proposed v1 Command UX
 - `hw-cli scan`
-- `hw-cli pair`
+- `hw-cli pair --pairing-method ble --timeout-secs 30`
 - `hw-cli address eth --path "m/44'/60'/0'/0/0"`
 - `hw-cli sign eth --path "m/44'/60'/0'/0/0" --tx ./tx.json`
 
-UX expectations:
-- Clear step-by-step terminal messaging
-- Explicit confirmation prompts where user action is required
-- Friendly actionable errors (not raw protocol dumps)
+UX requirements:
+- Clear step-by-step messaging for device actions
+- Explicit confirmation prompts when user/device action is required
+- Actionable errors instead of raw protocol dumps
 
-## Repository changes expected
-- New crate: `crates/hw-cli`
-- Extend existing THP host code in:
-  - `crates/trezor-connect/src/thp/types.rs`
-  - `crates/trezor-connect/src/thp/backend.rs`
-  - `crates/trezor-connect/src/thp/proto_conversions.rs`
-  - `crates/trezor-connect/src/thp/workflow.rs`
-  - `crates/trezor-connect/src/ble.rs`
-- Optional docs updates in root `README.md`
+## Risks and Dependencies
+- ETH message details are the main critical path risk until protocol contract is confirmed.
+- BLE behavior can require tuned retry/timeout values for stable UX on real hardware.
+- Signing may require multi-message state handling rather than a single request/response.
 
-## Execution order
-1. Build CLI skeleton (`scan`, `pair`) and persistence
-2. Implement ETH address retrieval in `trezor-connect` + CLI
-3. Implement ETH signing in `trezor-connect` + CLI
-4. Add tests, smoke checks, and docs polish
-
-## Risks and notes
-- THP ETH message details may require additional proto coverage or firmware-specific handling
-- BLE reliability and device timing can require tuned retries/timeouts
-- Signing may involve multi-message state transitions beyond simple request/response
-
-## Success criteria
-- User can run CLI against Trezor Safe 7 and complete:
+## v1 Success Criteria
+- A user can run the CLI on a real Trezor Safe 7 and complete:
   1. Pairing
   2. ETH address retrieval
   3. ETH transaction signing
-- Re-running commands after pairing does not require repeating manual pairing unless forced
+- Re-running after pairing does not require manual pairing unless `pair --force` is used.

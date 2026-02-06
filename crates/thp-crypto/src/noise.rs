@@ -13,9 +13,7 @@ use crate::traits::{CipherSuite, CryptoError, Keys};
 pub struct NoiseCipherSuite;
 
 impl NoiseCipherSuite {
-    pub fn generate_keypair_with_rng<R: Rng + CryptoRng>(
-        rng: &mut R,
-    ) -> (StaticSecret, [u8; 32]) {
+    pub fn generate_keypair_with_rng<R: Rng + CryptoRng>(rng: &mut R) -> (StaticSecret, [u8; 32]) {
         let mut secret = [0u8; 32];
         rng.fill(&mut secret);
         let privkey = StaticSecret::from(secret);
