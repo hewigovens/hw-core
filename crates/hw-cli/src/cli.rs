@@ -22,7 +22,7 @@ pub enum Command {
 
 #[derive(Args, Debug)]
 pub struct ScanArgs {
-    #[arg(long, default_value_t = 5)]
+    #[arg(long, default_value_t = 60)]
     pub duration_secs: u64,
 }
 
@@ -35,15 +35,17 @@ pub enum PairingMethod {
 pub struct PairArgs {
     #[arg(long, value_enum, default_value_t = PairingMethod::Ble)]
     pub pairing_method: PairingMethod,
-    #[arg(long, alias = "duration-secs", default_value_t = 30)]
+    #[arg(long, alias = "duration-secs", default_value_t = 60)]
     pub timeout_secs: u64,
+    #[arg(long, default_value_t = 60)]
+    pub thp_timeout_secs: u64,
     #[arg(long)]
     pub device_id: Option<String>,
     #[arg(long)]
     pub storage_path: Option<PathBuf>,
     #[arg(long)]
     pub host_name: Option<String>,
-    #[arg(long, default_value = "hw-cli")]
+    #[arg(long, default_value = "hw-core/cli")]
     pub app_name: String,
     #[arg(long)]
     pub force: bool,
@@ -90,7 +92,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pair_defaults_to_ble_and_30s_timeout() {
+    fn pair_defaults_to_ble_and_60s_timeout() {
         let cli = Cli::parse_from(["hw-cli", "pair"]);
         let Command::Pair(args) = cli.command else {
             panic!("expected pair command");
@@ -98,7 +100,8 @@ mod tests {
 
         assert_eq!(cli.verbose, 0);
         assert_eq!(args.pairing_method, PairingMethod::Ble);
-        assert_eq!(args.timeout_secs, 30);
+        assert_eq!(args.timeout_secs, 60);
+        assert_eq!(args.thp_timeout_secs, 60);
     }
 
     #[test]
@@ -109,6 +112,26 @@ mod tests {
         };
 
         assert_eq!(args.timeout_secs, 45);
+    }
+
+    #[test]
+    fn pair_accepts_thp_timeout_override() {
+        let cli = Cli::parse_from(["hw-cli", "pair", "--thp-timeout-secs", "90"]);
+        let Command::Pair(args) = cli.command else {
+            panic!("expected pair command");
+        };
+
+        assert_eq!(args.thp_timeout_secs, 90);
+    }
+
+    #[test]
+    fn pair_default_app_name_is_hw_core_cli() {
+        let cli = Cli::parse_from(["hw-cli", "pair"]);
+        let Command::Pair(args) = cli.command else {
+            panic!("expected pair command");
+        };
+
+        assert_eq!(args.app_name, "hw-core/cli");
     }
 
     #[test]

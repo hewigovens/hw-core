@@ -81,6 +81,10 @@ impl BleBackend {
         self.handshake_timeout
     }
 
+    pub fn set_handshake_timeout(&mut self, timeout: Duration) {
+        self.handshake_timeout = timeout;
+    }
+
     fn map_transport_error<E: std::fmt::Display>(&self, err: E) -> BackendError {
         BackendError::Transport(err.to_string())
     }

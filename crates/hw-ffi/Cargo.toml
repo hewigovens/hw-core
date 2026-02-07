@@ -23,6 +23,7 @@ required-features = ["bindings-cli"]
 
 [dependencies]
 ble-transport = { path = "../ble-transport", features = ["backend-btleplug", "trezor-safe7"] }
+hw-wallet = { path = "../hw-wallet" }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 trezor-connect = { path = "../trezor-connect", features = ["ble"] }

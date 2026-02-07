@@ -8,6 +8,7 @@ members = [
     "crates/trezor-connect",
     "crates/hw-ffi",
     "crates/hw-cli",
+    "crates/hw-wallet",
 ]
 resolver = "2"
 

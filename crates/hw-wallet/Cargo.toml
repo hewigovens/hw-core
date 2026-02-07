@@ -1,0 +1,13 @@
+[package]
+name = "hw-wallet"
+version = "0.1.0"
+edition.workspace = true
+description = "Shared wallet orchestration utilities for CLI and FFI"
+license = "Apache-2.0 OR MIT"
+
+[dependencies]
+ble-transport = { path = "../ble-transport", features = ["backend-btleplug", "trezor-safe7"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+trezor-connect = { path = "../trezor-connect", features = ["ble"] }
+tracing = { workspace = true }

@@ -2,12 +2,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ble_transport::{BleManager, BleProfile, BleSession, DeviceInfo, DiscoveredDevice};
+use hw_wallet::ble::{
+    backend_from_session, connect_trezor_device, scan_trezor, workflow as new_workflow,
+};
 use tokio::sync::Mutex as AsyncMutex;
 use trezor_connect::ble::BleBackend;
 use trezor_connect::thp::ThpWorkflow;
 
 use crate::errors::HWCoreError;
 use crate::types::{HWBleDeviceInfo, HWHandshakeCache, HWHostConfig, HWThpState};
+
+const DEFAULT_THP_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(uniffi::Object)]
 pub struct BleManagerHandle {
@@ -27,11 +32,7 @@ impl BleManagerHandle {
         &self,
         duration_ms: u64,
     ) -> Result<Vec<Arc<BleDiscoveredDevice>>, HWCoreError> {
-        let profile = BleProfile::trezor_safe7()
-            .ok_or_else(|| HWCoreError::message("BLE profile not built into this binary"))?;
-        let devices = self
-            .manager
-            .scan_profile(profile, Duration::from_millis(duration_ms))
+        let (profile, devices) = scan_trezor(&self.manager, Duration::from_millis(duration_ms))
             .await
             .map_err(HWCoreError::from)?;
         Ok(devices
@@ -67,15 +68,14 @@ impl BleDiscoveredDevice {
 
     #[uniffi::method]
     pub async fn connect(&self) -> Result<Arc<BleSessionHandle>, HWCoreError> {
-        let (info, peripheral) = {
+        let device = {
             let mut slot = self.device.lock().expect("poisoned mutex");
-            let device = slot
-                .take()
-                .ok_or_else(|| HWCoreError::message("device already connected"))?;
-            device.into_parts()
+            slot.take()
+                .ok_or_else(|| HWCoreError::message("device already connected"))?
         };
 
-        let session = BleSession::new(peripheral, self.profile, info.clone())
+        let info = device.info().clone();
+        let session = connect_trezor_device(device, self.profile)
             .await
             .map_err(HWCoreError::from)?;
 
@@ -118,8 +118,8 @@ impl BleSessionHandle {
         config: HWHostConfig,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
         let session = self.take_session().await?;
-        let backend = BleBackend::from_session(session);
-        let workflow = ThpWorkflow::new(backend, config);
+        let backend = backend_from_session(session, DEFAULT_THP_TIMEOUT);
+        let workflow = new_workflow(backend, config);
         Ok(Arc::new(BleWorkflowHandle::new(workflow)))
     }
 }
