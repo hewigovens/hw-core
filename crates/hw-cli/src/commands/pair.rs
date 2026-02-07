@@ -144,18 +144,28 @@ pub async fn run(args: PairArgs) -> Result<()> {
 
     match workflow.state().phase() {
         Phase::Pairing => {
-            println!(
-                "Sending pairing request with host/app labels: '{}' / '{}'.",
-                workflow.host_config().host_name,
-                workflow.host_config().app_name
-            );
-            let controller = CliPairingController;
-            workflow
-                .pairing(Some(&controller))
-                .await
-                .context("pairing failed")?;
-            println!("Pairing complete.");
-            info!("pairing interaction flow completed");
+            if workflow.state().is_paired() {
+                println!("Confirming THP connection...");
+                workflow
+                    .pairing(None)
+                    .await
+                    .context("connection confirmation failed")?;
+                println!("Connection confirmed.");
+                info!("paired handshake connection flow completed");
+            } else {
+                println!(
+                    "Sending pairing request with host/app labels: '{}' / '{}'.",
+                    workflow.host_config().host_name,
+                    workflow.host_config().app_name
+                );
+                let controller = CliPairingController;
+                workflow
+                    .pairing(Some(&controller))
+                    .await
+                    .context("pairing failed")?;
+                println!("Pairing complete.");
+                info!("pairing interaction flow completed");
+            }
         }
         Phase::Paired => {
             println!("Device already paired (or auto-paired).");

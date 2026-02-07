@@ -204,8 +204,10 @@ where
                 self.state.set_phase(Phase::Pairing);
             }
             HandshakeCompletionState::Paired => {
+                // Mirror Suite behavior: paired handshake completion still requires
+                // connection finalization (credential request + end request).
                 self.state.set_is_paired(true);
-                self.state.set_phase(Phase::Paired);
+                self.state.set_phase(Phase::Pairing);
             }
             HandshakeCompletionState::AutoPaired => {
                 self.state.set_is_paired(true);
@@ -569,6 +571,7 @@ mod tests {
         handshake_outcome: HandshakeInitOutcome,
         handshake_state: HandshakeCompletionState,
         credential_response: Option<CredentialResponse>,
+        require_end_before_session: bool,
         select_responses: Mutex<VecDeque<SelectMethodResponse>>,
         tag_responses: Mutex<VecDeque<PairingTagResponse>>,
         code_entry_challenge_response: Option<CodeEntryChallengeResponse>,
@@ -625,6 +628,64 @@ mod tests {
                     credential: "cred1".into(),
                     autoconnect: true,
                 }),
+                require_end_before_session: false,
+                select_responses: Mutex::new(VecDeque::new()),
+                tag_responses: Mutex::new(VecDeque::new()),
+                code_entry_challenge_response: None,
+                code_entry_challenge_requests: Mutex::new(Vec::new()),
+                tag_requests: Mutex::new(Vec::new()),
+                last_tag_request: Mutex::new(None),
+                pairing_requested: Mutex::new(false),
+                end_called: Mutex::new(false),
+            }
+        }
+
+        fn paired_connection_flow() -> Self {
+            Self {
+                create_channel_resp: CreateChannelResponse {
+                    nonce: [4u8; 8],
+                    channel: 4,
+                    handshake_hash: b"paired".to_vec(),
+                    properties: ThpProperties {
+                        internal_model: "T3W1".into(),
+                        model_variant: 1,
+                        protocol_version_major: 2,
+                        protocol_version_minor: 0,
+                        pairing_methods: vec![PairingMethod::CodeEntry],
+                    },
+                },
+                handshake_outcome: HandshakeInitOutcome {
+                    host_encrypted_static_pubkey: vec![1, 2, 3],
+                    encrypted_payload: vec![4, 5, 6],
+                    trezor_encrypted_static_pubkey: vec![7, 8, 9],
+                    handshake_hash: b"paired".to_vec(),
+                    host_key: vec![10],
+                    trezor_key: vec![11],
+                    host_static_key: vec![12],
+                    host_static_public_key: vec![13],
+                    pairing_methods: vec![PairingMethod::CodeEntry],
+                    credentials: vec![KnownCredential {
+                        credential: "paired-cred".into(),
+                        trezor_static_public_key: Some(vec![0x55; 32]),
+                        autoconnect: false,
+                    }],
+                    selected_credential: Some(KnownCredential {
+                        credential: "paired-cred".into(),
+                        trezor_static_public_key: Some(vec![0x55; 32]),
+                        autoconnect: false,
+                    }),
+                    nfc_data: None,
+                    handshake_commitment: None,
+                    trezor_cpace_public_key: None,
+                    code_entry_challenge: None,
+                },
+                handshake_state: HandshakeCompletionState::Paired,
+                credential_response: Some(CredentialResponse {
+                    trezor_static_public_key: vec![0x56; 32],
+                    credential: "refreshed-cred".into(),
+                    autoconnect: false,
+                }),
+                require_end_before_session: true,
                 select_responses: Mutex::new(VecDeque::new()),
                 tag_responses: Mutex::new(VecDeque::new()),
                 code_entry_challenge_response: None,
@@ -675,6 +736,7 @@ mod tests {
                     credential: "new-cred".into(),
                     autoconnect: false,
                 }),
+                require_end_before_session: false,
                 select_responses: Mutex::new(select),
                 tag_responses: Mutex::new(VecDeque::from([PairingTagResponse::Accepted {
                     secret: vec![1, 2],
@@ -729,6 +791,7 @@ mod tests {
                     credential: "code-entry-cred".into(),
                     autoconnect: false,
                 }),
+                require_end_before_session: false,
                 select_responses: Mutex::new(select),
                 tag_responses: Mutex::new(VecDeque::from([PairingTagResponse::Accepted {
                     secret: vec![9, 9],
@@ -829,6 +892,11 @@ mod tests {
             &mut self,
             _request: CreateSessionRequest,
         ) -> BackendResult<CreateSessionResponse> {
+            if self.require_end_before_session && !*self.end_called.lock() {
+                return Err(BackendError::Device(
+                    "session requires connection confirmation".into(),
+                ));
+            }
             Ok(CreateSessionResponse)
         }
 
@@ -985,6 +1053,48 @@ mod tests {
         let (backend, _, state) = workflow.into_parts();
         assert!(state.is_paired());
         assert!(*backend.pairing_requested.lock());
+        assert!(*backend.end_called.lock());
+    }
+
+    #[tokio::test]
+    async fn paired_handshake_requires_connection_confirmation_flow() {
+        let backend = MockBackend::paired_connection_flow();
+        let mut workflow = ThpWorkflow::new(
+            backend,
+            HostConfig {
+                pairing_methods: vec![PairingMethod::CodeEntry],
+                known_credentials: vec![],
+                static_key: None,
+                host_name: "host".into(),
+                app_name: "app".into(),
+            },
+        );
+
+        workflow.create_channel().await.unwrap();
+        workflow.handshake(false).await.unwrap();
+
+        assert!(workflow.state().is_paired());
+        assert_eq!(workflow.state().phase(), Phase::Pairing);
+
+        let err = workflow
+            .create_session(None, false, false)
+            .await
+            .expect_err("session must fail before connection confirmation");
+        assert!(matches!(
+            err,
+            ThpWorkflowError::Backend(BackendError::Device(_))
+        ));
+
+        workflow.pairing(None).await.expect("connection flow succeeds");
+        assert_eq!(workflow.state().phase(), Phase::Paired);
+        workflow
+            .create_session(None, false, false)
+            .await
+            .expect("session succeeds after connection confirmation");
+
+        let (backend, _, state) = workflow.into_parts();
+        assert!(state.is_paired());
+        assert_eq!(state.phase(), Phase::Paired);
         assert!(*backend.end_called.lock());
     }
 

@@ -123,7 +123,15 @@ pub async fn run(args: AddressArgs) -> Result<()> {
     match workflow.state().phase() {
         Phase::Paired => {}
         Phase::Pairing => {
-            bail!("device is not paired for this host; run `hw-cli pair` first");
+            if workflow.state().is_paired() {
+                println!("Confirming THP connection...");
+                workflow
+                    .pairing(None)
+                    .await
+                    .context("connection confirmation failed")?;
+            } else {
+                bail!("device is not paired for this host; run `hw-cli pair` first");
+            }
         }
         other => {
             bail!("unexpected workflow phase after handshake: {:?}", other);
