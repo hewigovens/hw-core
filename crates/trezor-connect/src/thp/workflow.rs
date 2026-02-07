@@ -281,7 +281,7 @@ where
             })
             .await?;
 
-        loop {
+        'pairing_flow: loop {
             match select_response {
                 super::types::SelectMethodResponse::End => {
                     self.state.set_is_paired(true);
@@ -292,6 +292,7 @@ where
                 super::types::SelectMethodResponse::CodeEntryCommitment { ref commitment } => {
                     let mut challenge = vec![0u8; 32];
                     self.rng.fill(challenge.as_mut_slice());
+                    let mut code_entry_retry_count = 0usize;
 
                     debug!(
                         "code-entry commitment received: commitment_len={}, challenge_len={}",
@@ -336,69 +337,83 @@ where
                             Some(cpace_response.trezor_cpace_public_key.clone());
                     });
 
-                    let prompt = PairingPrompt {
-                        available_methods: handshake.pairing_methods.clone(),
-                        selected_method: current_method,
-                        nfc_data: None,
-                    };
-                    let decision = controller.on_prompt(prompt).await;
-                    let decision = match decision {
-                        Ok(v) => v,
-                        Err(err) => return Err(ThpWorkflowError::PairingController(err)),
-                    };
+                    'code_entry: loop {
+                        let prompt = PairingPrompt {
+                            available_methods: handshake.pairing_methods.clone(),
+                            selected_method: current_method,
+                            nfc_data: None,
+                        };
+                        let decision = controller.on_prompt(prompt).await;
+                        let decision = match decision {
+                            Ok(v) => v,
+                            Err(err) => return Err(ThpWorkflowError::PairingController(err)),
+                        };
 
-                    if let PairingDecision::SwitchMethod(method) = decision {
-                        current_method = method;
-                        self.state.set_pairing_method(method);
-                        select_response = self
-                            .backend
-                            .select_pairing_method(SelectMethodRequest { method })
-                            .await?;
-                        continue;
-                    }
-
-                    let PairingDecision::SubmitTag { method, tag } = decision else {
-                        continue;
-                    };
-
-                    if method != current_method {
-                        current_method = method;
-                        self.state.set_pairing_method(method);
-                        select_response = self
-                            .backend
-                            .select_pairing_method(SelectMethodRequest { method })
-                            .await?;
-                        continue;
-                    }
-
-                    let current_handshake = self
-                        .state
-                        .handshake_credentials()
-                        .ok_or(ThpWorkflowError::MissingHandshakeCredentials)?;
-                    let request = PairingTagRequest::CodeEntry {
-                        code: tag,
-                        handshake_hash: current_handshake.handshake_hash.clone(),
-                        commitment: current_handshake.handshake_commitment.clone(),
-                        challenge: current_handshake.code_entry_challenge.clone(),
-                        trezor_cpace_public_key: current_handshake.trezor_cpace_public_key.clone(),
-                    };
-                    match self.backend.send_pairing_tag(request).await? {
-                        super::types::PairingTagResponse::Accepted { .. } => {
-                            break;
-                        }
-                        super::types::PairingTagResponse::Retry(reason) => {
-                            debug!(
-                                "code entry retry requested: {reason}; requesting fresh commitment"
-                            );
+                        if let PairingDecision::SwitchMethod(method) = decision {
+                            current_method = method;
+                            self.state.set_pairing_method(method);
                             select_response = self
                                 .backend
-                                .select_pairing_method(SelectMethodRequest {
-                                    method: current_method,
-                                })
+                                .select_pairing_method(SelectMethodRequest { method })
                                 .await?;
-                            continue;
+                            continue 'pairing_flow;
+                        }
+
+                        let PairingDecision::SubmitTag { method, tag } = decision else {
+                            continue 'code_entry;
+                        };
+
+                        if method != current_method {
+                            current_method = method;
+                            self.state.set_pairing_method(method);
+                            select_response = self
+                                .backend
+                                .select_pairing_method(SelectMethodRequest { method })
+                                .await?;
+                            continue 'pairing_flow;
+                        }
+
+                        let current_handshake = self
+                            .state
+                            .handshake_credentials()
+                            .ok_or(ThpWorkflowError::MissingHandshakeCredentials)?;
+                        let request = PairingTagRequest::CodeEntry {
+                            code: tag,
+                            handshake_hash: current_handshake.handshake_hash.clone(),
+                            commitment: current_handshake.handshake_commitment.clone(),
+                            challenge: current_handshake.code_entry_challenge.clone(),
+                            trezor_cpace_public_key: current_handshake
+                                .trezor_cpace_public_key
+                                .clone(),
+                        };
+                        match self.backend.send_pairing_tag(request).await? {
+                            super::types::PairingTagResponse::Accepted { .. } => {
+                                break 'code_entry;
+                            }
+                            super::types::PairingTagResponse::Retry(reason) => {
+                                code_entry_retry_count += 1;
+                                debug!(
+                                    "code entry retry requested: {reason}; retry_count={}",
+                                    code_entry_retry_count
+                                );
+                                if code_entry_retry_count >= 2 {
+                                    debug!(
+                                        "code entry retry threshold reached; requesting fresh commitment"
+                                    );
+                                    select_response = self
+                                        .backend
+                                        .select_pairing_method(SelectMethodRequest {
+                                            method: current_method,
+                                        })
+                                        .await?;
+                                    continue 'pairing_flow;
+                                }
+                                continue 'code_entry;
+                            }
                         }
                     }
+
+                    break;
                 }
                 super::types::SelectMethodResponse::PairingPreparationsFinished {
                     ref nfc_data,
@@ -545,9 +560,10 @@ mod tests {
         handshake_state: HandshakeCompletionState,
         credential_response: Option<CredentialResponse>,
         select_responses: Mutex<VecDeque<SelectMethodResponse>>,
-        tag_response: Mutex<Option<PairingTagResponse>>,
+        tag_responses: Mutex<VecDeque<PairingTagResponse>>,
         code_entry_challenge_response: Option<CodeEntryChallengeResponse>,
         code_entry_challenge_requests: Mutex<Vec<CodeEntryChallengeRequest>>,
+        tag_requests: Mutex<Vec<PairingTagRequest>>,
         last_tag_request: Mutex<Option<PairingTagRequest>>,
         pairing_requested: Mutex<bool>,
         end_called: Mutex<bool>,
@@ -600,9 +616,10 @@ mod tests {
                     autoconnect: true,
                 }),
                 select_responses: Mutex::new(VecDeque::new()),
-                tag_response: Mutex::new(None),
+                tag_responses: Mutex::new(VecDeque::new()),
                 code_entry_challenge_response: None,
                 code_entry_challenge_requests: Mutex::new(Vec::new()),
+                tag_requests: Mutex::new(Vec::new()),
                 last_tag_request: Mutex::new(None),
                 pairing_requested: Mutex::new(false),
                 end_called: Mutex::new(false),
@@ -649,9 +666,12 @@ mod tests {
                     autoconnect: false,
                 }),
                 select_responses: Mutex::new(select),
-                tag_response: Mutex::new(Some(PairingTagResponse::Accepted { secret: vec![1, 2] })),
+                tag_responses: Mutex::new(VecDeque::from([PairingTagResponse::Accepted {
+                    secret: vec![1, 2],
+                }])),
                 code_entry_challenge_response: None,
                 code_entry_challenge_requests: Mutex::new(Vec::new()),
+                tag_requests: Mutex::new(Vec::new()),
                 last_tag_request: Mutex::new(None),
                 pairing_requested: Mutex::new(false),
                 end_called: Mutex::new(false),
@@ -700,11 +720,14 @@ mod tests {
                     autoconnect: false,
                 }),
                 select_responses: Mutex::new(select),
-                tag_response: Mutex::new(Some(PairingTagResponse::Accepted { secret: vec![9, 9] })),
+                tag_responses: Mutex::new(VecDeque::from([PairingTagResponse::Accepted {
+                    secret: vec![9, 9],
+                }])),
                 code_entry_challenge_response: Some(CodeEntryChallengeResponse {
                     trezor_cpace_public_key: vec![0x44; 32],
                 }),
                 code_entry_challenge_requests: Mutex::new(Vec::new()),
+                tag_requests: Mutex::new(Vec::new()),
                 last_tag_request: Mutex::new(None),
                 pairing_requested: Mutex::new(false),
                 end_called: Mutex::new(false),
@@ -771,10 +794,11 @@ mod tests {
             &mut self,
             request: PairingTagRequest,
         ) -> BackendResult<PairingTagResponse> {
+            self.tag_requests.lock().push(request.clone());
             *self.last_tag_request.lock() = Some(request);
-            self.tag_response
+            self.tag_responses
                 .lock()
-                .take()
+                .pop_front()
                 .ok_or_else(|| BackendError::Device("unexpected tag".into()))
         }
 
@@ -993,6 +1017,44 @@ mod tests {
             }
             _ => panic!("expected code-entry tag request"),
         }
+    }
+
+    #[tokio::test]
+    async fn code_entry_retry_prompts_again_before_fresh_commitment() {
+        let backend = MockBackend::code_entry_flow();
+        backend.tag_responses.lock().clear();
+        backend.tag_responses.lock().extend([
+            PairingTagResponse::Retry("firmware failure code=99: Firmware error".into()),
+            PairingTagResponse::Accepted { secret: vec![9, 9] },
+        ]);
+        let controller = CodeEntryController;
+        let mut workflow = ThpWorkflow::new(
+            backend,
+            HostConfig {
+                pairing_methods: vec![PairingMethod::CodeEntry],
+                known_credentials: vec![],
+                static_key: None,
+                host_name: "host".into(),
+                app_name: "app".into(),
+            },
+        );
+
+        workflow.create_channel().await.unwrap();
+        workflow.handshake(false).await.unwrap();
+        workflow
+            .pairing(Some(&controller))
+            .await
+            .expect("code-entry pairing succeeds after retry");
+
+        let (backend, _, _) = workflow.into_parts();
+        let challenge_requests = backend.code_entry_challenge_requests.lock().clone();
+        assert_eq!(
+            challenge_requests.len(),
+            1,
+            "should reuse the same challenge for first retry"
+        );
+        let tag_requests = backend.tag_requests.lock().clone();
+        assert_eq!(tag_requests.len(), 2, "should prompt and submit code twice");
     }
 
     #[tokio::test]

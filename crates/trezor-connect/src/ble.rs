@@ -76,6 +76,11 @@ enum CodeEntryChallengeDecodeOutcome {
     Retry(String),
 }
 
+enum SelectMethodDecodeOutcome {
+    Response(SelectMethodResponse),
+    Failure(String),
+}
+
 pub struct BleBackend {
     inner: TransportBackend,
     device: DeviceInfo,
@@ -182,6 +187,43 @@ impl BleBackend {
                 Ok(Some(parsed))
             }
             Err(WireError::ShortPacket) => Ok(None),
+            Err(WireError::UnexpectedChannel { expected, actual }) => {
+                match wire::decode_frame(&self.rx_buffer, None) {
+                    Ok(decoded) => {
+                        debug!(
+                            expected_channel = format_args!("0x{expected:04x}"),
+                            received_channel = format_args!("0x{actual:04x}"),
+                            consumed = decoded.consumed,
+                            "BLE THP ignoring frame on foreign channel"
+                        );
+                        self.rx_buffer.drain(..decoded.consumed);
+                    }
+                    Err(_) => {
+                        debug!(
+                            expected_channel = format_args!("0x{expected:04x}"),
+                            received_channel = format_args!("0x{actual:04x}"),
+                            "BLE THP channel mismatch without recoverable frame; dropping one byte to resync"
+                        );
+                        self.rx_buffer.drain(..1);
+                    }
+                }
+                trim_zero_padding(&mut self.rx_buffer);
+                Ok(None)
+            }
+            Err(WireError::CrcMismatch) => {
+                debug!("BLE THP CRC mismatch while parsing RX buffer; dropping one byte to resync");
+                self.rx_buffer.drain(..1);
+                trim_zero_padding(&mut self.rx_buffer);
+                Ok(None)
+            }
+            Err(WireError::UnexpectedMagic(magic)) => {
+                debug!(
+                    "BLE THP unexpected magic 0x{magic:02x} while parsing RX buffer; dropping one byte to resync"
+                );
+                self.rx_buffer.drain(..1);
+                trim_zero_padding(&mut self.rx_buffer);
+                Ok(None)
+            }
             Err(err) => Err(self.map_wire_error(err)),
         }
     }
@@ -738,13 +780,23 @@ impl ThpBackend for BleBackend {
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
-        let response = self
+        let outcome = self
             .parse_encrypted_response(parsed, |message_type, payload| {
+                if message_type == MESSAGE_TYPE_FAILURE {
+                    return Ok(SelectMethodDecodeOutcome::Failure(decode_failure_reason(
+                        payload,
+                    )));
+                }
                 let message_type_enum = proto::ThpMessageType::try_from(message_type as i32)
                     .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
-                decode_select_method_response(message_type_enum, payload)
+                let response = decode_select_method_response(message_type_enum, payload)?;
+                Ok(SelectMethodDecodeOutcome::Response(response))
             })
             .await?;
+        let response = match outcome {
+            SelectMethodDecodeOutcome::Response(response) => response,
+            SelectMethodDecodeOutcome::Failure(reason) => return Err(BackendError::Device(reason)),
+        };
 
         Ok(response)
     }

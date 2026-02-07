@@ -131,8 +131,9 @@ pub async fn run(args: PairArgs) -> Result<()> {
     }
     info!("THP channel created");
     println!("Performing THP handshake...");
+    let try_to_unlock = args.interactive;
     workflow
-        .handshake(false)
+        .handshake(try_to_unlock)
         .await
         .context("handshake failed")?;
     info!(
