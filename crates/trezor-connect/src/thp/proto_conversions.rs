@@ -433,4 +433,29 @@ mod tests {
         .unwrap();
         assert_eq!(public_key, "xpub-test");
     }
+
+    #[test]
+    fn encodes_code_entry_challenge() {
+        let challenge = vec![0x42; 32];
+        let encoded = encode_code_entry_challenge(&challenge).unwrap();
+        assert_eq!(
+            encoded.message_type,
+            proto::ThpMessageType::ThpCodeEntryChallenge as i32 as u16
+        );
+
+        let decoded = proto::ThpCodeEntryChallenge::decode(encoded.payload.as_slice()).unwrap();
+        assert_eq!(decoded.challenge, challenge);
+    }
+
+    #[test]
+    fn decodes_code_entry_cpace_response() {
+        let message = proto::ThpCodeEntryCpaceTrezor {
+            cpace_trezor_public_key: vec![0x77; 32],
+        };
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+
+        let decoded = decode_code_entry_cpace_response(&payload).unwrap();
+        assert_eq!(decoded.trezor_cpace_public_key, vec![0x77; 32]);
+    }
 }

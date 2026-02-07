@@ -720,6 +720,10 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: CodeEntryChallengeRequest,
     ) -> BackendResult<CodeEntryChallengeResponse> {
+        debug!(
+            "BLE THP TX code-entry challenge payload_len={}",
+            request.challenge.len()
+        );
         let encoded =
             encode_code_entry_challenge(&request.challenge).map_err(|e| self.map_proto_error(e))?;
         self.send_encrypted_request(encoded).await?;
@@ -733,6 +737,10 @@ impl ThpBackend for BleBackend {
                 decode_code_entry_cpace_response(payload)
             })
             .await?;
+        debug!(
+            "BLE THP RX code-entry cpace public_key_len={}",
+            response.trezor_cpace_public_key.len()
+        );
 
         Ok(response)
     }
