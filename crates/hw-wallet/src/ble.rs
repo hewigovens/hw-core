@@ -3,7 +3,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use ble_transport::{BleError, BleManager, BleProfile, BleSession, DiscoveredDevice};
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use tracing::debug;
 use trezor_connect::ble::BleBackend;
 use trezor_connect::thp::storage::ThpStorage;
@@ -74,19 +74,35 @@ pub async fn create_channel_with_retry(
     retry_delay: Duration,
 ) -> WalletResult<usize> {
     let attempts = attempts.max(1);
+    let per_attempt_timeout = Duration::from_secs(15);
     for attempt in 1..=attempts {
-        match workflow.create_channel().await {
-            Ok(_) => {
+        match timeout(per_attempt_timeout, workflow.create_channel()).await {
+            Err(_) if attempt < attempts => {
+                debug!(
+                    "create-channel timed out after {:?} on attempt {}; retrying after {:?}",
+                    per_attempt_timeout, attempt, retry_delay
+                );
+                sleep(retry_delay).await;
+            }
+            Err(_) => {
+                return Err(WalletError::Workflow(ThpWorkflowError::Backend(
+                    BackendError::Transport(format!(
+                        "timeout waiting for BLE response (create-channel attempt timeout {:?})",
+                        per_attempt_timeout
+                    )),
+                )));
+            }
+            Ok(Ok(())) => {
                 return Ok(attempt);
             }
-            Err(err) if is_transport_timeout(&err) && attempt < attempts => {
+            Ok(Err(err)) if is_transport_timeout(&err) && attempt < attempts => {
                 debug!(
                     "create-channel timed out on attempt {}; retrying after {:?}",
                     attempt, retry_delay
                 );
                 sleep(retry_delay).await;
             }
-            Err(err) => return Err(err.into()),
+            Ok(Err(err)) => return Err(err.into()),
         }
     }
 

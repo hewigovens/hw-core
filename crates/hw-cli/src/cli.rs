@@ -47,6 +47,8 @@ pub struct PairArgs {
     pub host_name: Option<String>,
     #[arg(long, default_value = "hw-core/cli")]
     pub app_name: String,
+    #[arg(long, default_value_t = false)]
+    pub interactive: bool,
     #[arg(long)]
     pub force: bool,
 }
@@ -120,6 +122,7 @@ mod tests {
         assert_eq!(args.pairing_method, PairingMethod::Ble);
         assert_eq!(args.timeout_secs, 60);
         assert_eq!(args.thp_timeout_secs, 60);
+        assert!(!args.interactive);
     }
 
     #[test]

@@ -8,18 +8,20 @@ use hw_wallet::ble::{
     scan_profile_until_match, trezor_profile, workflow_with_storage,
 };
 use hw_wallet::WalletError;
+use tokio::time::timeout;
 use tracing::{debug, info};
-use trezor_connect::thp::{FileStorage, HostConfig, Phase};
+use trezor_connect::thp::{FileStorage, HostConfig, PairingMethod as ThpPairingMethod, Phase};
 
 use crate::cli::{PairArgs, PairingMethod};
 use crate::commands::common::select_device;
+use crate::commands::session;
 use crate::config::{default_host_name, default_storage_path};
 use crate::pairing::CliPairingController;
 
 pub async fn run(args: PairArgs) -> Result<()> {
     info!(
-        "pair command started: pairing_method={:?}, scan_timeout_secs={}, thp_timeout_secs={}, force={}",
-        args.pairing_method, args.timeout_secs, args.thp_timeout_secs, args.force
+        "pair command started: pairing_method={:?}, scan_timeout_secs={}, thp_timeout_secs={}, interactive={}, force={}",
+        args.pairing_method, args.timeout_secs, args.thp_timeout_secs, args.interactive, args.force
     );
     if args.pairing_method != PairingMethod::Ble {
         bail!("only --pairing-method ble is supported");
@@ -73,15 +75,26 @@ pub async fn run(args: PairArgs) -> Result<()> {
         selected_name
     );
 
-    let session = match connect_trezor_device(selected, profile).await {
-        Ok(session) => session,
-        Err(WalletError::PeerRemovedPairingInfo) => {
+    println!("Opening BLE session...");
+    let session = match timeout(
+        Duration::from_secs(args.thp_timeout_secs),
+        connect_trezor_device(selected, profile),
+    )
+    .await
+    {
+        Err(_) => bail!(
+            "opening BLE session timed out after {}s",
+            args.thp_timeout_secs
+        ),
+        Ok(Ok(session)) => session,
+        Ok(Err(WalletError::PeerRemovedPairingInfo)) => {
             bail!(
                 "opening BLE session failed: peer removed pairing information. Remove this Trezor from macOS Bluetooth settings, then re-run `hw-cli pair --force`."
             );
         }
-        Err(err) => return Err(err).context("opening BLE session failed"),
+        Ok(Err(err)) => return Err(err).context("opening BLE session failed"),
     };
+    println!("BLE session established.");
     debug!("BLE session established");
     let backend = backend_from_session(session, Duration::from_secs(args.thp_timeout_secs));
     debug!(
@@ -94,13 +107,19 @@ pub async fn run(args: PairArgs) -> Result<()> {
         "pair identity: host_name='{}', app_name='{}'",
         host_name, args.app_name
     );
-    let config = HostConfig::new(host_name, args.app_name);
+    let mut config = HostConfig::new(host_name, args.app_name);
+    // Match Suite default to avoid implicit SkipPairing unless explicitly requested later.
+    config.pairing_methods = vec![ThpPairingMethod::CodeEntry];
     let storage = Arc::new(FileStorage::new(storage_path.clone()));
     let mut workflow = workflow_with_storage(backend, config, storage)
         .await
         .context("workflow setup failed")?;
     debug!("workflow initialized with persisted host state");
 
+    println!(
+        "Creating THP channel (may take up to ~{}s with retries)...",
+        args.thp_timeout_secs * 3
+    );
     let channel_attempt = create_channel_with_retry(&mut workflow, 3, Duration::from_millis(800))
         .await
         .context("create-channel failed")?;
@@ -111,6 +130,7 @@ pub async fn run(args: PairArgs) -> Result<()> {
         );
     }
     info!("THP channel created");
+    println!("Performing THP handshake...");
     workflow
         .handshake(false)
         .await
@@ -123,6 +143,11 @@ pub async fn run(args: PairArgs) -> Result<()> {
 
     match workflow.state().phase() {
         Phase::Pairing => {
+            println!(
+                "Sending pairing request with host/app labels: '{}' / '{}'.",
+                workflow.host_config().host_name,
+                workflow.host_config().app_name
+            );
             let controller = CliPairingController;
             workflow
                 .pairing(Some(&controller))
@@ -133,7 +158,9 @@ pub async fn run(args: PairArgs) -> Result<()> {
         }
         Phase::Paired => {
             println!("Device already paired (or auto-paired).");
-            info!("device already paired or autopaired");
+            info!(
+                "device already paired or autopaired; pairing-request (host/app label update) was not sent in this run"
+            );
         }
         other => {
             bail!("unexpected workflow phase after handshake: {:?}", other);
@@ -145,5 +172,15 @@ pub async fn run(args: PairArgs) -> Result<()> {
         workflow.host_config().known_credentials.len()
     );
     println!("Saved host state to: {}", storage_path.display());
+
+    if args.interactive {
+        println!("Creating wallet session...");
+        workflow
+            .create_session(None, false, false)
+            .await
+            .context("create-session failed before entering interactive mode")?;
+        session::run(&mut workflow).await?;
+    }
+
     Ok(())
 }
