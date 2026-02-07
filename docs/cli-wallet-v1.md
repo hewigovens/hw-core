@@ -1,6 +1,6 @@
 # CLI Wallet v1 Execution Plan and Task Tracker (Trezor Safe 7)
 
-Last updated: 2026-02-06
+Last updated: 2026-02-07
 Status legend: TODO | IN_PROGRESS | BLOCKED | DONE
 
 ## Mission
@@ -34,10 +34,14 @@ Out of scope:
 - [x] Workspace task helpers exist in `justfile` (`scan-demo`, `workflow-demo`).
 - [x] CLI crate `crates/hw-cli` exists with `scan`, `pair`, `address eth`, and `sign eth` command surface.
 - [x] CLI `--pairing-method` currently supports `ble` only.
-- [x] CLI `pair` timeout is configurable via `--timeout-secs` (default: `30`).
+- [x] CLI `pair` timeout is configurable via `--timeout-secs` (default: `60`).
+- [x] THP response timeout is configurable via `--thp-timeout-secs` (default: `60`).
+- [x] Pair flow retries `create-channel` on transient BLE timeout.
 - [x] CLI supports verbose debug logging via `-v` / `-vv`.
 - [x] BLE THP backend auto-acknowledges `ButtonRequest` with `ButtonAck` during encrypted flow.
 - [x] Pair workflow tests cover storage snapshot load and persistence on handshake.
+- [x] Pair host/app identity defaults to machine device name + `hw-core/cli`.
+- [x] Shared wallet BLE orchestration crate `crates/hw-wallet` exists and is wired into `hw-cli` and `hw-ffi`.
 - [ ] ETH address/signing flows are not implemented in host workflow/backend.
 - [ ] `address eth` and `sign eth` are scaffolded as explicit not-implemented stubs pending P3/P4.
 - [ ] End-to-end CLI tests for `scan -> pair -> address -> sign` do not exist yet.
@@ -67,6 +71,7 @@ Exit criteria:
 - [x] `P1-03` Add shared CLI config path and storage bootstrap logic. `DONE`
 - [x] `P1-04` Wire BLE discovery/connection for `scan` command output. `DONE`
 - [x] `P1-05` Add root `just` helpers for CLI dev loops. `DONE`
+- [x] `P1-06` Extract shared BLE wallet orchestration into `crates/hw-wallet` and reuse it from `hw-cli` + `hw-ffi`. `DONE`
 
 Exit criteria:
 - `cargo run -p hw-cli -- --help` and subcommand help work for all v1 commands.
@@ -76,9 +81,10 @@ Exit criteria:
 - [x] `P2-02` Implement `pair` command end-to-end using `ThpWorkflow` + storage. `DONE`
 - [x] `P2-03` Add `pair --force` to clear/recreate credential path safely. `DONE`
 - [x] `P2-04` Ensure re-run path uses saved static key and credentials by default. `DONE`
-- [x] `P2-05` Make pair timeout configurable and raise default to 30s. `DONE`
+- [x] `P2-05` Make pair timeout configurable and raise default to 60s. `DONE`
 - [x] `P2-06` Add focused tests for pairing command state transitions and storage reuse. `DONE`
 - [x] `P2-07` Add verbose pairing logs and handle THP `ButtonRequest`/`ButtonAck` continuation flow. `DONE`
+- [x] `P2-08` Add configurable THP timeout and retry for create-channel timeout recovery. `DONE`
 
 Exit criteria:
 - First run pairs manually; second run avoids re-pair unless `--force`.
@@ -121,10 +127,10 @@ Exit criteria:
 
 ## Proposed v1 Command UX
 - `hw-cli scan`
-- `hw-cli pair --pairing-method ble --timeout-secs 30`
+- `hw-cli pair --pairing-method ble --timeout-secs 60 --thp-timeout-secs 60`
 - `hw-cli address eth --path "m/44'/60'/0'/0/0"`
 - `hw-cli sign eth --path "m/44'/60'/0'/0/0" --tx ./tx.json`
-- Debug mode: add `-v`/`-vv` before command, e.g. `hw-cli -vv pair --pairing-method ble --timeout-secs 30`
+- Debug mode: add `-v`/`-vv` before command, e.g. `hw-cli -vv pair --pairing-method ble --timeout-secs 60`
 
 UX requirements:
 - Clear step-by-step messaging for device actions

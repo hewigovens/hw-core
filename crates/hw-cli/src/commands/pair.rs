@@ -2,20 +2,23 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use ble_transport::{BleManager, BleSession};
+use ble_transport::BleManager;
+use hw_wallet::ble::{
+    backend_from_session, connect_trezor_device, create_channel_with_retry, scan_profile,
+    trezor_profile, workflow_with_storage,
+};
 use tracing::{debug, info};
-use trezor_connect::ble::BleBackend;
-use trezor_connect::thp::{FileStorage, HostConfig, Phase, ThpWorkflow};
+use trezor_connect::thp::{FileStorage, HostConfig, Phase};
 
 use crate::cli::{PairArgs, PairingMethod};
-use crate::commands::common::{select_device, trezor_profile};
+use crate::commands::common::select_device;
 use crate::config::{default_host_name, default_storage_path};
 use crate::pairing::CliPairingController;
 
 pub async fn run(args: PairArgs) -> Result<()> {
     info!(
-        "pair command started: pairing_method={:?}, timeout_secs={}, force={}",
-        args.pairing_method, args.timeout_secs, args.force
+        "pair command started: pairing_method={:?}, scan_timeout_secs={}, thp_timeout_secs={}, force={}",
+        args.pairing_method, args.timeout_secs, args.thp_timeout_secs, args.force
     );
     if args.pairing_method != PairingMethod::Ble {
         bail!("only --pairing-method ble is supported");
@@ -43,8 +46,7 @@ pub async fn run(args: PairArgs) -> Result<()> {
         "Scanning for {} devices for {}s...",
         profile.name, args.timeout_secs
     );
-    let devices = manager
-        .scan_profile(profile, Duration::from_secs(args.timeout_secs))
+    let devices = scan_profile(&manager, profile, Duration::from_secs(args.timeout_secs))
         .await
         .context("BLE scan failed")?;
     info!("scan complete: discovered {} device(s)", devices.len());
@@ -65,25 +67,37 @@ pub async fn run(args: PairArgs) -> Result<()> {
         selected_name
     );
 
-    let (info, peripheral) = selected.into_parts();
-    let session = BleSession::new(peripheral, profile, info)
+    let session = connect_trezor_device(selected, profile)
         .await
         .context("opening BLE session failed")?;
     debug!("BLE session established");
-    let backend = BleBackend::from_session(session);
+    let backend = backend_from_session(session, Duration::from_secs(args.thp_timeout_secs));
+    debug!(
+        "configured THP backend response timeout: {:?}",
+        backend.handshake_timeout()
+    );
 
     let host_name = args.host_name.unwrap_or_else(default_host_name);
+    info!(
+        "pair identity: host_name='{}', app_name='{}'",
+        host_name, args.app_name
+    );
     let config = HostConfig::new(host_name, args.app_name);
     let storage = Arc::new(FileStorage::new(storage_path.clone()));
-    let mut workflow = ThpWorkflow::with_storage(backend, config, storage)
+    let mut workflow = workflow_with_storage(backend, config, storage)
         .await
         .context("workflow setup failed")?;
     debug!("workflow initialized with persisted host state");
 
-    workflow
-        .create_channel()
+    let channel_attempt = create_channel_with_retry(&mut workflow, 3, Duration::from_millis(800))
         .await
         .context("create-channel failed")?;
+    if channel_attempt > 1 {
+        info!(
+            "create-channel succeeded on retry attempt {}",
+            channel_attempt
+        );
+    }
     info!("THP channel created");
     workflow
         .handshake(false)

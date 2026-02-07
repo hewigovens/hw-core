@@ -1,13 +1,8 @@
 use anyhow::{bail, Context, Result};
-use ble_transport::{BleProfile, DiscoveredDevice};
+use ble_transport::DiscoveredDevice;
 use tracing::debug;
 
 use crate::ui::prompt_line;
-
-pub fn trezor_profile() -> Result<BleProfile> {
-    BleProfile::trezor_safe7()
-        .ok_or_else(|| anyhow::anyhow!("binary was built without the trezor-safe7 BLE profile"))
-}
 
 pub fn select_device(
     mut devices: Vec<DiscoveredDevice>,

@@ -41,3 +41,9 @@ impl From<trezor_connect::thp::ThpWorkflowError> for HWCoreError {
         HWCoreError::message(error.to_string())
     }
 }
+
+impl From<hw_wallet::WalletError> for HWCoreError {
+    fn from(error: hw_wallet::WalletError) -> Self {
+        HWCoreError::message(error.to_string())
+    }
+}
