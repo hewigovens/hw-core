@@ -71,6 +71,11 @@ enum TagDecodeOutcome {
     Retry(String),
 }
 
+enum CodeEntryChallengeDecodeOutcome {
+    PublicKey(CodeEntryChallengeResponse),
+    Retry(String),
+}
+
 pub struct BleBackend {
     inner: TransportBackend,
     device: DeviceInfo,
@@ -757,14 +762,26 @@ impl ThpBackend for BleBackend {
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
-        let response = self
+        let outcome = self
             .parse_encrypted_response(parsed, |message_type, payload| {
+                if message_type == MESSAGE_TYPE_FAILURE {
+                    return Ok(CodeEntryChallengeDecodeOutcome::Retry(
+                        decode_failure_reason(payload),
+                    ));
+                }
                 if message_type != proto::ThpMessageType::ThpCodeEntryCpaceTrezor as i32 as u16 {
                     return Err(ProtoMappingError::UnexpectedMessage(message_type));
                 }
-                decode_code_entry_cpace_response(payload)
+                let response = decode_code_entry_cpace_response(payload)?;
+                Ok(CodeEntryChallengeDecodeOutcome::PublicKey(response))
             })
             .await?;
+        let response = match outcome {
+            CodeEntryChallengeDecodeOutcome::PublicKey(response) => response,
+            CodeEntryChallengeDecodeOutcome::Retry(reason) => {
+                return Err(BackendError::Device(reason));
+            }
+        };
         debug!(
             "BLE THP RX code-entry cpace public_key_len={}",
             response.trezor_cpace_public_key.len()

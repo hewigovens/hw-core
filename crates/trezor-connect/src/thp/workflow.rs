@@ -305,12 +305,28 @@ where
                     });
 
                     debug!("code-entry: sending ThpCodeEntryChallenge");
-                    let cpace_response = self
+                    let cpace_response = match self
                         .backend
                         .code_entry_challenge(CodeEntryChallengeRequest {
                             challenge: challenge.clone(),
                         })
-                        .await?;
+                        .await
+                    {
+                        Ok(response) => response,
+                        Err(super::backend::BackendError::Device(reason)) => {
+                            debug!(
+                                "code-entry challenge rejected by device: {reason}; requesting fresh commitment"
+                            );
+                            select_response = self
+                                .backend
+                                .select_pairing_method(SelectMethodRequest {
+                                    method: current_method,
+                                })
+                                .await?;
+                            continue;
+                        }
+                        Err(err) => return Err(err.into()),
+                    };
                     debug!(
                         "code-entry: received ThpCodeEntryCpaceTrezor, public_key_len={}",
                         cpace_response.trezor_cpace_public_key.len()
@@ -371,7 +387,15 @@ where
                             break;
                         }
                         super::types::PairingTagResponse::Retry(reason) => {
-                            debug!("code entry retry requested: {reason}");
+                            debug!(
+                                "code entry retry requested: {reason}; requesting fresh commitment"
+                            );
+                            select_response = self
+                                .backend
+                                .select_pairing_method(SelectMethodRequest {
+                                    method: current_method,
+                                })
+                                .await?;
                             continue;
                         }
                     }
