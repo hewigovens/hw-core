@@ -59,5 +59,10 @@ pub trait ThpBackend {
         request: CreateSessionRequest,
     ) -> BackendResult<CreateSessionResponse>;
 
+    async fn get_address(
+        &mut self,
+        request: GetAddressRequest,
+    ) -> BackendResult<GetAddressResponse>;
+
     async fn abort(&mut self) -> BackendResult<()>;
 }

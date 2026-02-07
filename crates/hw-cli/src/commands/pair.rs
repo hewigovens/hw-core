@@ -4,9 +4,10 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use ble_transport::BleManager;
 use hw_wallet::ble::{
-    backend_from_session, connect_trezor_device, create_channel_with_retry, scan_profile,
-    trezor_profile, workflow_with_storage,
+    backend_from_session, connect_trezor_device, create_channel_with_retry,
+    scan_profile_until_match, trezor_profile, workflow_with_storage,
 };
+use hw_wallet::WalletError;
 use tracing::{debug, info};
 use trezor_connect::thp::{FileStorage, HostConfig, Phase};
 
@@ -46,9 +47,14 @@ pub async fn run(args: PairArgs) -> Result<()> {
         "Scanning for {} devices for {}s...",
         profile.name, args.timeout_secs
     );
-    let devices = scan_profile(&manager, profile, Duration::from_secs(args.timeout_secs))
-        .await
-        .context("BLE scan failed")?;
+    let devices = scan_profile_until_match(
+        &manager,
+        profile,
+        Duration::from_secs(args.timeout_secs),
+        args.device_id.as_deref(),
+    )
+    .await
+    .context("BLE scan failed")?;
     info!("scan complete: discovered {} device(s)", devices.len());
 
     if devices.is_empty() {
@@ -67,9 +73,15 @@ pub async fn run(args: PairArgs) -> Result<()> {
         selected_name
     );
 
-    let session = connect_trezor_device(selected, profile)
-        .await
-        .context("opening BLE session failed")?;
+    let session = match connect_trezor_device(selected, profile).await {
+        Ok(session) => session,
+        Err(WalletError::PeerRemovedPairingInfo) => {
+            bail!(
+                "opening BLE session failed: peer removed pairing information. Remove this Trezor from macOS Bluetooth settings, then re-run `hw-cli pair --force`."
+            );
+        }
+        Err(err) => return Err(err).context("opening BLE session failed"),
+    };
     debug!("BLE session established");
     let backend = backend_from_session(session, Duration::from_secs(args.thp_timeout_secs));
     debug!(

@@ -22,10 +22,11 @@ use crate::thp::crypto::{aes256gcm_decrypt, aes256gcm_encrypt, get_iv_from_nonce
 use crate::thp::proto;
 use crate::thp::proto_conversions::to_pairing_tag_response;
 use crate::thp::proto_conversions::{
-    decode_credential_response, decode_pairing_request_approved, decode_select_method_response,
-    decode_tag_response, encode_code_entry_tag, encode_credential_request, encode_end_request,
-    encode_nfc_tag, encode_pairing_request, encode_qr_tag, encode_select_method, EncodedMessage,
-    ProtoMappingError,
+    decode_credential_response, decode_get_address_response, decode_get_public_key_response,
+    decode_pairing_request_approved, decode_select_method_response, decode_tag_response,
+    encode_code_entry_tag, encode_credential_request, encode_end_request,
+    encode_get_address_request, encode_get_public_key_request, encode_nfc_tag,
+    encode_pairing_request, encode_qr_tag, encode_select_method, EncodedMessage, ProtoMappingError,
 };
 use crate::thp::types::*;
 use crate::thp::wire::{
@@ -827,6 +828,41 @@ impl ThpBackend for BleBackend {
         .await?;
 
         Ok(CreateSessionResponse)
+    }
+
+    async fn get_address(
+        &mut self,
+        request: GetAddressRequest,
+    ) -> BackendResult<GetAddressResponse> {
+        let encoded = encode_get_address_request(&request).map_err(|e| self.map_proto_error(e))?;
+        self.send_encrypted_request(encoded).await?;
+
+        let parsed = self.read_next().await?;
+        let mut response = self
+            .parse_encrypted_response(parsed, |message_type, payload| {
+                decode_get_address_response(request.chain, message_type, payload)
+            })
+            .await?;
+
+        if request.include_public_key {
+            let encoded = encode_get_public_key_request(
+                request.chain,
+                &request.address_n,
+                request.show_display,
+            )
+            .map_err(|e| self.map_proto_error(e))?;
+            self.send_encrypted_request(encoded).await?;
+
+            let parsed = self.read_next().await?;
+            let public_key = self
+                .parse_encrypted_response(parsed, |message_type, payload| {
+                    decode_get_public_key_response(request.chain, message_type, payload)
+                })
+                .await?;
+            response.public_key = Some(public_key);
+        }
+
+        Ok(response)
     }
 
     async fn abort(&mut self) -> BackendResult<()> {

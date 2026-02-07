@@ -7,32 +7,23 @@ Early-stage Rust workspace for host-to-hardware crypto wallets. The first milest
 
 - THP reference documentation: [trezor-firmware/docs/common/communication/thp.md](https://github.com/trezor/trezor-firmware/blob/m1nd3r/thp-documentation/docs/common/communication/thp.md).
 
-## What’s implemented
-
-- `trezor-connect`: host workflow layer covering create-channel, Noise handshake, pairing (QR/NFC/code entry), credential issuance, and session creation. Uses the shared THP wire helpers for BLE.
-- `thp-proto`: vendored `messages-thp.proto` with prost types + conversions to workflow structs.
-- `thp-core`, `thp-codec`, `thp-crypto`: Noise XX session driver, transport framing (CRC/fragmentation), AES/X25519 helpers, and credential discovery logic.
-- `ble-transport`: btleplug-powered scaffolding (scan/connect/session) leveraged by the new BLE backend, with channel tests verifying frame encode/decode and state tracking.
-- `hw-ffi`: UniFFI-based FFI surface that wraps BLE discovery and THP workflows for mobile/desktop consumers.
-
 ## Roadmap
 
-- USB transport: implement a THP link on top of HID/bridge transport and expose via the `usb` feature.
-- Persistence: surface pairing credential/tag secrets in a pluggable storage layer for multi-device reuse.
-- Multi-vendor abstraction: generalise link/workflow traits so Ledger/Secure Element protocols can share the same host surface.
-- Integration tests: flesh out mocked link scenarios (BLE/USB) that exercise protobuf routes end-to-end.
+See [docs/roadmap.md](docs/roadmap.md) for what's implemented, current focus, and future plans. The v1 task tracker is at [docs/cli-wallet-v1.md](docs/cli-wallet-v1.md).
 
 APIs are unstable while we iterate on the transport abstraction and vendor-agnostic workflow surface.
 
 ## Workspace layout
 
-- `crates/ble-transport`: btleplug-based BLE manager with pluggable wallet profiles (ready for UniFFI/mobile bindings).
-- `crates/thp-codec`: length/CRC framed Thunderbolt Host Protocol packets with property tests.
+- `crates/thp-codec`: length/CRC framed THP packets with property tests.
 - `crates/thp-crypto`: Noise XX + CPace helpers shared by higher layers.
 - `crates/thp-core`: async session state machine that drives Noise handshakes and encrypted THP requests.
 - `crates/thp-proto`: prost-generated THP protobufs and helper adapters.
-- `crates/trezor-connect`: host-facing workflow API plus transport backends (BLE today, USB soon™).
-- `crates/hw-ffi`: cdylib exposing the BLE manager + THP workflow over UniFFI.
+- `crates/ble-transport`: btleplug-based BLE manager with pluggable wallet profiles.
+- `crates/trezor-connect`: host-facing workflow API plus transport backends (BLE today, USB soon).
+- `crates/hw-wallet`: shared wallet orchestration (BLE scanning, BIP32, helpers) for CLI and FFI.
+- `crates/hw-cli`: interactive CLI for Trezor Safe 7 (scan, pair, address, sign).
+- `crates/hw-ffi`: cdylib exposing the BLE manager + THP workflow over UniFFI (Swift/Kotlin).
 
 ## Feature flags
 
@@ -56,12 +47,16 @@ Or use the `just` helpers described below.
 Install [just](https://github.com/casey/just) and run:
 
 ```bash
-just fmt            # format
-just lint           # clippy (workspace)
-just test           # cargo test --workspace
-just ci             # fmt check + lint + test (mirrors GitHub CI)
-just scan-demo      # scan for Trezor devices over BLE (trezor-safe7 feature)
-just workflow-demo  # drive the THP BLE workflow (requires a device)
+just fmt              # format
+just lint             # clippy (workspace)
+just test             # cargo test --workspace
+just build            # cargo build --workspace
+just ci               # fmt check + lint + test (mirrors GitHub CI)
+just scan-demo        # scan for Trezor devices over BLE
+just workflow-demo    # drive the THP BLE workflow (requires a device)
+just cli-scan         # scan via CLI
+just cli-pair         # pair via CLI
+just cli-pair-debug   # pair with verbose logging (-vv)
 ```
 
 ## Examples

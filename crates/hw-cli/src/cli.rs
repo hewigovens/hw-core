@@ -66,6 +66,24 @@ pub enum AddressCommand {
 pub struct AddressEthArgs {
     #[arg(long)]
     pub path: String,
+    #[arg(long, default_value_t = false)]
+    pub show_on_device: bool,
+    #[arg(long, default_value_t = false)]
+    pub include_public_key: bool,
+    #[arg(long, default_value_t = false)]
+    pub chunkify: bool,
+    #[arg(long, alias = "duration-secs", default_value_t = 60)]
+    pub timeout_secs: u64,
+    #[arg(long, default_value_t = 60)]
+    pub thp_timeout_secs: u64,
+    #[arg(long)]
+    pub device_id: Option<String>,
+    #[arg(long)]
+    pub storage_path: Option<PathBuf>,
+    #[arg(long)]
+    pub host_name: Option<String>,
+    #[arg(long, default_value = "hw-core/cli")]
+    pub app_name: String,
 }
 
 #[derive(Args, Debug)]
@@ -142,5 +160,21 @@ mod tests {
         };
 
         assert_eq!(cli.verbose, 2);
+    }
+
+    #[test]
+    fn address_eth_defaults() {
+        let cli = Cli::parse_from(["hw-cli", "address", "eth", "--path", "m/44'/60'/0'/0/0"]);
+        let Command::Address(args) = cli.command else {
+            panic!("expected address command");
+        };
+        let AddressCommand::Eth(args) = args.command;
+
+        assert!(!args.show_on_device);
+        assert!(!args.include_public_key);
+        assert!(!args.chunkify);
+        assert_eq!(args.timeout_secs, 60);
+        assert_eq!(args.thp_timeout_secs, 60);
+        assert_eq!(args.app_name, "hw-core/cli");
     }
 }

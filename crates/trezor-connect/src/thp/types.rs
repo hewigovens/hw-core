@@ -9,6 +9,12 @@ pub enum PairingMethod {
     SkipPairing,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Chain {
+    Ethereum,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThpProperties {
     pub internal_model: String,
@@ -153,6 +159,57 @@ pub struct CreateSessionRequest {
 
 #[derive(Debug, Clone)]
 pub struct CreateSessionResponse;
+
+#[derive(Debug, Clone)]
+pub struct GetAddressRequest {
+    pub chain: Chain,
+    pub address_n: Vec<u32>,
+    pub show_display: bool,
+    pub chunkify: bool,
+    pub encoded_network: Option<Vec<u8>>,
+    pub include_public_key: bool,
+}
+
+impl GetAddressRequest {
+    pub fn ethereum(address_n: Vec<u32>) -> Self {
+        Self {
+            chain: Chain::Ethereum,
+            address_n,
+            show_display: false,
+            chunkify: false,
+            encoded_network: None,
+            include_public_key: false,
+        }
+    }
+
+    pub fn with_show_display(mut self, value: bool) -> Self {
+        self.show_display = value;
+        self
+    }
+
+    pub fn with_chunkify(mut self, value: bool) -> Self {
+        self.chunkify = value;
+        self
+    }
+
+    pub fn with_encoded_network(mut self, value: Option<Vec<u8>>) -> Self {
+        self.encoded_network = value;
+        self
+    }
+
+    pub fn with_include_public_key(mut self, value: bool) -> Self {
+        self.include_public_key = value;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GetAddressResponse {
+    pub chain: Chain,
+    pub address: String,
+    pub mac: Option<Vec<u8>>,
+    pub public_key: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct HostConfig {

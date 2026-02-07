@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 
-use ble_transport::{BleManager, BleProfile, BleSession, DiscoveredDevice};
+use ble_transport::{BleError, BleManager, BleProfile, BleSession, DiscoveredDevice};
 use tokio::time::sleep;
 use tracing::debug;
 use trezor_connect::ble::BleBackend;
@@ -37,7 +38,15 @@ pub async fn connect_trezor_device(
     profile: BleProfile,
 ) -> WalletResult<BleSession> {
     let (info, peripheral) = device.into_parts();
-    let session = BleSession::new(peripheral, profile, info).await?;
+    let session = BleSession::new(peripheral, profile, info)
+        .await
+        .map_err(|err| {
+            if is_peer_removed_pairing_info(&err) {
+                WalletError::PeerRemovedPairingInfo
+            } else {
+                WalletError::Ble(err)
+            }
+        })?;
     Ok(session)
 }
 
@@ -91,4 +100,48 @@ fn is_transport_timeout(error: &ThpWorkflowError) -> bool {
         }
         _ => false,
     }
+}
+
+pub async fn scan_profile_until_match(
+    manager: &BleManager,
+    profile: BleProfile,
+    duration: Duration,
+    device_id_filter: Option<&str>,
+) -> WalletResult<Vec<DiscoveredDevice>> {
+    const SCAN_WINDOW: Duration = Duration::from_secs(3);
+
+    let start = Instant::now();
+    let mut last_seen = Vec::new();
+    while start.elapsed() < duration {
+        let remaining = duration.saturating_sub(start.elapsed());
+        let window = remaining.min(SCAN_WINDOW);
+        let devices = scan_profile(manager, profile, window).await?;
+        if devices.is_empty() {
+            continue;
+        }
+
+        if let Some(query) = device_id_filter {
+            if devices.iter().any(|device| device_matches(device, query)) {
+                return Ok(devices);
+            }
+            last_seen = devices;
+            continue;
+        }
+
+        return Ok(devices);
+    }
+
+    Ok(last_seen)
+}
+
+fn device_matches(device: &DiscoveredDevice, query: &str) -> bool {
+    let id = &device.info().id;
+    id == query || id.contains(query)
+}
+
+fn is_peer_removed_pairing_info(error: &BleError) -> bool {
+    error
+        .to_string()
+        .to_lowercase()
+        .contains("peer removed pairing information")
 }
