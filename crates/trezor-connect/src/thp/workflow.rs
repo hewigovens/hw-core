@@ -10,9 +10,10 @@ use super::{
     state::{HandshakeCache, HandshakeCredentials, Phase, ThpState},
     storage::{HostSnapshot, ThpStorage},
     types::{
-        CreateChannelRequest, CreateSessionRequest, HandshakeCompletionRequest,
-        HandshakeCompletionState, HandshakeInitRequest, HostConfig, PairingController,
-        PairingDecision, PairingMethod, PairingPrompt, PairingTagRequest, SelectMethodRequest,
+        CreateChannelRequest, CreateSessionRequest, GetAddressRequest, GetAddressResponse,
+        HandshakeCompletionRequest, HandshakeCompletionState, HandshakeInitRequest, HostConfig,
+        PairingController, PairingDecision, PairingMethod, PairingPrompt, PairingTagRequest,
+        SelectMethodRequest,
     },
 };
 
@@ -458,6 +459,13 @@ where
         Ok(())
     }
 
+    pub async fn get_address(&mut self, request: GetAddressRequest) -> Result<GetAddressResponse> {
+        if self.state.phase() != Phase::Paired {
+            return Err(ThpWorkflowError::InvalidPhase);
+        }
+        self.backend.get_address(request).await.map_err(Into::into)
+    }
+
     pub async fn abort(&mut self) -> Result<()> {
         self.backend.abort().await?;
         self.state.reset();
@@ -662,6 +670,18 @@ mod tests {
             Ok(CreateSessionResponse)
         }
 
+        async fn get_address(
+            &mut self,
+            request: GetAddressRequest,
+        ) -> BackendResult<GetAddressResponse> {
+            Ok(GetAddressResponse {
+                chain: request.chain,
+                address: "0x0000000000000000000000000000000000000000".into(),
+                mac: None,
+                public_key: None,
+            })
+        }
+
         async fn abort(&mut self) -> BackendResult<()> {
             Ok(())
         }
@@ -844,5 +864,32 @@ mod tests {
         assert_eq!(persisted.known_credentials.len(), 1);
         assert_eq!(persisted.known_credentials[0].credential, "cred1");
         assert!(storage.persist_calls() >= 1);
+    }
+
+    #[tokio::test]
+    async fn get_address_requires_paired_phase() {
+        let backend = MockBackend::autopair();
+        let mut workflow = ThpWorkflow::new(
+            backend,
+            HostConfig {
+                pairing_methods: vec![PairingMethod::SkipPairing],
+                known_credentials: vec![],
+                static_key: None,
+                host_name: "host".into(),
+                app_name: "app".into(),
+            },
+        );
+
+        let err = workflow
+            .get_address(GetAddressRequest::ethereum(vec![
+                0x8000_002c,
+                0x8000_003c,
+                0x8000_0000,
+                0,
+                0,
+            ]))
+            .await
+            .expect_err("should fail before pairing");
+        assert!(matches!(err, ThpWorkflowError::InvalidPhase));
     }
 }

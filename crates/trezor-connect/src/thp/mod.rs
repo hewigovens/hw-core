@@ -16,6 +16,7 @@ pub use storage::{FileStorage, HostSnapshot, StorageError, ThpStorage};
 pub use thp_proto::hw::trezor::messages::thp as proto;
 pub use transport::{ThpTransport, TransportError};
 pub use types::{
-    CreateSessionRequest, HostConfig, PairingController, PairingDecision, PairingMethod,
+    Chain, CreateSessionRequest, GetAddressRequest, GetAddressResponse, HostConfig,
+    PairingController, PairingDecision, PairingMethod,
 };
 pub use workflow::ThpWorkflow;

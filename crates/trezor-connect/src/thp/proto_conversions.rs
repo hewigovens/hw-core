@@ -6,8 +6,9 @@ use thiserror::Error;
 
 use super::proto;
 use super::types::{
-    CredentialRequest, CredentialResponse, PairingMethod, PairingRequest, PairingRequestApproved,
-    PairingTagResponse, SelectMethodRequest, SelectMethodResponse, ThpProperties,
+    Chain, CredentialRequest, CredentialResponse, GetAddressRequest, GetAddressResponse,
+    PairingMethod, PairingRequest, PairingRequestApproved, PairingTagResponse, SelectMethodRequest,
+    SelectMethodResponse, ThpProperties,
 };
 
 #[derive(Debug, Error)]
@@ -27,6 +28,47 @@ pub enum ProtoMappingError {
 pub struct EncodedMessage {
     pub message_type: u16,
     pub payload: Vec<u8>,
+}
+
+const MESSAGE_TYPE_ETHEREUM_GET_ADDRESS: u16 = 56;
+const MESSAGE_TYPE_ETHEREUM_ADDRESS: u16 = 57;
+const MESSAGE_TYPE_ETHEREUM_GET_PUBLIC_KEY: u16 = 450;
+const MESSAGE_TYPE_ETHEREUM_PUBLIC_KEY: u16 = 451;
+
+#[derive(Clone, PartialEq, Message)]
+struct EthereumGetAddressProto {
+    #[prost(uint32, repeated, packed = "false", tag = "1")]
+    address_n: Vec<u32>,
+    #[prost(bool, optional, tag = "2")]
+    show_display: Option<bool>,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    encoded_network: Option<Vec<u8>>,
+    #[prost(bool, optional, tag = "4")]
+    chunkify: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct EthereumAddressProto {
+    #[prost(bytes = "vec", optional, tag = "1")]
+    old_address: Option<Vec<u8>>,
+    #[prost(string, optional, tag = "2")]
+    address: Option<String>,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    mac: Option<Vec<u8>>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct EthereumGetPublicKeyProto {
+    #[prost(uint32, repeated, packed = "false", tag = "1")]
+    address_n: Vec<u32>,
+    #[prost(bool, optional, tag = "2")]
+    show_display: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct EthereumPublicKeyProto {
+    #[prost(string, optional, tag = "2")]
+    xpub: Option<String>,
 }
 
 fn encode_message<M: Message>(
@@ -213,4 +255,166 @@ pub fn decode_device_properties(payload: &[u8]) -> Result<ThpProperties, ProtoMa
         protocol_version_minor: msg.protocol_version_minor,
         pairing_methods,
     })
+}
+
+pub fn encode_get_address_request(
+    request: &GetAddressRequest,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    match request.chain {
+        Chain::Ethereum => {
+            let message = EthereumGetAddressProto {
+                address_n: request.address_n.clone(),
+                show_display: Some(request.show_display),
+                encoded_network: request.encoded_network.clone(),
+                chunkify: Some(request.chunkify),
+            };
+            let mut payload = Vec::new();
+            message.encode(&mut payload)?;
+            Ok(EncodedMessage {
+                message_type: MESSAGE_TYPE_ETHEREUM_GET_ADDRESS,
+                payload,
+            })
+        }
+    }
+}
+
+pub fn decode_get_address_response(
+    chain: Chain,
+    message_type: u16,
+    payload: &[u8],
+) -> Result<GetAddressResponse, ProtoMappingError> {
+    match chain {
+        Chain::Ethereum => {
+            if message_type != MESSAGE_TYPE_ETHEREUM_ADDRESS {
+                return Err(ProtoMappingError::UnexpectedMessage(message_type));
+            }
+
+            let message = EthereumAddressProto::decode(payload)?;
+            let address = message
+                .address
+                .or_else(|| {
+                    message
+                        .old_address
+                        .map(|bytes| format!("0x{}", hex::encode(bytes)))
+                })
+                .ok_or(ProtoMappingError::UnexpectedMessage(message_type))?;
+
+            Ok(GetAddressResponse {
+                chain,
+                address,
+                mac: message.mac,
+                public_key: None,
+            })
+        }
+    }
+}
+
+pub fn encode_get_public_key_request(
+    chain: Chain,
+    address_n: &[u32],
+    show_display: bool,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    match chain {
+        Chain::Ethereum => {
+            let message = EthereumGetPublicKeyProto {
+                address_n: address_n.to_vec(),
+                show_display: Some(show_display),
+            };
+            let mut payload = Vec::new();
+            message.encode(&mut payload)?;
+            Ok(EncodedMessage {
+                message_type: MESSAGE_TYPE_ETHEREUM_GET_PUBLIC_KEY,
+                payload,
+            })
+        }
+    }
+}
+
+pub fn decode_get_public_key_response(
+    chain: Chain,
+    message_type: u16,
+    payload: &[u8],
+) -> Result<String, ProtoMappingError> {
+    match chain {
+        Chain::Ethereum => {
+            if message_type != MESSAGE_TYPE_ETHEREUM_PUBLIC_KEY {
+                return Err(ProtoMappingError::UnexpectedMessage(message_type));
+            }
+            let message = EthereumPublicKeyProto::decode(payload)?;
+            message
+                .xpub
+                .ok_or(ProtoMappingError::UnexpectedMessage(message_type))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encodes_ethereum_get_address_request() {
+        let request =
+            GetAddressRequest::ethereum(vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0])
+                .with_show_display(true)
+                .with_chunkify(true);
+        let encoded = encode_get_address_request(&request).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_ETHEREUM_GET_ADDRESS);
+
+        let decoded = EthereumGetAddressProto::decode(encoded.payload.as_slice()).unwrap();
+        assert_eq!(decoded.address_n, request.address_n);
+        assert_eq!(decoded.show_display, Some(true));
+        assert_eq!(decoded.chunkify, Some(true));
+    }
+
+    #[test]
+    fn decodes_ethereum_address_response_with_mac() {
+        let message = EthereumAddressProto {
+            old_address: None,
+            address: Some("0x1234".into()),
+            mac: Some(vec![0xAA, 0xBB]),
+        };
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+
+        let response =
+            decode_get_address_response(Chain::Ethereum, MESSAGE_TYPE_ETHEREUM_ADDRESS, &payload)
+                .unwrap();
+        assert_eq!(response.address, "0x1234");
+        assert_eq!(response.mac, Some(vec![0xAA, 0xBB]));
+        assert!(response.public_key.is_none());
+    }
+
+    #[test]
+    fn decodes_ethereum_address_response_from_legacy_field() {
+        let message = EthereumAddressProto {
+            old_address: Some(vec![0xDE, 0xAD, 0xBE, 0xEF]),
+            address: None,
+            mac: None,
+        };
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+
+        let response =
+            decode_get_address_response(Chain::Ethereum, MESSAGE_TYPE_ETHEREUM_ADDRESS, &payload)
+                .unwrap();
+        assert_eq!(response.address, "0xdeadbeef");
+    }
+
+    #[test]
+    fn decodes_ethereum_public_key_response() {
+        let message = EthereumPublicKeyProto {
+            xpub: Some("xpub-test".into()),
+        };
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+
+        let public_key = decode_get_public_key_response(
+            Chain::Ethereum,
+            MESSAGE_TYPE_ETHEREUM_PUBLIC_KEY,
+            &payload,
+        )
+        .unwrap();
+        assert_eq!(public_key, "xpub-test");
+    }
 }

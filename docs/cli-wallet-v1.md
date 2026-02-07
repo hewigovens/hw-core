@@ -37,13 +37,18 @@ Out of scope:
 - [x] CLI `pair` timeout is configurable via `--timeout-secs` (default: `60`).
 - [x] THP response timeout is configurable via `--thp-timeout-secs` (default: `60`).
 - [x] Pair flow retries `create-channel` on transient BLE timeout.
+- [x] Pair/address scanning exits early when a matching device is discovered instead of always waiting full timeout.
 - [x] CLI supports verbose debug logging via `-v` / `-vv`.
 - [x] BLE THP backend auto-acknowledges `ButtonRequest` with `ButtonAck` during encrypted flow.
+- [x] Pair/address detect BLE "Peer removed pairing information" and show explicit OS unpair/removal recovery guidance.
 - [x] Pair workflow tests cover storage snapshot load and persistence on handshake.
 - [x] Pair host/app identity defaults to machine device name + `hw-core/cli`.
 - [x] Shared wallet BLE orchestration crate `crates/hw-wallet` exists and is wired into `hw-cli` and `hw-ffi`.
-- [ ] ETH address/signing flows are not implemented in host workflow/backend.
-- [ ] `address eth` and `sign eth` are scaffolded as explicit not-implemented stubs pending P3/P4.
+- [x] Shared BIP32 parser moved to `crates/hw-wallet` for reuse by CLI/FFI.
+- [x] Chain-generic host `get-address` API exists in THP layer (Ethereum implementation complete, extensible to more chains).
+- [x] CLI `address eth` is implemented and supports optional `--include-public-key`.
+- [ ] ETH signing flow is not implemented in host workflow/backend.
+- [ ] `sign eth` is still scaffolded as explicit not-implemented stub pending P4.
 - [ ] End-to-end CLI tests for `scan -> pair -> address -> sign` do not exist yet.
 
 ## Phase Gates
@@ -72,6 +77,7 @@ Exit criteria:
 - [x] `P1-04` Wire BLE discovery/connection for `scan` command output. `DONE`
 - [x] `P1-05` Add root `just` helpers for CLI dev loops. `DONE`
 - [x] `P1-06` Extract shared BLE wallet orchestration into `crates/hw-wallet` and reuse it from `hw-cli` + `hw-ffi`. `DONE`
+- [x] `P1-07` Move shared BIP32 derivation-path parsing into `crates/hw-wallet` to avoid CLI-only duplication. `DONE`
 
 Exit criteria:
 - `cargo run -p hw-cli -- --help` and subcommand help work for all v1 commands.
@@ -90,13 +96,13 @@ Exit criteria:
 - First run pairs manually; second run avoids re-pair unless `--force`.
 
 ### P3 - Ethereum Address Flow
-- [ ] `P3-01` Add ETH address request/response types in `crates/trezor-connect/src/thp/types.rs`. `TODO`
-- [ ] `P3-02` Extend `ThpBackend` trait for ETH address operation. `TODO`
-- [ ] `P3-03` Add proto encode/decode mapping in `crates/trezor-connect/src/thp/proto_conversions.rs`. `TODO`
-- [ ] `P3-04` Implement encrypted BLE request/response handling in `crates/trezor-connect/src/ble.rs`. `TODO`
-- [ ] `P3-05` Expose workflow API in `crates/trezor-connect/src/thp/workflow.rs`. `TODO`
-- [ ] `P3-06` Wire CLI command `address eth --path <bip32>` with checksummed output formatting. `TODO`
-- [ ] `P3-07` Add unit and integration tests for address mapping and command behavior. `TODO`
+- [x] `P3-01` Add ETH address request/response types in `crates/trezor-connect/src/thp/types.rs`. `DONE`
+- [x] `P3-02` Extend `ThpBackend` trait for ETH address operation. `DONE`
+- [x] `P3-03` Add proto encode/decode mapping in `crates/trezor-connect/src/thp/proto_conversions.rs`. `DONE`
+- [x] `P3-04` Implement encrypted BLE request/response handling in `crates/trezor-connect/src/ble.rs`. `DONE`
+- [x] `P3-05` Expose workflow API in `crates/trezor-connect/src/thp/workflow.rs`. `DONE`
+- [x] `P3-06` Wire CLI command `address eth --path <bip32>` with checksummed output formatting. `DONE`
+- [ ] `P3-07` Add unit and integration tests for address mapping and command behavior. `IN_PROGRESS`
 
 Exit criteria:
 - `hw-cli address eth --path "m/44'/60'/0'/0/0"` returns a valid checksummed address from device.
@@ -128,7 +134,7 @@ Exit criteria:
 ## Proposed v1 Command UX
 - `hw-cli scan`
 - `hw-cli pair --pairing-method ble --timeout-secs 60 --thp-timeout-secs 60`
-- `hw-cli address eth --path "m/44'/60'/0'/0/0"`
+- `hw-cli address eth --path "m/44'/60'/0'/0/0" --include-public-key`
 - `hw-cli sign eth --path "m/44'/60'/0'/0/0" --tx ./tx.json`
 - Debug mode: add `-v`/`-vv` before command, e.g. `hw-cli -vv pair --pairing-method ble --timeout-secs 60`
 
@@ -141,6 +147,22 @@ UX requirements:
 - ETH message details are the main critical path risk until protocol contract is confirmed.
 - BLE behavior can require tuned retry/timeout values for stable UX on real hardware.
 - Signing may require multi-message state handling rather than a single request/response.
+
+## Trezor Suite References (Source of Truth When Unsure)
+Use local clone at:
+- `~/workspace/github/trezor-suite`
+
+Primary references:
+- THP + message IDs/schema: `trezor-suite/packages/protobuf/messages.json`
+- Ethereum address flow in Connect: `trezor-suite/packages/connect/src/api/ethereum/api/ethereumGetAddress.ts`
+- Generic BTC-style address flow: `trezor-suite/packages/connect/src/api/getAddress.ts`
+- Public key flow: `trezor-suite/packages/connect/src/api/getPublicKey.ts`
+- BLE peer-unpaired handling in Suite: `trezor-suite/packages/suite/src/actions/bluetooth/bluetoothConnectDeviceThunk.ts`
+- BLE native pairing-error mapping: `trezor-suite/packages/transport-native-bluetooth/src/api/bluetoothManager.ts`
+- User-facing OS unpair guidance string: `trezor-suite/packages/suite-data/files/translations/en-US.json`
+
+Rule:
+- If expected device behavior or protocol details are unclear, check these files first and align implementation/UX with Suite semantics before introducing custom behavior.
 
 ## v1 Success Criteria
 - A user can run the CLI on a real Trezor Safe 7 and complete:
