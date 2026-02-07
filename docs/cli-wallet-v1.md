@@ -47,7 +47,7 @@ Out of scope:
 - [x] Pair host/app identity defaults to machine device name + `hw-core/cli`.
 - [x] BLE session setup aligns closer with Trezor Suite by probing write-with-response (`"Proof of connection"`) and subscribing both `notify` and `push` characteristics.
 - [x] BLE transport + THP backend include verbose TX/RX frame/chunk debug logs to diagnose channel-allocation stalls.
-- [x] BLE protocol writes currently use GATT write-with-response for reliability while debugging channel-allocation timeouts on macOS.
+- [x] BLE protocol writes use GATT write-without-response (Suite parity) with fallback characteristic reads when notifications are silent.
 - [x] Shared wallet BLE orchestration crate `crates/hw-wallet` exists and is wired into `hw-cli` and `hw-ffi`.
 - [x] Shared BIP32 parser moved to `crates/hw-wallet` for reuse by CLI/FFI.
 - [x] Chain-generic host `get-address` API exists in THP layer (Ethereum implementation complete, extensible to more chains).

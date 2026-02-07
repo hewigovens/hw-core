@@ -1,6 +1,7 @@
 use btleplug::api::{Characteristic, Peripheral as _, WriteType};
 use btleplug::platform::Peripheral;
 use futures::StreamExt;
+use tokio::time::{self, Duration};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::debug;
 
@@ -55,8 +56,11 @@ impl BleSession {
             device_id = %device.id,
             profile = profile.id,
             write_uuid = %write_char.uuid,
+            write_props = ?write_char.properties,
             notify_uuid = %notify_char.uuid,
+            notify_props = ?notify_char.properties,
             push_uuid = ?push_char.as_ref().map(|c| c.uuid),
+            push_props = ?push_char.as_ref().map(|c| c.properties),
             "BLE characteristics resolved"
         );
 
@@ -157,22 +161,41 @@ impl BleLink {
     pub async fn write(&mut self, chunk: &[u8]) -> anyhow::Result<()> {
         debug!(
             bytes = chunk.len(),
-            write_type = "with-response",
+            write_type = "without-response",
             "BLE write chunk"
         );
         self.peripheral
-            .write(&self.write_char, chunk, WriteType::WithResponse)
+            .write(&self.write_char, chunk, WriteType::WithoutResponse)
             .await?;
         Ok(())
     }
 
     pub async fn read(&mut self) -> anyhow::Result<Vec<u8>> {
-        match self.receiver.recv().await {
-            Some(data) => {
-                debug!(bytes = data.len(), "BLE read chunk");
-                Ok(data)
+        loop {
+            match time::timeout(Duration::from_millis(250), self.receiver.recv()).await {
+                Ok(Some(data)) => {
+                    debug!(bytes = data.len(), source = "notify", "BLE read chunk");
+                    return Ok(data);
+                }
+                Ok(None) => return Err(BleError::NotificationStreamClosed.into()),
+                Err(_) => {}
             }
-            None => Err(BleError::NotificationStreamClosed.into()),
+
+            if let Ok(data) = self.peripheral.read(&self.notify_char).await {
+                if !data.is_empty() {
+                    debug!(bytes = data.len(), source = "read-notify", "BLE read chunk");
+                    return Ok(data);
+                }
+            }
+
+            if let Some(push_char) = &self.push_char {
+                if let Ok(data) = self.peripheral.read(push_char).await {
+                    if !data.is_empty() {
+                        debug!(bytes = data.len(), source = "read-push", "BLE read chunk");
+                        return Ok(data);
+                    }
+                }
+            }
         }
     }
 
