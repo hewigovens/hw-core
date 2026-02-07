@@ -293,7 +293,8 @@ pub enum WireResponse {
         tag: [u8; 16],
     },
     HandshakeCompletion {
-        state: u8,
+        encrypted_state: u8,
+        tag: [u8; 16],
     },
     Protobuf {
         payload: Vec<u8>,
@@ -419,11 +420,15 @@ pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> 
             }
         }
         THP_HANDSHAKE_COMPLETION_RESPONSE => {
-            if message.payload.is_empty() {
+            if message.payload.len() < 1 + 16 {
                 return Err(WireError::ShortPacket);
             }
+            let tag = message.payload[1..1 + 16]
+                .try_into()
+                .expect("slice length checked");
             WireResponse::HandshakeCompletion {
-                state: message.payload[0],
+                encrypted_state: message.payload[0],
+                tag,
             }
         }
         THP_CONTROL_BYTE_ENCRYPTED | THP_CONTROL_BYTE_DECRYPTED => {
@@ -655,7 +660,9 @@ mod tests {
 
         let completion_header =
             WireHeader::new(MAGIC_HANDSHAKE_COMPLETION_RESPONSE, state.channel(), 0, 0);
-        let completion_frame = encode_frame(completion_header, &[1]);
+        let mut completion_payload = [0xAAu8; 17];
+        completion_payload[0] = 1;
+        let completion_frame = encode_frame(completion_header, &completion_payload);
         state.on_send(MAGIC_HANDSHAKE_COMPLETION_REQUEST);
         assert_eq!(
             state.expected_responses(),
