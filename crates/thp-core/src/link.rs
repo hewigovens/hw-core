@@ -1,8 +1,8 @@
-use async_trait::async_trait;
-
-#[async_trait]
 pub trait Link {
-    async fn write(&mut self, chunk: &[u8]) -> anyhow::Result<()>;
-    async fn read(&mut self) -> anyhow::Result<Vec<u8>>;
+    fn write(
+        &mut self,
+        chunk: &[u8],
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn read(&mut self) -> impl std::future::Future<Output = anyhow::Result<Vec<u8>>> + Send;
     fn mtu(&self) -> usize;
 }

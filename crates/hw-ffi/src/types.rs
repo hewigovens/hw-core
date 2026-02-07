@@ -85,8 +85,8 @@ impl From<&ThpState> for HWThpState {
             phase: state.phase(),
             is_paired: state.is_paired(),
             autoconnect: state.is_autoconnect_paired(),
-            pairing_credentials: state.pairing_credentials(),
-            handshake_cache: state.handshake_cache(),
+            pairing_credentials: state.pairing_credentials().to_vec(),
+            handshake_cache: state.handshake_cache().cloned(),
         }
     }
 }

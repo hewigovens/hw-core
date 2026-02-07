@@ -1,7 +1,7 @@
-use crate::bip32::parse_bip32_path;
 use crate::WalletResult;
+use crate::bip32::parse_bip32_path;
 pub use hw_chain::{
-    Chain, ChainConfig, CHAIN_BTC, CHAIN_ETH, DEFAULT_BITCOIN_BIP32_PATH,
+    CHAIN_BTC, CHAIN_ETH, Chain, ChainConfig, DEFAULT_BITCOIN_BIP32_PATH,
     DEFAULT_ETHEREUM_BIP32_PATH,
 };
 
@@ -37,12 +37,11 @@ pub fn resolve_derivation_path(
 
     if let (Some(explicit), Some(inferred), Some(path)) =
         (explicit_chain, inferred_chain, explicit_path)
+        && explicit != inferred
     {
-        if explicit != inferred {
-            return Err(crate::WalletError::InvalidBip32Path(format!(
-                "chain/path mismatch: explicit {explicit:?} conflicts with inferred {inferred:?} from path '{path}'"
-            )));
-        }
+        return Err(crate::WalletError::InvalidBip32Path(format!(
+            "chain/path mismatch: explicit {explicit:?} conflicts with inferred {inferred:?} from path '{path}'"
+        )));
     }
 
     let (path, path_indices) = if let Some((path, path_indices)) = parsed_path {

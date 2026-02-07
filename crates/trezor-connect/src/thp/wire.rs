@@ -18,18 +18,6 @@ pub const MAGIC_ERROR: u8 = 0x42;
 pub const MAGIC_READ_ACK: u8 = 0x20;
 pub const MAGIC_CONTINUATION: u8 = 0x80;
 
-const THP_CREATE_CHANNEL_REQUEST: u8 = MAGIC_CREATE_CHANNEL_REQUEST;
-const THP_CREATE_CHANNEL_RESPONSE: u8 = MAGIC_CREATE_CHANNEL_RESPONSE;
-const THP_HANDSHAKE_INIT_REQUEST: u8 = MAGIC_HANDSHAKE_INIT_REQUEST;
-const THP_HANDSHAKE_INIT_RESPONSE: u8 = MAGIC_HANDSHAKE_INIT_RESPONSE;
-const THP_HANDSHAKE_COMPLETION_REQUEST: u8 = MAGIC_HANDSHAKE_COMPLETION_REQUEST;
-const THP_HANDSHAKE_COMPLETION_RESPONSE: u8 = MAGIC_HANDSHAKE_COMPLETION_RESPONSE;
-const THP_CONTROL_BYTE_ENCRYPTED: u8 = MAGIC_CONTROL_ENCRYPTED;
-const THP_CONTROL_BYTE_DECRYPTED: u8 = MAGIC_CONTROL_DECRYPTED;
-const THP_ERROR_HEADER_BYTE: u8 = MAGIC_ERROR;
-const THP_READ_ACK_HEADER_BYTE: u8 = MAGIC_READ_ACK;
-const THP_CONTINUATION_PACKET: u8 = MAGIC_CONTINUATION;
-
 const ACK_BIT: u8 = 1 << 3;
 const SEQ_BIT: u8 = 1 << 4;
 
@@ -39,17 +27,17 @@ const DEFAULT_CHANNEL: u16 = 0xffff;
 fn is_handshake_magic(magic: u8) -> bool {
     matches!(
         magic,
-        THP_HANDSHAKE_INIT_REQUEST
-            | THP_HANDSHAKE_INIT_RESPONSE
-            | THP_HANDSHAKE_COMPLETION_REQUEST
-            | THP_HANDSHAKE_COMPLETION_RESPONSE
+        MAGIC_HANDSHAKE_INIT_REQUEST
+            | MAGIC_HANDSHAKE_INIT_RESPONSE
+            | MAGIC_HANDSHAKE_COMPLETION_REQUEST
+            | MAGIC_HANDSHAKE_COMPLETION_RESPONSE
     )
 }
 
 fn should_toggle_sync(magic: u8) -> bool {
     !matches!(
         magic,
-        THP_CREATE_CHANNEL_REQUEST | THP_CREATE_CHANNEL_RESPONSE | THP_READ_ACK_HEADER_BYTE
+        MAGIC_CREATE_CHANNEL_REQUEST | MAGIC_CREATE_CHANNEL_RESPONSE | MAGIC_READ_ACK
     )
 }
 
@@ -57,16 +45,16 @@ fn should_increment_nonce(magic: u8) -> bool {
     should_toggle_sync(magic) && !is_handshake_magic(magic)
 }
 
-fn default_expected_responses(magic: u8) -> Vec<u8> {
+fn default_expected_responses(magic: u8) -> &'static [u8] {
     match magic {
-        THP_CREATE_CHANNEL_REQUEST => vec![THP_CREATE_CHANNEL_RESPONSE],
-        THP_HANDSHAKE_INIT_REQUEST => vec![THP_HANDSHAKE_INIT_RESPONSE, THP_CONTINUATION_PACKET],
-        THP_HANDSHAKE_COMPLETION_REQUEST => {
-            vec![THP_HANDSHAKE_COMPLETION_RESPONSE, THP_CONTINUATION_PACKET]
+        MAGIC_CREATE_CHANNEL_REQUEST => &[MAGIC_CREATE_CHANNEL_RESPONSE],
+        MAGIC_HANDSHAKE_INIT_REQUEST => &[MAGIC_HANDSHAKE_INIT_RESPONSE, MAGIC_CONTINUATION],
+        MAGIC_HANDSHAKE_COMPLETION_REQUEST => {
+            &[MAGIC_HANDSHAKE_COMPLETION_RESPONSE, MAGIC_CONTINUATION]
         }
-        THP_CONTROL_BYTE_ENCRYPTED => vec![THP_CONTROL_BYTE_ENCRYPTED, THP_CONTINUATION_PACKET],
-        THP_CONTROL_BYTE_DECRYPTED => vec![THP_CONTROL_BYTE_DECRYPTED, THP_CONTINUATION_PACKET],
-        _ => Vec::new(),
+        MAGIC_CONTROL_ENCRYPTED => &[MAGIC_CONTROL_ENCRYPTED, MAGIC_CONTINUATION],
+        MAGIC_CONTROL_DECRYPTED => &[MAGIC_CONTROL_DECRYPTED, MAGIC_CONTINUATION],
+        _ => &[],
     }
 }
 
@@ -80,7 +68,7 @@ pub struct ThpWireState {
     send_nonce: u64,
     recv_nonce: u64,
     session_id: u8,
-    expected_responses: Vec<u8>,
+    expected_responses: &'static [u8],
     handshake_hash: Option<[u8; 32]>,
     host_key: Option<[u8; 32]>,
     trezor_key: Option<[u8; 32]>,
@@ -97,7 +85,7 @@ impl Default for ThpWireState {
             send_nonce: 0,
             recv_nonce: 1,
             session_id: 0,
-            expected_responses: Vec::new(),
+            expected_responses: &[],
             handshake_hash: None,
             host_key: None,
             trezor_key: None,
@@ -123,10 +111,10 @@ impl ThpWireState {
     }
 
     pub fn expected_responses(&self) -> &[u8] {
-        &self.expected_responses
+        self.expected_responses
     }
 
-    pub fn set_expected_responses(&mut self, expected: Vec<u8>) {
+    pub fn set_expected_responses(&mut self, expected: &'static [u8]) {
         self.expected_responses = expected;
     }
 
@@ -317,7 +305,7 @@ fn encode_frame(header: WireHeader, payload: &[u8]) -> Vec<u8> {
 }
 
 pub fn encode_create_channel_request(nonce: &[u8; 8]) -> Vec<u8> {
-    let header = WireHeader::new(THP_CREATE_CHANNEL_REQUEST, DEFAULT_CHANNEL, 0, 0);
+    let header = WireHeader::new(MAGIC_CREATE_CHANNEL_REQUEST, DEFAULT_CHANNEL, 0, 0);
     encode_frame(header, nonce)
 }
 
@@ -380,7 +368,7 @@ pub struct ParsedMessage {
 pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> {
     let header = message.header.clone();
     let response = match message.header.magic {
-        THP_CREATE_CHANNEL_RESPONSE => {
+        MAGIC_CREATE_CHANNEL_RESPONSE => {
             if message.payload.len() < 8 + 2 {
                 return Err(WireError::ShortPacket);
             }
@@ -402,7 +390,7 @@ pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> 
                 handshake_hash,
             }
         }
-        THP_HANDSHAKE_INIT_RESPONSE => {
+        MAGIC_HANDSHAKE_INIT_RESPONSE => {
             if message.payload.len() < 32 + 48 + 16 {
                 return Err(WireError::ShortPacket);
             }
@@ -419,7 +407,7 @@ pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> 
                 tag,
             }
         }
-        THP_HANDSHAKE_COMPLETION_RESPONSE => {
+        MAGIC_HANDSHAKE_COMPLETION_RESPONSE => {
             if message.payload.len() < 1 + 16 {
                 return Err(WireError::ShortPacket);
             }
@@ -431,7 +419,7 @@ pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> 
                 tag,
             }
         }
-        THP_CONTROL_BYTE_ENCRYPTED | THP_CONTROL_BYTE_DECRYPTED => {
+        MAGIC_CONTROL_ENCRYPTED | MAGIC_CONTROL_DECRYPTED => {
             if message.payload.len() < 17 {
                 return Err(WireError::ShortPacket);
             }
@@ -439,9 +427,9 @@ pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> 
                 payload: message.payload,
             }
         }
-        THP_READ_ACK_HEADER_BYTE => WireResponse::Ack,
-        THP_CONTINUATION_PACKET => WireResponse::Continuation(message.payload),
-        THP_ERROR_HEADER_BYTE => {
+        MAGIC_READ_ACK => WireResponse::Ack,
+        MAGIC_CONTINUATION => WireResponse::Continuation(message.payload),
+        MAGIC_ERROR => {
             let code = message.payload.first().copied().unwrap_or_default();
             WireResponse::Error(code)
         }
@@ -459,7 +447,7 @@ pub fn encode_handshake_init_request(
     let mut payload = Vec::with_capacity(33);
     payload.extend_from_slice(host_ephemeral_pubkey);
     payload.push(try_to_unlock as u8);
-    let header = WireHeader::new(THP_HANDSHAKE_INIT_REQUEST, channel, 0, send_bit);
+    let header = WireHeader::new(MAGIC_HANDSHAKE_INIT_REQUEST, channel, 0, send_bit);
     encode_frame(header, &payload)
 }
 
@@ -472,17 +460,17 @@ pub fn encode_handshake_completion_request(
     let mut payload = Vec::new();
     payload.extend_from_slice(host_encrypted_static_pubkey);
     payload.extend_from_slice(encrypted_payload);
-    let header = WireHeader::new(THP_HANDSHAKE_COMPLETION_REQUEST, channel, 0, send_bit);
+    let header = WireHeader::new(MAGIC_HANDSHAKE_COMPLETION_REQUEST, channel, 0, send_bit);
     encode_frame(header, &payload)
 }
 
 pub fn encode_protobuf_request(channel: u16, send_bit: u8, payload: &[u8]) -> Vec<u8> {
-    let header = WireHeader::new(THP_CONTROL_BYTE_ENCRYPTED, channel, 0, send_bit);
+    let header = WireHeader::new(MAGIC_CONTROL_ENCRYPTED, channel, 0, send_bit);
     encode_frame(header, payload)
 }
 
 pub fn encode_ack(channel: u16, ack_bit: u8) -> Vec<u8> {
-    let header = WireHeader::new(THP_READ_ACK_HEADER_BYTE, channel, ack_bit, 0);
+    let header = WireHeader::new(MAGIC_READ_ACK, channel, ack_bit, 0);
     encode_frame(header, &[])
 }
 
@@ -625,7 +613,7 @@ mod tests {
         let decoded = decode_frame(&frame, None).expect("decode frame");
         let parsed = parse_response(decoded.message).expect("parse response");
         state.on_receive(parsed.header.magic);
-        state.set_expected_responses(Vec::new());
+        state.set_expected_responses(&[]);
         assert_eq!(state.recv_bit(), 0); // create-channel does not toggle sync bits
 
         if let WireResponse::CreateChannel {
@@ -666,7 +654,7 @@ mod tests {
         let decoded = decode_frame(&frame, Some(state.channel())).expect("decode init frame");
         let parsed = parse_response(decoded.message).expect("parse init response");
         state.on_receive(parsed.header.magic);
-        state.set_expected_responses(Vec::new());
+        state.set_expected_responses(&[]);
         assert_eq!(state.recv_bit(), 1);
         assert_eq!(state.recv_nonce(), 1); // handshake messages do not advance nonce
 
@@ -684,7 +672,7 @@ mod tests {
         let decoded = decode_frame(&completion_frame, Some(state.channel())).unwrap();
         let parsed = parse_response(decoded.message).unwrap();
         state.on_receive(parsed.header.magic);
-        state.set_expected_responses(Vec::new());
+        state.set_expected_responses(&[]);
         assert_eq!(state.recv_bit(), 0);
     }
 }

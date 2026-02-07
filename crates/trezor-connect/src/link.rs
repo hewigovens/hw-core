@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use ble_transport::BleLink;
 use thp_core::Link;
 
@@ -17,7 +16,6 @@ impl BleThpLink {
     }
 }
 
-#[async_trait]
 impl Link for BleThpLink {
     async fn write(&mut self, chunk: &[u8]) -> anyhow::Result<()> {
         self.inner.write(chunk).await

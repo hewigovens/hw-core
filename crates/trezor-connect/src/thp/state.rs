@@ -1,5 +1,3 @@
-use parking_lot::Mutex;
-
 use super::types::{KnownCredential, PairingMethod};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -37,11 +35,6 @@ pub struct HandshakeCredentials {
 
 #[derive(Debug, Default)]
 pub struct ThpState {
-    inner: Mutex<StateInner>,
-}
-
-#[derive(Debug, Default)]
-struct StateInner {
     phase: Phase,
     handshake_cache: Option<HandshakeCache>,
     handshake_credentials: Option<HandshakeCredentials>,
@@ -57,80 +50,76 @@ impl ThpState {
     }
 
     pub fn phase(&self) -> Phase {
-        self.inner.lock().phase
+        self.phase
     }
 
-    pub fn set_phase(&self, phase: Phase) {
-        self.inner.lock().phase = phase;
+    pub fn set_phase(&mut self, phase: Phase) {
+        self.phase = phase;
     }
 
-    pub fn set_handshake_cache(&self, cache: HandshakeCache) {
-        let mut inner = self.inner.lock();
-        inner.handshake_cache = Some(cache);
-        inner.phase = Phase::Handshake;
+    pub fn set_handshake_cache(&mut self, cache: HandshakeCache) {
+        self.handshake_cache = Some(cache);
+        self.phase = Phase::Handshake;
     }
 
-    pub fn handshake_cache(&self) -> Option<HandshakeCache> {
-        self.inner.lock().handshake_cache.clone()
+    pub fn handshake_cache(&self) -> Option<&HandshakeCache> {
+        self.handshake_cache.as_ref()
     }
 
-    pub fn set_handshake_credentials(&self, creds: HandshakeCredentials) {
-        let mut inner = self.inner.lock();
-        inner.handshake_credentials = Some(creds);
-        inner.phase = Phase::Pairing;
+    pub fn set_handshake_credentials(&mut self, creds: HandshakeCredentials) {
+        self.handshake_credentials = Some(creds);
+        self.phase = Phase::Pairing;
     }
 
-    pub fn handshake_credentials(&self) -> Option<HandshakeCredentials> {
-        self.inner.lock().handshake_credentials.clone()
+    pub fn handshake_credentials(&self) -> Option<&HandshakeCredentials> {
+        self.handshake_credentials.as_ref()
     }
 
-    pub fn update_handshake_credentials<F>(&self, update: F)
+    pub fn update_handshake_credentials<F>(&mut self, update: F)
     where
         F: FnOnce(&mut HandshakeCredentials),
     {
-        let mut inner = self.inner.lock();
-        if let Some(creds) = inner.handshake_credentials.as_mut() {
+        if let Some(creds) = self.handshake_credentials.as_mut() {
             update(creds);
         }
     }
 
-    pub fn set_pairing_method(&self, method: PairingMethod) {
-        self.inner.lock().pairing_method = Some(method);
+    pub fn set_pairing_method(&mut self, method: PairingMethod) {
+        self.pairing_method = Some(method);
     }
 
     pub fn pairing_method(&self) -> Option<PairingMethod> {
-        self.inner.lock().pairing_method
+        self.pairing_method
     }
 
-    pub fn set_pairing_credentials(&self, credentials: Vec<KnownCredential>) {
-        let mut inner = self.inner.lock();
-        inner.pairing_credentials = credentials.clone();
-        if let Some(creds) = inner.handshake_credentials.as_mut() {
-            creds.pairing_credentials = credentials;
+    pub fn set_pairing_credentials(&mut self, credentials: Vec<KnownCredential>) {
+        if let Some(creds) = self.handshake_credentials.as_mut() {
+            creds.pairing_credentials = credentials.clone();
         }
+        self.pairing_credentials = credentials;
     }
 
-    pub fn pairing_credentials(&self) -> Vec<KnownCredential> {
-        self.inner.lock().pairing_credentials.clone()
+    pub fn pairing_credentials(&self) -> &[KnownCredential] {
+        &self.pairing_credentials
     }
 
-    pub fn set_is_paired(&self, paired: bool) {
-        self.inner.lock().is_paired = paired;
+    pub fn set_is_paired(&mut self, paired: bool) {
+        self.is_paired = paired;
     }
 
     pub fn is_paired(&self) -> bool {
-        self.inner.lock().is_paired
+        self.is_paired
     }
 
-    pub fn set_autoconnect_paired(&self, value: bool) {
-        self.inner.lock().autoconnect_paired = value;
+    pub fn set_autoconnect_paired(&mut self, value: bool) {
+        self.autoconnect_paired = value;
     }
 
     pub fn is_autoconnect_paired(&self) -> bool {
-        self.inner.lock().autoconnect_paired
+        self.autoconnect_paired
     }
 
-    pub fn reset(&self) {
-        *self.inner.lock() = StateInner::default();
+    pub fn reset(&mut self) {
+        *self = Self::default();
     }
 }
