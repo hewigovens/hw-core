@@ -6,9 +6,9 @@ use thiserror::Error;
 
 use super::proto;
 use super::types::{
-    Chain, CredentialRequest, CredentialResponse, GetAddressRequest, GetAddressResponse,
-    PairingMethod, PairingRequest, PairingRequestApproved, PairingTagResponse, SelectMethodRequest,
-    SelectMethodResponse, ThpProperties,
+    Chain, CodeEntryChallengeResponse, CredentialRequest, CredentialResponse, GetAddressRequest,
+    GetAddressResponse, PairingMethod, PairingRequest, PairingRequestApproved, PairingTagResponse,
+    SelectMethodRequest, SelectMethodResponse, ThpProperties,
 };
 
 #[derive(Debug, Error)]
@@ -132,6 +132,22 @@ pub fn decode_select_method_response(
             message_type as i32 as u16,
         )),
     }
+}
+
+pub fn encode_code_entry_challenge(challenge: &[u8]) -> Result<EncodedMessage, ProtoMappingError> {
+    let message = proto::ThpCodeEntryChallenge {
+        challenge: challenge.to_vec(),
+    };
+    encode_message(proto::ThpMessageType::ThpCodeEntryChallenge, &message)
+}
+
+pub fn decode_code_entry_cpace_response(
+    payload: &[u8],
+) -> Result<CodeEntryChallengeResponse, ProtoMappingError> {
+    let msg = proto::ThpCodeEntryCpaceTrezor::decode(payload)?;
+    Ok(CodeEntryChallengeResponse {
+        trezor_cpace_public_key: msg.cpace_trezor_public_key,
+    })
 }
 
 pub fn encode_qr_tag(tag: &str) -> Result<EncodedMessage, ProtoMappingError> {
