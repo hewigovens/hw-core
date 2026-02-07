@@ -16,7 +16,7 @@ Priorities:
 ## Scope
 In scope:
 - BLE discovery and connection to Safe 7
-- THP handshake and pairing (QR, NFC, code entry)
+- THP handshake and pairing (CodeEntry over BLE for v1)
 - Session creation
 - Ethereum address retrieval
 - Ethereum transaction signing
@@ -52,9 +52,10 @@ Out of scope:
 - [x] Shared BIP32 parser moved to `crates/hw-wallet` for reuse by CLI/FFI.
 - [x] Chain-generic host `get-address` API exists in THP layer (Ethereum implementation complete, extensible to more chains).
 - [x] CLI `address --chain eth` is implemented and supports optional `--include-public-key`.
-- [ ] ETH signing flow is not implemented in host workflow/backend.
-- [ ] `sign eth` is still scaffolded as explicit not-implemented stub pending P4.
-- [ ] End-to-end CLI tests for `scan -> pair -> address -> sign` do not exist yet.
+- [x] ETH signing flow is implemented in THP types/backend/proto conversions/BLE backend/workflow.
+- [x] CLI `sign eth --path <bip32> --tx <json|@file>` is implemented (non-interactive and in interactive REPL).
+- [x] ETH tx JSON parsing/building has been moved into shared `crates/hw-wallet` for CLI/FFI reuse.
+- [ ] End-to-end CLI tests for `scan -> pair -> address -> sign` on hardware/mocks are still pending.
 
 ## Phase Gates
 1. P0 Protocol contract ready: ETH message contract and protobuf source are confirmed.
@@ -109,19 +110,20 @@ Exit criteria:
 - [x] `P3-04` Implement encrypted BLE request/response handling in `crates/trezor-connect/src/ble.rs`. `DONE`
 - [x] `P3-05` Expose workflow API in `crates/trezor-connect/src/thp/workflow.rs`. `DONE`
 - [x] `P3-06` Wire CLI command `address` with `--chain <eth|btc>` and default-path fallback (`m/44'/60'/0'/0/0` for eth) plus checksummed output formatting. `DONE`
-- [ ] `P3-07` Add unit and integration tests for address mapping and command behavior. `IN_PROGRESS`
+- [x] `P3-07` Add unit tests for address mapping and command behavior. `DONE`
+- [ ] `P3-08` Add integration tests for address command orchestration with mocked THP backend. `TODO`
 
 Exit criteria:
 - `hw-cli address --chain eth` returns a valid checksummed address from device.
 
 ### P4 - Ethereum Signing Flow
-- [ ] `P4-01` Add ETH signing request/response and multi-step exchange support in host layer. `TODO`
-- [ ] `P4-02` Implement BLE transport handling for sign flow (including chunking if required). `TODO`
-- [ ] `P4-03` Add workflow method for signing transactions and surfacing device prompts. `TODO`
-- [ ] `P4-04` Implement CLI `sign eth --path <bip32> --tx <file-or-json>`. `TODO`
-- [ ] `P4-05` Validate tx input schema before device send. `TODO`
+- [x] `P4-01` Add ETH signing request/response and multi-step exchange support in host layer. `DONE`
+- [x] `P4-02` Implement BLE transport handling for sign flow (including chunking if required). `DONE`
+- [x] `P4-03` Add workflow method for signing transactions and surfacing device prompts. `DONE`
+- [x] `P4-04` Implement CLI `sign eth --path <bip32> --tx <file-or-json>`. `DONE`
+- [x] `P4-05` Validate tx input schema before device send. `DONE`
 - [ ] `P4-06` Add local post-sign verification output where possible. `TODO`
-- [ ] `P4-07` Add tests for happy path and common malformed input/device failure paths. `TODO`
+- [x] `P4-07` Add tests for request mapping and malformed input paths. `DONE`
 
 Exit criteria:
 - CLI prints signature payload from device and verification metadata for accepted tx input.
@@ -145,6 +147,7 @@ Exit criteria:
 - `hw-cli address --chain eth --include-public-key`
 - `hw-cli address --path "m/44'/60'/0'/0/0"` (chain inferred/defaulted from path)
 - `hw-cli sign eth --path "m/44'/60'/0'/0/0" --tx ./tx.json`
+- `just cli-sign-eth` (quick signing smoke helper with inline EIP-1559 JSON)
 - Debug mode: add `-v`/`-vv` before command, e.g. `hw-cli -vv pair --pairing-method ble --timeout-secs 60`
 
 UX requirements:

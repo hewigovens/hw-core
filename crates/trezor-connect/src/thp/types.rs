@@ -1,3 +1,4 @@
+use hw_chain::Chain;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -7,12 +8,6 @@ pub enum PairingMethod {
     Nfc,
     CodeEntry,
     SkipPairing,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Chain {
-    Ethereum,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,7 +168,7 @@ pub struct CreateSessionResponse;
 #[derive(Debug, Clone)]
 pub struct GetAddressRequest {
     pub chain: Chain,
-    pub address_n: Vec<u32>,
+    pub path: Vec<u32>,
     pub show_display: bool,
     pub chunkify: bool,
     pub encoded_network: Option<Vec<u8>>,
@@ -181,10 +176,10 @@ pub struct GetAddressRequest {
 }
 
 impl GetAddressRequest {
-    pub fn ethereum(address_n: Vec<u32>) -> Self {
+    pub fn ethereum(path: Vec<u32>) -> Self {
         Self {
             chain: Chain::Ethereum,
-            address_n,
+            path,
             show_display: false,
             chunkify: false,
             encoded_network: None,
@@ -253,6 +248,100 @@ pub struct PairingPrompt {
 pub enum PairingDecision {
     SwitchMethod(PairingMethod),
     SubmitTag { method: PairingMethod, tag: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct EthAccessListEntry {
+    pub address: String,
+    pub storage_keys: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SignTxRequest {
+    pub chain: Chain,
+    pub path: Vec<u32>,
+    pub nonce: Vec<u8>,
+    pub max_fee_per_gas: Vec<u8>,
+    pub max_priority_fee: Vec<u8>,
+    pub gas_limit: Vec<u8>,
+    pub to: String,
+    pub value: Vec<u8>,
+    pub data: Vec<u8>,
+    pub chain_id: u64,
+    pub access_list: Vec<EthAccessListEntry>,
+    pub chunkify: bool,
+}
+
+impl SignTxRequest {
+    pub fn ethereum(path: Vec<u32>, chain_id: u64) -> Self {
+        Self {
+            chain: Chain::Ethereum,
+            path,
+            nonce: vec![0],
+            max_fee_per_gas: vec![0],
+            max_priority_fee: vec![0],
+            gas_limit: vec![0],
+            to: String::new(),
+            value: vec![0],
+            data: Vec::new(),
+            chain_id,
+            access_list: Vec::new(),
+            chunkify: false,
+        }
+    }
+
+    pub fn with_nonce(mut self, nonce: Vec<u8>) -> Self {
+        self.nonce = nonce;
+        self
+    }
+
+    pub fn with_max_fee_per_gas(mut self, max_fee_per_gas: Vec<u8>) -> Self {
+        self.max_fee_per_gas = max_fee_per_gas;
+        self
+    }
+
+    pub fn with_max_priority_fee(mut self, max_priority_fee: Vec<u8>) -> Self {
+        self.max_priority_fee = max_priority_fee;
+        self
+    }
+
+    pub fn with_gas_limit(mut self, gas_limit: Vec<u8>) -> Self {
+        self.gas_limit = gas_limit;
+        self
+    }
+
+    pub fn with_to(mut self, to: String) -> Self {
+        self.to = to;
+        self
+    }
+
+    pub fn with_value(mut self, value: Vec<u8>) -> Self {
+        self.value = value;
+        self
+    }
+
+    pub fn with_data(mut self, data: Vec<u8>) -> Self {
+        self.data = data;
+        self
+    }
+
+    pub fn with_access_list(mut self, access_list: Vec<EthAccessListEntry>) -> Self {
+        self.access_list = access_list;
+        self
+    }
+
+    pub fn with_chunkify(mut self, chunkify: bool) -> Self {
+        self.chunkify = chunkify;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SignTxResponse {
+    pub chain: Chain,
+    pub v: u32,
+    pub r: Vec<u8>,
+    pub s: Vec<u8>,
 }
 
 #[async_trait::async_trait]

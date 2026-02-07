@@ -12,6 +12,8 @@ pub enum WalletError {
     Ble(#[from] ble_transport::BleError),
     #[error("workflow error: {0}")]
     Workflow(#[from] trezor_connect::thp::ThpWorkflowError),
+    #[error("signing error: {0}")]
+    Signing(String),
 }
 
 pub type WalletResult<T> = std::result::Result<T, WalletError>;

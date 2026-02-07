@@ -9,6 +9,7 @@ members = [
     "crates/hw-ffi",
     "crates/hw-cli",
     "crates/hw-wallet",
+    "crates/hw-chain",
 ]
 resolver = "2"
 
