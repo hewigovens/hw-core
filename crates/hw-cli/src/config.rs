@@ -10,27 +10,9 @@ pub fn default_storage_path() -> PathBuf {
 }
 
 pub fn default_host_name() -> String {
-    let device_name = whoami::devicename();
-    let trimmed_device_name = device_name.trim();
-    if !trimmed_device_name.is_empty() {
-        return trimmed_device_name.to_string();
-    }
-
-    for key in ["HOSTNAME", "COMPUTERNAME"] {
-        if let Ok(value) = env::var(key) {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
-        }
-    }
-
-    if let Ok(user) = env::var("USER") {
-        let trimmed = user.trim();
-        if !trimmed.is_empty() {
-            return format!("{trimmed}-host");
-        }
-    }
-
-    "hw-core-host".to_string()
+    whoami::devicename()
+        .ok()
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "hw-core-host".to_string())
 }
