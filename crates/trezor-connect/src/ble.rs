@@ -293,15 +293,10 @@ impl BleBackend {
         Ok((message_type, plaintext[3..].to_vec()))
     }
 
-    async fn send_ack(&mut self, header: &wire::WireHeader) -> BackendResult<()> {
-        let ack_bit = if header.ack_bit == 1 || header.seq_bit == 1 {
-            1
-        } else {
-            0
-        };
+    async fn send_ack(&mut self, _header: &wire::WireHeader) -> BackendResult<()> {
+        let ack_bit = self.state.recv_ack_bit();
         let frame = wire::encode_ack(self.state.channel(), ack_bit);
         self.send_frame(frame).await?;
-        self.state.on_send(wire::MAGIC_READ_ACK);
         Ok(())
     }
 

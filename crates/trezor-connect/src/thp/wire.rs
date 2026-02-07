@@ -49,7 +49,7 @@ fn is_handshake_magic(magic: u8) -> bool {
 fn should_toggle_sync(magic: u8) -> bool {
     !matches!(
         magic,
-        THP_CREATE_CHANNEL_REQUEST | THP_CREATE_CHANNEL_RESPONSE
+        THP_CREATE_CHANNEL_REQUEST | THP_CREATE_CHANNEL_RESPONSE | THP_READ_ACK_HEADER_BYTE
     )
 }
 
@@ -75,6 +75,8 @@ pub struct ThpWireState {
     channel: u16,
     send_bit: u8,
     recv_bit: u8,
+    send_ack_bit: u8,
+    recv_ack_bit: u8,
     send_nonce: u64,
     recv_nonce: u64,
     session_id: u8,
@@ -90,6 +92,8 @@ impl Default for ThpWireState {
             channel: DEFAULT_CHANNEL,
             send_bit: 0,
             recv_bit: 0,
+            send_ack_bit: 0,
+            recv_ack_bit: 0,
             send_nonce: 0,
             recv_nonce: 1,
             session_id: 0,
@@ -130,8 +134,16 @@ impl ThpWireState {
         self.send_bit
     }
 
+    pub fn send_ack_bit(&self) -> u8 {
+        self.send_ack_bit
+    }
+
     pub fn recv_bit(&self) -> u8 {
         self.recv_bit
+    }
+
+    pub fn recv_ack_bit(&self) -> u8 {
+        self.recv_ack_bit
     }
 
     pub fn send_nonce(&self) -> u64 {
@@ -175,6 +187,7 @@ impl ThpWireState {
 
     pub fn on_send(&mut self, magic: u8) {
         if should_toggle_sync(magic) {
+            self.send_ack_bit ^= 1;
             self.send_bit ^= 1;
         }
         if should_increment_nonce(magic) {
@@ -185,6 +198,7 @@ impl ThpWireState {
 
     pub fn on_receive(&mut self, magic: u8) {
         if should_toggle_sync(magic) {
+            self.recv_ack_bit ^= 1;
             self.recv_bit ^= 1;
         }
         if should_increment_nonce(magic) {
@@ -545,6 +559,20 @@ mod tests {
         state.on_receive(MAGIC_CONTROL_ENCRYPTED);
         assert_eq!(state.recv_bit(), 1);
         assert_eq!(state.recv_nonce(), 2);
+    }
+
+    #[test]
+    fn ack_frames_do_not_advance_sync_or_nonce() {
+        let mut state = ThpWireState::new();
+        let initial_send_bit = state.send_bit();
+        let initial_send_ack_bit = state.send_ack_bit();
+        let initial_send_nonce = state.send_nonce();
+
+        state.on_send(MAGIC_READ_ACK);
+
+        assert_eq!(state.send_bit(), initial_send_bit);
+        assert_eq!(state.send_ack_bit(), initial_send_ack_bit);
+        assert_eq!(state.send_nonce(), initial_send_nonce);
     }
 
     #[test]
