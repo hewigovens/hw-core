@@ -40,8 +40,36 @@ use sha2::{Digest, Sha256};
 
 const MESSAGE_TYPE_SUCCESS: u16 = 5;
 const MESSAGE_TYPE_CREATE_SESSION: u16 = 1000;
+const MESSAGE_TYPE_FAILURE: u16 = 3;
 const MESSAGE_TYPE_BUTTON_REQUEST: u16 = proto::ThpMessageType::ButtonRequest as i32 as u16;
 const MESSAGE_TYPE_BUTTON_ACK: u16 = proto::ThpMessageType::ButtonAck as i32 as u16;
+
+#[derive(Clone, PartialEq, Message)]
+struct FailureProto {
+    #[prost(int32, optional, tag = "1")]
+    code: Option<i32>,
+    #[prost(string, optional, tag = "2")]
+    message: Option<String>,
+}
+
+fn decode_failure_reason(payload: &[u8]) -> String {
+    match FailureProto::decode(payload) {
+        Ok(msg) => match (msg.code, msg.message) {
+            (Some(code), Some(message)) if !message.is_empty() => {
+                format!("firmware failure code={code}: {message}")
+            }
+            (Some(code), _) => format!("firmware failure code={code}"),
+            (_, Some(message)) if !message.is_empty() => message,
+            _ => "firmware reported failure".to_string(),
+        },
+        Err(_) => "firmware reported failure".to_string(),
+    }
+}
+
+enum TagDecodeOutcome {
+    Accepted(super::thp::proto_conversions::ParsedTagResponse),
+    Retry(String),
+}
 
 pub struct BleBackend {
     inner: TransportBackend,
@@ -766,17 +794,32 @@ impl ThpBackend for BleBackend {
                 self.send_encrypted_request(encoded).await?;
 
                 let parsed = self.read_next().await?;
-                let response = self
+                let outcome = self
                     .parse_encrypted_response(parsed, |message_type, payload| {
+                        if message_type == MESSAGE_TYPE_FAILURE {
+                            return Ok(TagDecodeOutcome::Retry(decode_failure_reason(payload)));
+                        }
                         let message_type_enum =
                             proto::ThpMessageType::try_from(message_type as i32)
                                 .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
-                        decode_tag_response(message_type_enum, payload)
+                        let parsed = decode_tag_response(message_type_enum, payload)?;
+                        Ok(TagDecodeOutcome::Accepted(parsed))
                     })
                     .await?;
 
-                validate_qr_code_tag(&handshake_hash, &tag, &hex::encode(&response.secret))
-                    .map_err(|e| self.map_crypto_error(e))?;
+                let response = match outcome {
+                    TagDecodeOutcome::Retry(reason) => {
+                        return Ok(PairingTagResponse::Retry(reason))
+                    }
+                    TagDecodeOutcome::Accepted(response) => response,
+                };
+
+                if let Err(err) =
+                    validate_qr_code_tag(&handshake_hash, &tag, &hex::encode(&response.secret))
+                {
+                    debug!("QR tag validation failed: {err}");
+                    return Ok(PairingTagResponse::Retry("pairing tag mismatch".into()));
+                }
 
                 Ok(to_pairing_tag_response(response))
             }
@@ -797,14 +840,25 @@ impl ThpBackend for BleBackend {
                 self.send_encrypted_request(encoded).await?;
 
                 let parsed = self.read_next().await?;
-                let response = self
+                let outcome = self
                     .parse_encrypted_response(parsed, |message_type, payload| {
+                        if message_type == MESSAGE_TYPE_FAILURE {
+                            return Ok(TagDecodeOutcome::Retry(decode_failure_reason(payload)));
+                        }
                         let message_type_enum =
                             proto::ThpMessageType::try_from(message_type as i32)
                                 .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
-                        decode_tag_response(message_type_enum, payload)
+                        let parsed = decode_tag_response(message_type_enum, payload)?;
+                        Ok(TagDecodeOutcome::Accepted(parsed))
                     })
                     .await?;
+
+                let response = match outcome {
+                    TagDecodeOutcome::Retry(reason) => {
+                        return Ok(PairingTagResponse::Retry(reason))
+                    }
+                    TagDecodeOutcome::Accepted(response) => response,
+                };
 
                 // Validation requires stored NFC secret; not available here, so defer to workflow.
                 Ok(to_pairing_tag_response(response))
@@ -836,16 +890,27 @@ impl ThpBackend for BleBackend {
                 self.send_encrypted_request(encoded).await?;
 
                 let parsed = self.read_next().await?;
-                let response = self
+                let outcome = self
                     .parse_encrypted_response(parsed, |message_type, payload| {
+                        if message_type == MESSAGE_TYPE_FAILURE {
+                            return Ok(TagDecodeOutcome::Retry(decode_failure_reason(payload)));
+                        }
                         let message_type_enum =
                             proto::ThpMessageType::try_from(message_type as i32)
                                 .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
-                        decode_tag_response(message_type_enum, payload)
+                        let parsed = decode_tag_response(message_type_enum, payload)?;
+                        Ok(TagDecodeOutcome::Accepted(parsed))
                     })
                     .await?;
 
-                validate_code_entry_tag(
+                let response = match outcome {
+                    TagDecodeOutcome::Retry(reason) => {
+                        return Ok(PairingTagResponse::Retry(reason))
+                    }
+                    TagDecodeOutcome::Accepted(response) => response,
+                };
+
+                if let Err(err) = validate_code_entry_tag(
                     &handshake_hash,
                     commitment.as_ref().ok_or_else(|| {
                         BackendError::Transport("missing handshake commitment".into())
@@ -855,8 +920,10 @@ impl ThpBackend for BleBackend {
                     })?,
                     &code,
                     &hex::encode(&response.secret),
-                )
-                .map_err(|e| self.map_crypto_error(e))?;
+                ) {
+                    debug!("code-entry validation failed: {err}");
+                    return Ok(PairingTagResponse::Retry("pairing code mismatch".into()));
+                }
 
                 Ok(to_pairing_tag_response(response))
             }
