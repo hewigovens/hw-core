@@ -4,6 +4,7 @@ use futures::StreamExt;
 use tokio::time::{self, Duration};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::debug;
+use uuid::Uuid;
 
 use crate::{BleError, BleProfile, BleResult, DeviceInfo};
 
@@ -31,22 +32,26 @@ impl BleSession {
         peripheral.discover_services().await?;
 
         let characteristics = peripheral.characteristics();
-        let write_char = characteristics
+        let discovered: Vec<String> = characteristics
             .iter()
-            .find(|c| c.uuid == profile.write_uuid)
-            .cloned()
-            .ok_or_else(|| BleError::missing("write", profile))?;
-        let notify_char = characteristics
-            .iter()
-            .find(|c| c.uuid == profile.notify_uuid)
-            .cloned()
-            .ok_or_else(|| BleError::missing("notify", profile))?;
+            .map(|c| format!("{}/{:?}/{:?}", c.service_uuid, c.uuid, c.properties))
+            .collect();
+        debug!(
+            device_id = %device.id,
+            profile = profile.id,
+            characteristics = ?discovered,
+            "BLE discovered characteristics"
+        );
+
+        let write_char =
+            find_characteristic(&characteristics, profile.service_uuid, profile.write_uuid)
+                .ok_or_else(|| BleError::missing("write", profile))?;
+        let notify_char =
+            find_characteristic(&characteristics, profile.service_uuid, profile.notify_uuid)
+                .ok_or_else(|| BleError::missing("notify", profile))?;
         let push_char = match profile.push_uuid {
             Some(push_uuid) => Some(
-                characteristics
-                    .iter()
-                    .find(|c| c.uuid == push_uuid)
-                    .cloned()
+                find_characteristic(&characteristics, profile.service_uuid, push_uuid)
                     .ok_or_else(|| BleError::missing("push", profile))?,
             ),
             None => None,
@@ -70,11 +75,11 @@ impl BleSession {
             .write(&write_char, b"Proof of connection", WriteType::WithResponse)
             .await?;
 
-        let mut notifications = peripheral.notifications().await?;
         peripheral.subscribe(&notify_char).await?;
         if let Some(push_char) = &push_char {
             peripheral.subscribe(push_char).await?;
         }
+        let mut notifications = peripheral.notifications().await?;
 
         let (tx, rx) = mpsc::channel(64);
         let notify_task = tokio::spawn(async move {
@@ -181,18 +186,26 @@ impl BleLink {
                 Err(_) => {}
             }
 
-            if let Ok(data) = self.peripheral.read(&self.notify_char).await {
-                if !data.is_empty() {
+            match self.peripheral.read(&self.notify_char).await {
+                Ok(data) if !data.is_empty() => {
                     debug!(bytes = data.len(), source = "read-notify", "BLE read chunk");
                     return Ok(data);
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    debug!(error = %err, source = "read-notify", "BLE direct read failed");
                 }
             }
 
             if let Some(push_char) = &self.push_char {
-                if let Ok(data) = self.peripheral.read(push_char).await {
-                    if !data.is_empty() {
+                match self.peripheral.read(push_char).await {
+                    Ok(data) if !data.is_empty() => {
                         debug!(bytes = data.len(), source = "read-push", "BLE read chunk");
                         return Ok(data);
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        debug!(error = %err, source = "read-push", "BLE direct read failed");
                     }
                 }
             }
@@ -228,4 +241,15 @@ impl BleBackend {
     pub async fn abort(&mut self) -> BleResult<()> {
         self.link.disconnect().await
     }
+}
+
+fn find_characteristic(
+    characteristics: &std::collections::BTreeSet<Characteristic>,
+    service_uuid: Uuid,
+    uuid: Uuid,
+) -> Option<Characteristic> {
+    characteristics
+        .iter()
+        .find(|c| c.service_uuid == service_uuid && c.uuid == uuid)
+        .cloned()
 }
