@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[command(name = "hw-cli")]
 #[command(about = "Interactive Trezor Safe 7 CLI over BLE")]
 pub struct Cli {
+    #[arg(short, long, action = ArgAction::Count, global = true)]
+    pub verbose: u8,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -81,4 +83,41 @@ pub struct SignEthArgs {
     pub path: String,
     #[arg(long)]
     pub tx: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pair_defaults_to_ble_and_30s_timeout() {
+        let cli = Cli::parse_from(["hw-cli", "pair"]);
+        let Command::Pair(args) = cli.command else {
+            panic!("expected pair command");
+        };
+
+        assert_eq!(cli.verbose, 0);
+        assert_eq!(args.pairing_method, PairingMethod::Ble);
+        assert_eq!(args.timeout_secs, 30);
+    }
+
+    #[test]
+    fn pair_accepts_duration_secs_alias() {
+        let cli = Cli::parse_from(["hw-cli", "pair", "--duration-secs", "45"]);
+        let Command::Pair(args) = cli.command else {
+            panic!("expected pair command");
+        };
+
+        assert_eq!(args.timeout_secs, 45);
+    }
+
+    #[test]
+    fn verbose_flag_is_global_and_counted() {
+        let cli = Cli::parse_from(["hw-cli", "-vv", "pair"]);
+        let Command::Pair(_) = cli.command else {
+            panic!("expected pair command");
+        };
+
+        assert_eq!(cli.verbose, 2);
+    }
 }

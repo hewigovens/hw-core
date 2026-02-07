@@ -8,6 +8,7 @@ use prost::Message;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use tokio::time;
+use tracing::debug;
 
 use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
 use crate::thp::crypto::curve25519::{
@@ -37,6 +38,8 @@ use sha2::{Digest, Sha256};
 
 const MESSAGE_TYPE_SUCCESS: u16 = 5;
 const MESSAGE_TYPE_CREATE_SESSION: u16 = 1000;
+const MESSAGE_TYPE_BUTTON_REQUEST: u16 = proto::ThpMessageType::ButtonRequest as i32 as u16;
+const MESSAGE_TYPE_BUTTON_ACK: u16 = proto::ThpMessageType::ButtonAck as i32 as u16;
 
 pub struct BleBackend {
     inner: TransportBackend,
@@ -285,43 +288,74 @@ impl BleBackend {
     }
 
     async fn send_encrypted_request(&mut self, encoded: EncodedMessage) -> BackendResult<()> {
+        debug!(
+            "BLE THP TX encrypted message_type={} ({}) payload_len={}",
+            encoded.message_type,
+            thp_message_name(encoded.message_type),
+            encoded.payload.len()
+        );
         let frame = self.encrypt_host_message(encoded.message_type, &encoded.payload)?;
         self.send_frame(frame).await?;
         self.state.on_send(MAGIC_CONTROL_ENCRYPTED);
         Ok(())
     }
 
+    async fn send_button_ack(&mut self) -> BackendResult<()> {
+        debug!("BLE THP sending ButtonAck");
+        self.send_encrypted_request(EncodedMessage {
+            message_type: MESSAGE_TYPE_BUTTON_ACK,
+            payload: Vec::new(),
+        })
+        .await
+    }
+
     async fn parse_encrypted_response<T>(
         &mut self,
-        parsed: ParsedMessage,
+        mut parsed: ParsedMessage,
         decoder: impl Fn(u16, &[u8]) -> Result<T, ProtoMappingError>,
     ) -> BackendResult<T> {
-        if self.should_ack(&parsed.header) {
-            self.send_ack(&parsed.header).await?;
+        loop {
+            if self.should_ack(&parsed.header) {
+                self.send_ack(&parsed.header).await?;
+            }
+
+            let (message_type, payload) = match parsed.response {
+                WireResponse::Protobuf { payload } => {
+                    let res = self.decrypt_device_message(&payload)?;
+                    self.state.on_receive(parsed.header.magic);
+                    res
+                }
+                WireResponse::Error(code) => {
+                    return Err(BackendError::Device(format!(
+                        "device returned error code {code}"
+                    )))
+                }
+                other => {
+                    return Err(BackendError::Transport(format!(
+                        "unexpected response type {:?}",
+                        other
+                    )))
+                }
+            };
+
+            debug!(
+                "BLE THP RX encrypted message_type={} ({}) payload_len={}",
+                message_type,
+                thp_message_name(message_type),
+                payload.len()
+            );
+
+            if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
+                debug!("BLE THP received ButtonRequest; acknowledging to continue workflow");
+                self.send_button_ack().await?;
+                parsed = self.read_next().await?;
+                continue;
+            }
+
+            let result = decoder(message_type, &payload).map_err(|e| self.map_proto_error(e))?;
+            self.state.set_expected_responses(Vec::new());
+            return Ok(result);
         }
-
-        let (message_type, payload) = match parsed.response {
-            WireResponse::Protobuf { payload } => {
-                let res = self.decrypt_device_message(&payload)?;
-                self.state.on_receive(parsed.header.magic);
-                res
-            }
-            WireResponse::Error(code) => {
-                return Err(BackendError::Device(format!(
-                    "device returned error code {code}"
-                )))
-            }
-            other => {
-                return Err(BackendError::Transport(format!(
-                    "unexpected response type {:?}",
-                    other
-                )))
-            }
-        };
-
-        let result = decoder(message_type, &payload).map_err(|e| self.map_proto_error(e))?;
-        self.state.set_expected_responses(Vec::new());
-        Ok(result)
     }
 
     fn should_ack(&self, header: &wire::WireHeader) -> bool {
@@ -329,6 +363,13 @@ impl BleBackend {
             header.magic,
             MAGIC_CREATE_CHANNEL_RESPONSE | wire::MAGIC_READ_ACK
         )
+    }
+}
+
+fn thp_message_name(message_type: u16) -> String {
+    match proto::ThpMessageType::try_from(message_type as i32) {
+        Ok(kind) => format!("{kind:?}"),
+        Err(_) => format!("Unknown({message_type})"),
     }
 }
 

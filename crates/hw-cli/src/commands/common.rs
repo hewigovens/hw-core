@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use ble_transport::{BleProfile, DiscoveredDevice};
+use tracing::debug;
 
 use crate::ui::prompt_line;
 
@@ -12,8 +13,14 @@ pub fn select_device(
     mut devices: Vec<DiscoveredDevice>,
     device_id: Option<&str>,
 ) -> Result<DiscoveredDevice> {
+    debug!(
+        "select_device: candidates={}, device_id_filter={:?}",
+        devices.len(),
+        device_id
+    );
     if let Some(query) = device_id {
         if let Some(idx) = devices.iter().position(|d| d.info().id == query) {
+            debug!("select_device: exact match for device_id={}", query);
             return Ok(devices.remove(idx));
         }
 
@@ -25,6 +32,10 @@ pub fn select_device(
             .collect();
 
         if matches.len() == 1 {
+            debug!(
+                "select_device: partial match for device_id={} resolved to index={}",
+                query, matches[0]
+            );
             return Ok(devices.remove(matches[0]));
         }
 

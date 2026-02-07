@@ -468,10 +468,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::super::backend::{BackendError, BackendResult, ThpBackend};
+    use super::super::storage::{HostSnapshot, StorageError, ThpStorage};
     use super::*;
     use crate::thp::types::*;
     use parking_lot::Mutex;
     use std::collections::VecDeque;
+    use std::sync::Arc;
 
     struct MockBackend {
         create_channel_resp: CreateChannelResponse,
@@ -684,6 +686,41 @@ mod tests {
         }
     }
 
+    struct InMemoryStorage {
+        snapshot: Mutex<HostSnapshot>,
+        persist_calls: Mutex<usize>,
+    }
+
+    impl InMemoryStorage {
+        fn new(snapshot: HostSnapshot) -> Self {
+            Self {
+                snapshot: Mutex::new(snapshot),
+                persist_calls: Mutex::new(0),
+            }
+        }
+
+        fn snapshot(&self) -> HostSnapshot {
+            self.snapshot.lock().clone()
+        }
+
+        fn persist_calls(&self) -> usize {
+            *self.persist_calls.lock()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ThpStorage for InMemoryStorage {
+        async fn load(&self) -> std::result::Result<HostSnapshot, StorageError> {
+            Ok(self.snapshot.lock().clone())
+        }
+
+        async fn persist(&self, snapshot: &HostSnapshot) -> std::result::Result<(), StorageError> {
+            *self.snapshot.lock() = snapshot.clone();
+            *self.persist_calls.lock() += 1;
+            Ok(())
+        }
+    }
+
     #[tokio::test]
     async fn autopair_flow_sets_paired_state() {
         let backend = MockBackend::autopair();
@@ -739,5 +776,73 @@ mod tests {
         assert!(state.is_paired());
         assert!(*backend.pairing_requested.lock());
         assert!(*backend.end_called.lock());
+    }
+
+    #[tokio::test]
+    async fn with_storage_loads_existing_host_snapshot() {
+        let backend = MockBackend::autopair();
+        let initial_snapshot = HostSnapshot {
+            static_key: Some(vec![0xAA; 32]),
+            known_credentials: vec![KnownCredential {
+                credential: "persisted-cred".into(),
+                trezor_static_public_key: Some(vec![0xBB; 32]),
+                autoconnect: true,
+            }],
+        };
+        let storage = Arc::new(InMemoryStorage::new(initial_snapshot.clone()));
+        let config = HostConfig {
+            pairing_methods: vec![PairingMethod::SkipPairing],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        };
+
+        let workflow = ThpWorkflow::with_storage(backend, config, storage)
+            .await
+            .expect("workflow with storage should initialize");
+
+        assert_eq!(
+            workflow.host_config().static_key,
+            initial_snapshot.static_key
+        );
+        assert_eq!(workflow.host_config().known_credentials.len(), 1);
+        assert_eq!(
+            workflow.host_config().known_credentials[0].credential,
+            initial_snapshot.known_credentials[0].credential
+        );
+        assert_eq!(
+            workflow.host_config().known_credentials[0].trezor_static_public_key,
+            initial_snapshot.known_credentials[0].trezor_static_public_key
+        );
+        assert_eq!(
+            workflow.host_config().known_credentials[0].autoconnect,
+            initial_snapshot.known_credentials[0].autoconnect
+        );
+    }
+
+    #[tokio::test]
+    async fn handshake_persists_host_state_to_storage() {
+        let backend = MockBackend::autopair();
+        let storage = Arc::new(InMemoryStorage::new(HostSnapshot::default()));
+        let config = HostConfig {
+            pairing_methods: vec![PairingMethod::SkipPairing],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        };
+
+        let mut workflow = ThpWorkflow::with_storage(backend, config, storage.clone())
+            .await
+            .expect("workflow with storage should initialize");
+        workflow.create_channel().await.expect("create channel");
+        workflow.handshake(false).await.expect("handshake");
+
+        let persisted = storage.snapshot();
+        assert_eq!(persisted.static_key, Some(vec![12]));
+        assert_eq!(persisted.known_credentials.len(), 1);
+        assert_eq!(persisted.known_credentials[0].credential, "cred1");
+        assert!(storage.persist_calls() >= 1);
     }
 }

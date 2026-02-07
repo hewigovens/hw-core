@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use tracing::debug;
 use trezor_connect::thp::types::PairingPrompt;
 use trezor_connect::thp::{PairingController, PairingDecision, PairingMethod as ThpPairingMethod};
 
@@ -12,6 +13,12 @@ impl PairingController for CliPairingController {
         &self,
         prompt: PairingPrompt,
     ) -> std::result::Result<PairingDecision, String> {
+        debug!(
+            "pairing prompt: available_methods={:?}, selected_method={:?}, has_nfc_data={}",
+            prompt.available_methods,
+            prompt.selected_method,
+            prompt.nfc_data.is_some()
+        );
         println!();
         println!("Pairing interaction required.");
         println!("Available methods:");
@@ -29,7 +36,9 @@ impl PairingController for CliPairingController {
         }
 
         let chosen = choose_pairing_method(&prompt)?;
+        debug!("pairing prompt selection: chosen_method={:?}", chosen);
         if chosen != prompt.selected_method {
+            debug!("switching pairing method to {:?}", chosen);
             return Ok(PairingDecision::SwitchMethod(chosen));
         }
 
