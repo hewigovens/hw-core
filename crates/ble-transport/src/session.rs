@@ -39,6 +39,12 @@ impl BleSession {
             .cloned()
             .ok_or_else(|| BleError::missing("notify", profile))?;
 
+        // Match Suite's BLE connect behavior: perform a write-with-response probe
+        // so CoreBluetooth can surface pairing/auth failures before THP begins.
+        peripheral
+            .write(&write_char, b"Proof of connection", WriteType::WithResponse)
+            .await?;
+
         peripheral.subscribe(&notify_char).await?;
 
         let mut notifications = peripheral.notifications().await?;
