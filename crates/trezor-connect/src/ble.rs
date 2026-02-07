@@ -38,7 +38,7 @@ use crate::thp::wire::{
 use crate::thp::ThpTransport;
 use sha2::{Digest, Sha256};
 
-const MESSAGE_TYPE_SUCCESS: u16 = 5;
+const MESSAGE_TYPE_SUCCESS: u16 = 2;
 const MESSAGE_TYPE_CREATE_SESSION: u16 = 1000;
 const MESSAGE_TYPE_FAILURE: u16 = 3;
 const MESSAGE_TYPE_BUTTON_REQUEST: u16 = proto::ThpMessageType::ButtonRequest as i32 as u16;
@@ -79,6 +79,11 @@ enum CodeEntryChallengeDecodeOutcome {
 
 enum SelectMethodDecodeOutcome {
     Response(SelectMethodResponse),
+    Failure(String),
+}
+
+enum CreateSessionDecodeOutcome {
+    Success,
     Failure(String),
 }
 
@@ -1068,13 +1073,22 @@ impl ThpBackend for BleBackend {
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
-        self.parse_encrypted_response(parsed, |message_type, _| {
-            if message_type != MESSAGE_TYPE_SUCCESS {
-                return Err(ProtoMappingError::UnexpectedMessage(message_type));
-            }
-            Ok(())
-        })
-        .await?;
+        let outcome = self
+            .parse_encrypted_response(parsed, |message_type, payload| {
+                if message_type == MESSAGE_TYPE_FAILURE {
+                    return Ok(CreateSessionDecodeOutcome::Failure(decode_failure_reason(
+                        payload,
+                    )));
+                }
+                if message_type != MESSAGE_TYPE_SUCCESS {
+                    return Err(ProtoMappingError::UnexpectedMessage(message_type));
+                }
+                Ok(CreateSessionDecodeOutcome::Success)
+            })
+            .await?;
+        if let CreateSessionDecodeOutcome::Failure(reason) = outcome {
+            return Err(BackendError::Device(reason));
+        }
 
         Ok(CreateSessionResponse)
     }
