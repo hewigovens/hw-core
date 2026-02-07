@@ -111,8 +111,14 @@ struct EthereumSignTxEip1559 {
     chain_id: u64,
     #[prost(message, repeated, tag = "11")]
     access_list: Vec<EthereumAccessList>,
-    #[prost(bool, optional, tag = "14")]
+    #[prost(bool, optional, tag = "13")]
     chunkify: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct EthereumSignTxEip1559PaymentReqProbe {
+    #[prost(bytes = "vec", optional, tag = "14")]
+    payment_req: Option<Vec<u8>>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -614,6 +620,13 @@ mod tests {
         assert_eq!(decoded.nonce, Some(vec![1]));
         assert_eq!(decoded.data_length, Some(0));
         assert!(decoded.data_initial_chunk.is_none());
+        assert_eq!(decoded.chunkify, Some(false));
+
+        // Guard against accidental use of field tag 14 for chunkify, which firmware
+        // interprets as payment_req and rejects with decode errors.
+        let payment_req_probe =
+            EthereumSignTxEip1559PaymentReqProbe::decode(encoded.payload.as_slice()).unwrap();
+        assert!(payment_req_probe.payment_req.is_none());
     }
 
     #[test]
