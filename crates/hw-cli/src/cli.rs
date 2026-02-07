@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
+use hw_wallet::chain::Chain;
 
-pub const DEFAULT_ETH_BIP32_PATH: &str = "m/44'/60'/0'/0/0";
-pub const DEFAULT_BTC_BIP32_PATH: &str = "m/84'/0'/0'/0/0";
+pub const DEFAULT_ETH_BIP32_PATH: &str = hw_wallet::chain::DEFAULT_ETH_BIP32_PATH;
 
 #[derive(Parser, Debug)]
 #[command(name = "hw-cli")]
@@ -58,7 +58,7 @@ pub struct PairArgs {
 
 #[derive(Args, Debug)]
 pub struct AddressArgs {
-    #[arg(long, value_enum)]
+    #[arg(long, value_name = "eth|btc", value_parser = parse_chain_arg)]
     pub chain: Option<Chain>,
     #[arg(long)]
     pub path: Option<String>,
@@ -82,12 +82,6 @@ pub struct AddressArgs {
     pub app_name: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum Chain {
-    Eth,
-    Btc,
-}
-
 #[derive(Args, Debug)]
 pub struct SignArgs {
     #[command(subcommand)]
@@ -105,6 +99,22 @@ pub struct SignEthArgs {
     pub path: String,
     #[arg(long)]
     pub tx: String,
+    #[arg(long, alias = "duration-secs", default_value_t = 60)]
+    pub timeout_secs: u64,
+    #[arg(long, default_value_t = 60)]
+    pub thp_timeout_secs: u64,
+    #[arg(long)]
+    pub device_id: Option<String>,
+    #[arg(long)]
+    pub storage_path: Option<PathBuf>,
+    #[arg(long)]
+    pub host_name: Option<String>,
+    #[arg(long, default_value = "hw-core/cli")]
+    pub app_name: String,
+}
+
+fn parse_chain_arg(value: &str) -> Result<Chain, String> {
+    value.parse()
 }
 
 #[cfg(test)]
@@ -188,6 +198,33 @@ mod tests {
         let Command::Address(args) = cli.command else {
             panic!("expected address command");
         };
-        assert_eq!(args.chain, Some(Chain::Btc));
+        assert_eq!(args.chain, Some(Chain::Bitcoin));
+    }
+
+    #[test]
+    fn address_rejects_unsupported_chain_value() {
+        let result = Cli::try_parse_from(["hw-cli", "address", "--chain", "sol"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn sign_eth_defaults() {
+        let cli = Cli::parse_from([
+            "hw-cli",
+            "sign",
+            "eth",
+            "--path",
+            "m/44'/60'/0'/0/0",
+            "--tx",
+            "{\"to\":\"0xdead\"}",
+        ]);
+        let Command::Sign(args) = cli.command else {
+            panic!("expected sign command");
+        };
+        let SignCommand::Eth(args) = args.command;
+
+        assert_eq!(args.timeout_secs, 60);
+        assert_eq!(args.thp_timeout_secs, 60);
+        assert_eq!(args.app_name, "hw-core/cli");
     }
 }

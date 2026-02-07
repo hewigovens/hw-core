@@ -8,6 +8,8 @@ use uuid::Uuid;
 
 use crate::{BleError, BleProfile, BleResult, DeviceInfo};
 
+const PROOF_OF_CONNECTION: &[u8] = b"Proof of connection";
+
 pub struct BleSession {
     peripheral: Peripheral,
     profile: BleProfile,
@@ -72,7 +74,7 @@ impl BleSession {
         // Match Suite's BLE connect behavior: perform a write-with-response probe
         // so CoreBluetooth can surface pairing/auth failures before THP begins.
         peripheral
-            .write(&write_char, b"Proof of connection", WriteType::WithResponse)
+            .write(&write_char, PROOF_OF_CONNECTION, WriteType::WithResponse)
             .await?;
 
         peripheral.subscribe(&notify_char).await?;

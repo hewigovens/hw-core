@@ -1,5 +1,9 @@
 use anyhow::{bail, Context, Result};
 use hw_wallet::bip32::parse_bip32_path;
+use hw_wallet::chain::{
+    infer_chain_from_path as infer_chain_from_path_wallet, Chain, CHAIN_BTC, CHAIN_ETH,
+};
+use hw_wallet::eth::{build_sign_tx_request, parse_tx_json};
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
@@ -10,12 +14,15 @@ use rustyline::{Context as ReadlineContext, Editor, Helper};
 use trezor_connect::ble::BleBackend;
 use trezor_connect::thp::{GetAddressRequest, ThpWorkflow};
 
-use crate::cli::{Chain, DEFAULT_BTC_BIP32_PATH, DEFAULT_ETH_BIP32_PATH};
+use crate::cli::DEFAULT_ETH_BIP32_PATH;
 
-const ROOT_COMMANDS: &[&str] = &["help", "address", "exit", "quit"];
+const COMMAND_ADDRESS: &str = "address";
+const COMMAND_SIGN: &str = "sign";
+
+const ROOT_COMMANDS: &[&str] = &["help", COMMAND_ADDRESS, COMMAND_SIGN, "exit", "quit"];
 const ADDRESS_TOKENS: &[&str] = &[
-    "eth",
-    "btc",
+    CHAIN_ETH,
+    CHAIN_BTC,
     "--chain",
     "--path",
     "--show-on-device",
@@ -23,7 +30,8 @@ const ADDRESS_TOKENS: &[&str] = &[
     "--include-public-key",
     "--chunkify",
 ];
-const CHAIN_VALUES: &[&str] = &["eth", "btc"];
+const CHAIN_VALUES: &[&str] = &[CHAIN_ETH, CHAIN_BTC];
+const SIGN_TOKENS: &[&str] = &[CHAIN_ETH, "--path", "--tx"];
 
 #[derive(Clone, Default)]
 struct ReplHelper;
@@ -52,7 +60,7 @@ impl Completer for ReplHelper {
 pub async fn run(workflow: &mut ThpWorkflow<BleBackend>) -> Result<()> {
     println!("Interactive session started.");
     println!(
-        "Commands: help | address [--chain <eth|btc>] [--path <bip32>] [--hide-on-device] [--include-public-key] [--chunkify] | exit"
+        "Commands: help | address [--chain <eth|btc>] [--path <bip32>] [--hide-on-device] [--include-public-key] [--chunkify] | sign eth --path <bip32> --tx <json|@file> | exit"
     );
 
     let mut editor = build_editor()?;
@@ -74,6 +82,7 @@ pub async fn run(workflow: &mut ThpWorkflow<BleBackend>) -> Result<()> {
                     println!(
                         "address [--chain <eth|btc>] [--path <bip32>] [--hide-on-device] [--include-public-key] [--chunkify]"
                     );
+                    println!("sign eth --path <bip32> --tx <json|@file>");
                     println!("exit");
                     continue;
                 }
@@ -127,8 +136,24 @@ fn completion_candidates(line: &str, pos: usize) -> Vec<&'static str> {
     if words.is_empty() {
         return ROOT_COMMANDS.to_vec();
     }
-    if words[0] != "address" {
+    if words[0] != COMMAND_ADDRESS && words[0] != COMMAND_SIGN {
         return ROOT_COMMANDS.to_vec();
+    }
+
+    if words[0] == COMMAND_SIGN {
+        if words.last().copied() == Some("--path") && trailing_whitespace {
+            return vec![DEFAULT_ETH_BIP32_PATH];
+        }
+        if words.len() >= 2 && words[words.len() - 2] == "--path" && !trailing_whitespace {
+            return Vec::new();
+        }
+        if words.last().copied() == Some("--tx") && trailing_whitespace {
+            return vec!["@./tx.json", "{\"to\":\"0x...\"}"];
+        }
+        if words.len() >= 2 && words[words.len() - 2] == "--tx" && !trailing_whitespace {
+            return Vec::new();
+        }
+        return SIGN_TOKENS.to_vec();
     }
 
     if words.last().copied() == Some("--chain") && trailing_whitespace {
@@ -139,7 +164,7 @@ fn completion_candidates(line: &str, pos: usize) -> Vec<&'static str> {
     }
 
     if words.last().copied() == Some("--path") && trailing_whitespace {
-        let chain = detect_selected_chain(&words).unwrap_or(Chain::Eth);
+        let chain = detect_selected_chain(&words).unwrap_or(Chain::Ethereum);
         return vec![default_path_for_chain(chain)];
     }
     if words.len() >= 2 && words[words.len() - 2] == "--path" && !trailing_whitespace {
@@ -170,9 +195,14 @@ async fn handle_line(workflow: &mut ThpWorkflow<BleBackend>, line: &str) -> Resu
         return Ok(());
     }
 
-    if parts[0] != "address" {
-        bail!("unknown command '{}'", parts[0]);
+    match parts[0] {
+        COMMAND_ADDRESS => handle_address(workflow, &parts).await,
+        COMMAND_SIGN => handle_sign(workflow, &parts).await,
+        other => bail!("unknown command '{other}'"),
     }
+}
+
+async fn handle_address(workflow: &mut ThpWorkflow<BleBackend>, parts: &[&str]) -> Result<()> {
     let mut chain: Option<Chain> = None;
     let mut path: Option<&str> = None;
     let mut show_on_device = true;
@@ -182,8 +212,8 @@ async fn handle_line(workflow: &mut ThpWorkflow<BleBackend>, line: &str) -> Resu
     let mut i = 1usize;
     while i < parts.len() {
         match parts[i] {
-            "eth" => chain = Some(Chain::Eth),
-            "btc" => chain = Some(Chain::Btc),
+            CHAIN_ETH => chain = Some(Chain::Ethereum),
+            CHAIN_BTC => chain = Some(Chain::Bitcoin),
             "--chain" => {
                 i += 1;
                 let value = parts
@@ -211,10 +241,10 @@ async fn handle_line(workflow: &mut ThpWorkflow<BleBackend>, line: &str) -> Resu
 
     let (path, chain) = match path {
         Some(path) => {
-            let address_n = parse_bip32_path(path)?;
-            let inferred = infer_chain_from_address_n(&address_n);
+            let path_indices = parse_bip32_path(path)?;
+            let inferred = infer_chain_from_path(&path_indices);
             let explicit = chain;
-            let chain = explicit.or(inferred).unwrap_or(Chain::Eth);
+            let chain = explicit.or(inferred).unwrap_or(Chain::Ethereum);
             if let (Some(explicit), Some(inferred)) = (explicit, inferred) {
                 if explicit != inferred {
                     bail!(
@@ -228,21 +258,21 @@ async fn handle_line(workflow: &mut ThpWorkflow<BleBackend>, line: &str) -> Resu
             (path, chain)
         }
         None => {
-            let chain = chain.unwrap_or(Chain::Eth);
+            let chain = chain.unwrap_or(Chain::Ethereum);
             (default_path_for_chain(chain), chain)
         }
     };
 
-    if chain == Chain::Btc {
+    if chain == Chain::Bitcoin {
         bail!(
             "BTC address flow is not implemented yet. Use --chain eth or --path {}.",
             DEFAULT_ETH_BIP32_PATH
         );
     }
 
-    let address_n = parse_bip32_path(path)?;
+    let path_indices = parse_bip32_path(path)?;
 
-    let request = GetAddressRequest::ethereum(address_n)
+    let request = GetAddressRequest::ethereum(path_indices)
         .with_show_display(show_on_device)
         .with_include_public_key(include_public_key)
         .with_chunkify(chunkify);
@@ -262,32 +292,67 @@ async fn handle_line(workflow: &mut ThpWorkflow<BleBackend>, line: &str) -> Resu
     Ok(())
 }
 
-fn default_path_for_chain(chain: Chain) -> &'static str {
-    match chain {
-        Chain::Eth => DEFAULT_ETH_BIP32_PATH,
-        Chain::Btc => DEFAULT_BTC_BIP32_PATH,
+async fn handle_sign(workflow: &mut ThpWorkflow<BleBackend>, parts: &[&str]) -> Result<()> {
+    if parts.get(1).copied() != Some(CHAIN_ETH) {
+        bail!("only 'sign eth' is supported");
     }
+
+    let mut path: Option<&str> = None;
+    let mut tx_json: Option<String> = None;
+    let mut i = 2usize;
+    while i < parts.len() {
+        match parts[i] {
+            "--path" => {
+                i += 1;
+                let value = parts
+                    .get(i)
+                    .copied()
+                    .ok_or_else(|| anyhow::anyhow!("missing value for --path"))?;
+                path = Some(value);
+            }
+            "--tx" => {
+                i += 1;
+                if i >= parts.len() {
+                    bail!("missing value for --tx");
+                }
+                tx_json = Some(parts[i..].join(" "));
+                break;
+            }
+            flag => bail!("unknown flag '{flag}'"),
+        }
+        i += 1;
+    }
+
+    let path = path.ok_or_else(|| anyhow::anyhow!("--path is required"))?;
+    let tx_json = tx_json.ok_or_else(|| anyhow::anyhow!("--tx is required"))?;
+    let tx_json = if let Some(tx_path) = tx_json.strip_prefix('@') {
+        std::fs::read_to_string(tx_path).with_context(|| format!("reading tx file: {tx_path}"))?
+    } else {
+        tx_json
+    };
+
+    let path_indices = parse_bip32_path(path)?;
+    let tx = parse_tx_json(&tx_json).context("failed to parse tx JSON")?;
+    let request =
+        build_sign_tx_request(path_indices, tx).context("failed to build sign request")?;
+    let response = workflow.sign_tx(request).await.context("sign-tx failed")?;
+
+    println!("v: {}", response.v);
+    println!("r: 0x{}", hex::encode(&response.r));
+    println!("s: 0x{}", hex::encode(&response.s));
+    Ok(())
+}
+
+fn default_path_for_chain(chain: Chain) -> &'static str {
+    chain.default_path()
 }
 
 fn parse_chain(value: &str) -> Result<Chain> {
-    match value {
-        "eth" | "ethereum" => Ok(Chain::Eth),
-        "btc" | "bitcoin" => Ok(Chain::Btc),
-        _ => bail!("unsupported chain '{}'; expected eth or btc", value),
-    }
+    value.parse().map_err(anyhow::Error::msg)
 }
 
-fn infer_chain_from_address_n(address_n: &[u32]) -> Option<Chain> {
-    const HARDENED_MASK: u32 = 0x8000_0000;
-    const COIN_BTC: u32 = 0;
-    const COIN_ETH: u32 = 60;
-
-    let coin_type = address_n.get(1).copied()? & !HARDENED_MASK;
-    match coin_type {
-        COIN_ETH => Some(Chain::Eth),
-        COIN_BTC => Some(Chain::Btc),
-        _ => None,
-    }
+fn infer_chain_from_path(path: &[u32]) -> Option<Chain> {
+    infer_chain_from_path_wallet(path)
 }
 
 fn detect_selected_chain(words: &[&str]) -> Option<Chain> {
@@ -295,8 +360,8 @@ fn detect_selected_chain(words: &[&str]) -> Option<Chain> {
     let mut chain = None;
     while i < words.len() {
         match words[i] {
-            "eth" => chain = Some(Chain::Eth),
-            "btc" => chain = Some(Chain::Btc),
+            CHAIN_ETH => chain = Some(Chain::Ethereum),
+            CHAIN_BTC => chain = Some(Chain::Bitcoin),
             "--chain" => {
                 if let Some(value) = words.get(i + 1).copied() {
                     chain = parse_chain(value).ok();
@@ -313,6 +378,7 @@ fn detect_selected_chain(words: &[&str]) -> Option<Chain> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hw_wallet::chain::DEFAULT_BTC_BIP32_PATH;
 
     fn replacements(line: &str, pos: usize) -> Vec<String> {
         let (_, pairs) = completion_pairs(line, pos);
@@ -351,5 +417,12 @@ mod tests {
             "address --chain btc --path ".len(),
         );
         assert_eq!(suggestions, vec![DEFAULT_BTC_BIP32_PATH.to_string()]);
+    }
+
+    #[test]
+    fn sign_completion_suggests_flags() {
+        let suggestions = replacements("sign --", "sign --".len());
+        assert!(suggestions.contains(&"--path".to_string()));
+        assert!(suggestions.contains(&"--tx".to_string()));
     }
 }

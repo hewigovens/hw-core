@@ -15,6 +15,6 @@ hw-wallet = { path = "../hw-wallet" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 trezor-connect = { path = "../trezor-connect", features = ["ble"] }
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["fmt"] }
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 whoami = "1.5"
 rustyline = "14.0"

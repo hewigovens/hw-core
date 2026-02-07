@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use crc32fast::Hasher;
 use thiserror::Error;
 
-use super::proto_conversions::{decode_device_properties, ProtoMappingError};
+use super::proto::{decode_device_properties, ProtoMappingError};
 use super::types::ThpProperties;
 
 pub const MAGIC_CREATE_CHANNEL_REQUEST: u8 = 0x40;
@@ -490,7 +490,7 @@ pub fn encode_ack(channel: u16, ack_bit: u8) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::thp::crypto::pairing::get_handshake_hash;
-    use crate::thp::proto;
+    use crate::thp::messages;
     use hex::encode as hex_encode;
     use prost::Message;
 
@@ -498,12 +498,12 @@ mod tests {
     fn create_channel_response_roundtrip() {
         let nonce = [0xAAu8; 8];
         let channel = 0x1234u16;
-        let props = proto::ThpDeviceProperties {
+        let props = messages::ThpDeviceProperties {
             internal_model: "T2B1".into(),
             model_variant: Some(1),
             protocol_version_major: 1,
             protocol_version_minor: 2,
-            pairing_methods: vec![proto::ThpPairingMethod::QrCode as i32],
+            pairing_methods: vec![messages::ThpPairingMethod::QrCode as i32],
         };
         let mut props_buf = Vec::new();
         props.encode(&mut props_buf).unwrap();
@@ -605,12 +605,12 @@ mod tests {
         assert_eq!(state.send_bit(), 0);
 
         let channel = 0x0042u16;
-        let props = proto::ThpDeviceProperties {
+        let props = messages::ThpDeviceProperties {
             internal_model: "T2B1".into(),
             model_variant: Some(1),
             protocol_version_major: 1,
             protocol_version_minor: 0,
-            pairing_methods: vec![proto::ThpPairingMethod::QrCode as i32],
+            pairing_methods: vec![messages::ThpPairingMethod::QrCode as i32],
         };
 
         let mut props_buf = Vec::new();

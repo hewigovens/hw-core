@@ -13,7 +13,7 @@ use super::{
         CodeEntryChallengeRequest, CreateChannelRequest, CreateSessionRequest, GetAddressRequest,
         GetAddressResponse, HandshakeCompletionRequest, HandshakeCompletionState,
         HandshakeInitRequest, HostConfig, PairingController, PairingDecision, PairingMethod,
-        PairingPrompt, PairingTagRequest, SelectMethodRequest,
+        PairingPrompt, PairingTagRequest, SelectMethodRequest, SignTxRequest, SignTxResponse,
     },
 };
 
@@ -535,6 +535,13 @@ where
         self.backend.get_address(request).await.map_err(Into::into)
     }
 
+    pub async fn sign_tx(&mut self, request: SignTxRequest) -> Result<SignTxResponse> {
+        if self.state.phase() != Phase::Paired {
+            return Err(ThpWorkflowError::InvalidPhase);
+        }
+        self.backend.sign_tx(request).await.map_err(Into::into)
+    }
+
     pub async fn abort(&mut self) -> Result<()> {
         self.backend.abort().await?;
         self.state.reset();
@@ -830,6 +837,15 @@ mod tests {
                 address: "0x0000000000000000000000000000000000000000".into(),
                 mac: None,
                 public_key: None,
+            })
+        }
+
+        async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse> {
+            Ok(SignTxResponse {
+                chain: request.chain,
+                v: 1,
+                r: vec![0xAA; 32],
+                s: vec![0xBB; 32],
             })
         }
 
@@ -1151,6 +1167,29 @@ mod tests {
                 0,
                 0,
             ]))
+            .await
+            .expect_err("should fail before pairing");
+        assert!(matches!(err, ThpWorkflowError::InvalidPhase));
+    }
+
+    #[tokio::test]
+    async fn sign_tx_requires_paired_phase() {
+        let backend = MockBackend::autopair();
+        let mut workflow = ThpWorkflow::new(
+            backend,
+            HostConfig {
+                pairing_methods: vec![PairingMethod::SkipPairing],
+                known_credentials: vec![],
+                static_key: None,
+                host_name: "host".into(),
+                app_name: "app".into(),
+            },
+        );
+
+        let request = SignTxRequest::ethereum(vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0], 1)
+            .with_to("0xdead".into());
+        let err = workflow
+            .sign_tx(request)
             .await
             .expect_err("should fail before pairing");
         assert!(matches!(err, ThpWorkflowError::InvalidPhase));

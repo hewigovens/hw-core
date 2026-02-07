@@ -30,6 +30,7 @@ serde_json = "1"
 ble-transport = { path = "../ble-transport", optional = true }
 thp-core = { path = "../thp-core" }
 thp-proto = { path = "../thp-proto" }
+hw-chain = { path = "../hw-chain" }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 crc32fast = { workspace = true }

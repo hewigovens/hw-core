@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -19,15 +18,16 @@ use crate::thp::crypto::pairing::{
     validate_qr_code_tag, HandshakeInitInput, HandshakeInitResponse, PairingCryptoError,
 };
 use crate::thp::crypto::{aes256gcm_decrypt, aes256gcm_encrypt, get_iv_from_nonce};
-use crate::thp::proto;
-use crate::thp::proto_conversions::to_pairing_tag_response;
-use crate::thp::proto_conversions::{
+use crate::thp::messages;
+use crate::thp::proto::to_pairing_tag_response;
+use crate::thp::proto::{
     decode_code_entry_cpace_response, decode_credential_response, decode_get_address_response,
     decode_get_public_key_response, decode_pairing_request_approved, decode_select_method_response,
-    decode_tag_response, encode_code_entry_challenge, encode_code_entry_tag,
+    decode_tag_response, decode_tx_request, encode_code_entry_challenge, encode_code_entry_tag,
     encode_credential_request, encode_end_request, encode_get_address_request,
     encode_get_public_key_request, encode_nfc_tag, encode_pairing_request, encode_qr_tag,
-    encode_select_method, EncodedMessage, ProtoMappingError,
+    encode_select_method, encode_sign_tx_request, encode_tx_ack, EncodedMessage, ProtoMappingError,
+    ETH_DATA_CHUNK_SIZE, MESSAGE_TYPE_ETHEREUM_TX_REQUEST,
 };
 use crate::thp::types::*;
 use crate::thp::wire::{
@@ -41,8 +41,8 @@ use sha2::{Digest, Sha256};
 const MESSAGE_TYPE_SUCCESS: u16 = 2;
 const MESSAGE_TYPE_CREATE_SESSION: u16 = 1000;
 const MESSAGE_TYPE_FAILURE: u16 = 3;
-const MESSAGE_TYPE_BUTTON_REQUEST: u16 = proto::ThpMessageType::ButtonRequest as i32 as u16;
-const MESSAGE_TYPE_BUTTON_ACK: u16 = proto::ThpMessageType::ButtonAck as i32 as u16;
+const MESSAGE_TYPE_BUTTON_REQUEST: u16 = messages::ThpMessageType::ButtonRequest as i32 as u16;
+const MESSAGE_TYPE_BUTTON_ACK: u16 = messages::ThpMessageType::ButtonAck as i32 as u16;
 const MIN_THP_FRAME_SIZE: usize = 9; // 1 magic + 2 channel + 2 len + 4 crc
 const THP_CONTROL_BITS_MASK: u8 = (1 << 3) | (1 << 4);
 
@@ -68,25 +68,7 @@ fn decode_failure_reason(payload: &[u8]) -> String {
     }
 }
 
-enum TagDecodeOutcome {
-    Accepted(super::thp::proto_conversions::ParsedTagResponse),
-    Retry(String),
-}
-
-enum CodeEntryChallengeDecodeOutcome {
-    PublicKey(CodeEntryChallengeResponse),
-    Retry(String),
-}
-
-enum SelectMethodDecodeOutcome {
-    Response(SelectMethodResponse),
-    Failure(String),
-}
-
-enum CreateSessionDecodeOutcome {
-    Success,
-    Failure(String),
-}
+type ResponseOrReason<T> = std::result::Result<T, String>;
 
 pub struct BleBackend {
     inner: TransportBackend,
@@ -467,7 +449,7 @@ impl BleBackend {
 }
 
 fn thp_message_name(message_type: u16) -> String {
-    match proto::ThpMessageType::try_from(message_type as i32) {
+    match messages::ThpMessageType::try_from(message_type as i32) {
         Ok(kind) => format!("{kind:?}"),
         Err(_) => format!("Unknown({message_type})"),
     }
@@ -646,7 +628,7 @@ impl ThpBackend for BleBackend {
 
         let encode_handshake_payload = |credential: Option<&str>| -> Vec<u8> {
             let host_pairing_credential = credential.and_then(|c| hex::decode(c).ok());
-            let message = proto::ThpHandshakeCompletionReqNoisePayload {
+            let message = messages::ThpHandshakeCompletionReqNoisePayload {
                 host_pairing_credential,
             };
             let mut buf = Vec::new();
@@ -780,7 +762,8 @@ impl ThpBackend for BleBackend {
         let parsed = self.read_next().await?;
         let response = self
             .parse_encrypted_response(parsed, |message_type, payload| {
-                if message_type != proto::ThpMessageType::ThpPairingRequestApproved as i32 as u16 {
+                if message_type != messages::ThpMessageType::ThpPairingRequestApproved as i32 as u16
+                {
                     return Err(ProtoMappingError::UnexpectedMessage(message_type));
                 }
                 decode_pairing_request_approved(payload)
@@ -798,22 +781,20 @@ impl ThpBackend for BleBackend {
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
-        let outcome = self
+        let outcome: ResponseOrReason<SelectMethodResponse> = self
             .parse_encrypted_response(parsed, |message_type, payload| {
                 if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(SelectMethodDecodeOutcome::Failure(decode_failure_reason(
-                        payload,
-                    )));
+                    return Ok(Err(decode_failure_reason(payload)));
                 }
-                let message_type_enum = proto::ThpMessageType::try_from(message_type as i32)
+                let message_type_enum = messages::ThpMessageType::try_from(message_type as i32)
                     .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
                 let response = decode_select_method_response(message_type_enum, payload)?;
-                Ok(SelectMethodDecodeOutcome::Response(response))
+                Ok(Ok(response))
             })
             .await?;
         let response = match outcome {
-            SelectMethodDecodeOutcome::Response(response) => response,
-            SelectMethodDecodeOutcome::Failure(reason) => return Err(BackendError::Device(reason)),
+            Ok(response) => response,
+            Err(reason) => return Err(BackendError::Device(reason)),
         };
 
         Ok(response)
@@ -832,23 +813,21 @@ impl ThpBackend for BleBackend {
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
-        let outcome = self
+        let outcome: ResponseOrReason<CodeEntryChallengeResponse> = self
             .parse_encrypted_response(parsed, |message_type, payload| {
                 if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(CodeEntryChallengeDecodeOutcome::Retry(
-                        decode_failure_reason(payload),
-                    ));
+                    return Ok(Err(decode_failure_reason(payload)));
                 }
-                if message_type != proto::ThpMessageType::ThpCodeEntryCpaceTrezor as i32 as u16 {
+                if message_type != messages::ThpMessageType::ThpCodeEntryCpaceTrezor as i32 as u16 {
                     return Err(ProtoMappingError::UnexpectedMessage(message_type));
                 }
                 let response = decode_code_entry_cpace_response(payload)?;
-                Ok(CodeEntryChallengeDecodeOutcome::PublicKey(response))
+                Ok(Ok(response))
             })
             .await?;
         let response = match outcome {
-            CodeEntryChallengeDecodeOutcome::PublicKey(response) => response,
-            CodeEntryChallengeDecodeOutcome::Retry(reason) => {
+            Ok(response) => response,
+            Err(reason) => {
                 return Err(BackendError::Device(reason));
             }
         };
@@ -881,24 +860,22 @@ impl ThpBackend for BleBackend {
                 self.send_encrypted_request(encoded).await?;
 
                 let parsed = self.read_next().await?;
-                let outcome = self
+                let outcome: ResponseOrReason<super::thp::proto::ParsedTagResponse> = self
                     .parse_encrypted_response(parsed, |message_type, payload| {
                         if message_type == MESSAGE_TYPE_FAILURE {
-                            return Ok(TagDecodeOutcome::Retry(decode_failure_reason(payload)));
+                            return Ok(Err(decode_failure_reason(payload)));
                         }
                         let message_type_enum =
-                            proto::ThpMessageType::try_from(message_type as i32)
+                            messages::ThpMessageType::try_from(message_type as i32)
                                 .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
                         let parsed = decode_tag_response(message_type_enum, payload)?;
-                        Ok(TagDecodeOutcome::Accepted(parsed))
+                        Ok(Ok(parsed))
                     })
                     .await?;
 
                 let response = match outcome {
-                    TagDecodeOutcome::Retry(reason) => {
-                        return Ok(PairingTagResponse::Retry(reason))
-                    }
-                    TagDecodeOutcome::Accepted(response) => response,
+                    Err(reason) => return Ok(PairingTagResponse::Retry(reason)),
+                    Ok(response) => response,
                 };
 
                 if let Err(err) =
@@ -917,7 +894,7 @@ impl ThpBackend for BleBackend {
                 let tag_bytes = hex::decode(&tag)
                     .map_err(|_| BackendError::Transport("invalid NFC tag hex".into()))?;
                 let mut hasher = Sha256::new();
-                hasher.update([proto::ThpPairingMethod::Nfc as u8]);
+                hasher.update([messages::ThpPairingMethod::Nfc as u8]);
                 hasher.update(&handshake_hash);
                 hasher.update(&tag_bytes);
                 let hashed = hasher.finalize();
@@ -927,24 +904,22 @@ impl ThpBackend for BleBackend {
                 self.send_encrypted_request(encoded).await?;
 
                 let parsed = self.read_next().await?;
-                let outcome = self
+                let outcome: ResponseOrReason<super::thp::proto::ParsedTagResponse> = self
                     .parse_encrypted_response(parsed, |message_type, payload| {
                         if message_type == MESSAGE_TYPE_FAILURE {
-                            return Ok(TagDecodeOutcome::Retry(decode_failure_reason(payload)));
+                            return Ok(Err(decode_failure_reason(payload)));
                         }
                         let message_type_enum =
-                            proto::ThpMessageType::try_from(message_type as i32)
+                            messages::ThpMessageType::try_from(message_type as i32)
                                 .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
                         let parsed = decode_tag_response(message_type_enum, payload)?;
-                        Ok(TagDecodeOutcome::Accepted(parsed))
+                        Ok(Ok(parsed))
                     })
                     .await?;
 
                 let response = match outcome {
-                    TagDecodeOutcome::Retry(reason) => {
-                        return Ok(PairingTagResponse::Retry(reason))
-                    }
-                    TagDecodeOutcome::Accepted(response) => response,
+                    Err(reason) => return Ok(PairingTagResponse::Retry(reason)),
+                    Ok(response) => response,
                 };
 
                 // Validation requires stored NFC secret; not available here, so defer to workflow.
@@ -977,24 +952,22 @@ impl ThpBackend for BleBackend {
                 self.send_encrypted_request(encoded).await?;
 
                 let parsed = self.read_next().await?;
-                let outcome = self
+                let outcome: ResponseOrReason<super::thp::proto::ParsedTagResponse> = self
                     .parse_encrypted_response(parsed, |message_type, payload| {
                         if message_type == MESSAGE_TYPE_FAILURE {
-                            return Ok(TagDecodeOutcome::Retry(decode_failure_reason(payload)));
+                            return Ok(Err(decode_failure_reason(payload)));
                         }
                         let message_type_enum =
-                            proto::ThpMessageType::try_from(message_type as i32)
+                            messages::ThpMessageType::try_from(message_type as i32)
                                 .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
                         let parsed = decode_tag_response(message_type_enum, payload)?;
-                        Ok(TagDecodeOutcome::Accepted(parsed))
+                        Ok(Ok(parsed))
                     })
                     .await?;
 
                 let response = match outcome {
-                    TagDecodeOutcome::Retry(reason) => {
-                        return Ok(PairingTagResponse::Retry(reason))
-                    }
-                    TagDecodeOutcome::Accepted(response) => response,
+                    Err(reason) => return Ok(PairingTagResponse::Retry(reason)),
+                    Ok(response) => response,
                 };
 
                 if let Err(err) = validate_code_entry_tag(
@@ -1027,7 +1000,7 @@ impl ThpBackend for BleBackend {
         let parsed = self.read_next().await?;
         let response = self
             .parse_encrypted_response(parsed, |message_type, payload| {
-                if message_type != proto::ThpMessageType::ThpCredentialResponse as i32 as u16 {
+                if message_type != messages::ThpMessageType::ThpCredentialResponse as i32 as u16 {
                     return Err(ProtoMappingError::UnexpectedMessage(message_type));
                 }
                 decode_credential_response(payload)
@@ -1043,10 +1016,10 @@ impl ThpBackend for BleBackend {
 
         let parsed = self.read_next().await?;
         self.parse_encrypted_response(parsed, |message_type, payload| {
-            if message_type != proto::ThpMessageType::ThpEndResponse as i32 as u16 {
+            if message_type != messages::ThpMessageType::ThpEndResponse as i32 as u16 {
                 return Err(ProtoMappingError::UnexpectedMessage(message_type));
             }
-            proto::ThpEndResponse::decode(payload).map_err(ProtoMappingError::from)?;
+            messages::ThpEndResponse::decode(payload).map_err(ProtoMappingError::from)?;
             Ok(())
         })
         .await?;
@@ -1058,7 +1031,7 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: CreateSessionRequest,
     ) -> BackendResult<CreateSessionResponse> {
-        let message = proto::ThpCreateNewSession {
+        let message = messages::ThpCreateNewSession {
             passphrase: request.passphrase.clone(),
             on_device: request.on_device.then_some(true),
             derive_cardano: request.derive_cardano.then_some(true),
@@ -1076,20 +1049,18 @@ impl ThpBackend for BleBackend {
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
-        let outcome = self
+        let outcome: ResponseOrReason<()> = self
             .parse_encrypted_response(parsed, |message_type, payload| {
                 if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(CreateSessionDecodeOutcome::Failure(decode_failure_reason(
-                        payload,
-                    )));
+                    return Ok(Err(decode_failure_reason(payload)));
                 }
                 if message_type != MESSAGE_TYPE_SUCCESS {
                     return Err(ProtoMappingError::UnexpectedMessage(message_type));
                 }
-                Ok(CreateSessionDecodeOutcome::Success)
+                Ok(Ok(()))
             })
             .await?;
-        if let CreateSessionDecodeOutcome::Failure(reason) = outcome {
+        if let Err(reason) = outcome {
             return Err(BackendError::Device(reason));
         }
 
@@ -1111,12 +1082,9 @@ impl ThpBackend for BleBackend {
             .await?;
 
         if request.include_public_key {
-            let encoded = encode_get_public_key_request(
-                request.chain,
-                &request.address_n,
-                request.show_display,
-            )
-            .map_err(|e| self.map_proto_error(e))?;
+            let encoded =
+                encode_get_public_key_request(request.chain, &request.path, request.show_display)
+                    .map_err(|e| self.map_proto_error(e))?;
             self.send_encrypted_request(encoded).await?;
 
             let parsed = self.read_next().await?;
@@ -1129,6 +1097,98 @@ impl ThpBackend for BleBackend {
         }
 
         Ok(response)
+    }
+
+    async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse> {
+        let chain = request.chain;
+        let full_data = request.data.clone();
+        let (encoded, initial_chunk_len) =
+            encode_sign_tx_request(&request).map_err(|e| self.map_proto_error(e))?;
+        self.send_encrypted_request(encoded).await?;
+        let mut data_offset = initial_chunk_len;
+
+        loop {
+            let parsed = self.read_next().await?;
+            if self.should_ack(&parsed.header) {
+                self.send_ack(&parsed.header).await?;
+            }
+
+            let (message_type, payload) = match parsed.response {
+                WireResponse::Protobuf { payload } => {
+                    let result = self.decrypt_device_message(&payload)?;
+                    self.state.on_receive(parsed.header.magic);
+                    result
+                }
+                WireResponse::Error(code) => {
+                    return Err(BackendError::Device(format!(
+                        "device returned error code {code}"
+                    )));
+                }
+                other => {
+                    return Err(BackendError::Transport(format!(
+                        "unexpected response type {:?}",
+                        other
+                    )));
+                }
+            };
+
+            debug!(
+                "BLE THP sign_tx RX message_type={} ({}) payload_len={}",
+                message_type,
+                thp_message_name(message_type),
+                payload.len()
+            );
+
+            if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
+                debug!("BLE THP sign_tx: ButtonRequest; sending ButtonAck");
+                self.send_button_ack().await?;
+                continue;
+            }
+
+            if message_type == MESSAGE_TYPE_FAILURE {
+                return Err(BackendError::Device(decode_failure_reason(&payload)));
+            }
+
+            if message_type != MESSAGE_TYPE_ETHEREUM_TX_REQUEST {
+                return Err(BackendError::Transport(format!(
+                    "unexpected message type {} during sign_tx",
+                    message_type
+                )));
+            }
+
+            let tx_request =
+                decode_tx_request(message_type, &payload).map_err(|e| self.map_proto_error(e))?;
+            if let (Some(v), Some(r), Some(s)) = (
+                tx_request.signature_v,
+                tx_request.signature_r,
+                tx_request.signature_s,
+            ) {
+                self.state.set_expected_responses(Vec::new());
+                return Ok(SignTxResponse { chain, v, r, s });
+            }
+
+            if let Some(requested_len) = tx_request.data_length {
+                let requested_len = requested_len as usize;
+                if requested_len > 0 && data_offset >= full_data.len() {
+                    return Err(BackendError::Transport(
+                        "device requested additional tx data beyond payload length".into(),
+                    ));
+                }
+
+                let chunk_len = requested_len.min(ETH_DATA_CHUNK_SIZE);
+                let end = (data_offset + chunk_len).min(full_data.len());
+                let chunk = &full_data[data_offset..end];
+                data_offset = end;
+
+                let encoded_ack = encode_tx_ack(chunk).map_err(|e| self.map_proto_error(e))?;
+                self.send_encrypted_request(encoded_ack).await?;
+                continue;
+            }
+
+            return Err(BackendError::Transport(
+                "EthereumTxRequest has neither signature nor data_length".into(),
+            ));
+        }
     }
 
     async fn abort(&mut self) -> BackendResult<()> {
