@@ -47,5 +47,5 @@ cli-pair:
 cli-pair-interactive:
     cargo run -p hw-cli -- -vv pair --interactive
 
-cli-address-eth path="m/44'/60'/0'/0/0":
-    cargo run -p hw-cli -- -vv address eth --path "{{path}}" --include-public-key
+cli-address-eth:
+    cargo run -p hw-cli -- -vv address --chain eth --include-public-key

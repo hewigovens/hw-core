@@ -8,7 +8,7 @@ use prost::Message;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use tokio::time;
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
 use crate::thp::crypto::curve25519::{
@@ -44,6 +44,7 @@ const MESSAGE_TYPE_FAILURE: u16 = 3;
 const MESSAGE_TYPE_BUTTON_REQUEST: u16 = proto::ThpMessageType::ButtonRequest as i32 as u16;
 const MESSAGE_TYPE_BUTTON_ACK: u16 = proto::ThpMessageType::ButtonAck as i32 as u16;
 const MIN_THP_FRAME_SIZE: usize = 9; // 1 magic + 2 channel + 2 len + 4 crc
+const THP_CONTROL_BITS_MASK: u8 = (1 << 3) | (1 << 4);
 
 #[derive(Clone, PartialEq, Message)]
 struct FailureProto {
@@ -148,11 +149,13 @@ impl BleBackend {
     }
 
     async fn send_frame(&mut self, frame: Vec<u8>) -> BackendResult<()> {
-        debug!(
-            "BLE THP TX frame: magic=0x{:02x} len={}",
-            frame.first().copied().unwrap_or(0),
-            frame.len()
-        );
+        let magic = frame.first().copied().unwrap_or(0);
+        let base_magic = magic & !THP_CONTROL_BITS_MASK;
+        if base_magic == wire::MAGIC_READ_ACK {
+            trace!("BLE THP TX frame: magic=0x{magic:02x} len={}", frame.len());
+        } else {
+            debug!("BLE THP TX frame: magic=0x{magic:02x} len={}", frame.len());
+        }
         let mtu = {
             let link = self.inner.link_mut();
             link.mtu()
