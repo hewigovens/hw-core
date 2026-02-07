@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use async_trait::async_trait;
 use ble_transport::{BleBackend as TransportBackend, BleLink, BleSession, DeviceInfo};
 use hex;
 use prost::Message;
@@ -15,7 +14,7 @@ use crate::thp::crypto::curve25519::{
 };
 use crate::thp::crypto::pairing::{
     get_cpace_host_keys, get_shared_secret, handle_handshake_init, validate_code_entry_tag,
-    validate_qr_code_tag, HandshakeInitInput, HandshakeInitResponse, PairingCryptoError,
+    validate_qr_code_tag, HandshakeInitInput, HandshakeInitResponse,
 };
 use crate::thp::crypto::{aes256gcm_decrypt, aes256gcm_encrypt, get_iv_from_nonce};
 use crate::thp::messages;
@@ -114,19 +113,7 @@ impl BleBackend {
         self.handshake_timeout = timeout;
     }
 
-    fn map_transport_error<E: std::fmt::Display>(&self, err: E) -> BackendError {
-        BackendError::Transport(err.to_string())
-    }
-
-    fn map_wire_error(&self, err: WireError) -> BackendError {
-        BackendError::Transport(err.to_string())
-    }
-
-    fn map_proto_error(&self, err: ProtoMappingError) -> BackendError {
-        BackendError::Transport(err.to_string())
-    }
-
-    fn map_crypto_error(&self, err: PairingCryptoError) -> BackendError {
+    fn transport_error(err: impl std::fmt::Display) -> BackendError {
         BackendError::Transport(err.to_string())
     }
 
@@ -151,7 +138,7 @@ impl BleBackend {
             };
 
             if let Err(err) = write_future.await {
-                return Err(self.map_transport_error(err));
+                return Err(Self::transport_error(err));
             }
         }
         Ok(())
@@ -174,7 +161,7 @@ impl BleBackend {
                 self.rx_buffer.drain(..decoded.consumed);
                 trim_zero_padding(&mut self.rx_buffer);
                 let parsed =
-                    wire::parse_response(decoded.message).map_err(|e| self.map_wire_error(e))?;
+                    wire::parse_response(decoded.message).map_err(Self::transport_error)?;
                 Ok(Some(parsed))
             }
             Err(WireError::ShortPacket) => Ok(None),
@@ -215,7 +202,7 @@ impl BleBackend {
                 trim_zero_padding(&mut self.rx_buffer);
                 Ok(None)
             }
-            Err(err) => Err(self.map_wire_error(err)),
+            Err(err) => Err(Self::transport_error(err)),
         }
     }
 
@@ -254,7 +241,7 @@ impl BleBackend {
             let chunk = time::timeout(self.handshake_timeout, read_future)
                 .await
                 .map_err(|_| BackendError::Transport("timeout waiting for BLE response".into()))?
-                .map_err(|e| self.map_transport_error(e))?;
+                .map_err(Self::transport_error)?;
             debug!(
                 "BLE THP RX chunk: first=0x{:02x} len={}",
                 chunk.first().copied().unwrap_or(0),
@@ -434,8 +421,8 @@ impl BleBackend {
                 continue;
             }
 
-            let result = decoder(message_type, &payload).map_err(|e| self.map_proto_error(e))?;
-            self.state.set_expected_responses(Vec::new());
+            let result = decoder(message_type, &payload).map_err(Self::transport_error)?;
+            self.state.set_expected_responses(&[]);
             return Ok(result);
         }
     }
@@ -502,7 +489,6 @@ fn trim_zero_padding(buffer: &mut Vec<u8>) {
     }
 }
 
-#[async_trait]
 impl ThpBackend for BleBackend {
     async fn create_channel(
         &mut self,
@@ -610,7 +596,7 @@ impl ThpBackend for BleBackend {
                 tag,
             } => {
                 self.state.on_receive(parsed.header.magic);
-                self.state.set_expected_responses(Vec::new());
+                self.state.set_expected_responses(&[]);
                 (trezor_ephemeral_pubkey, trezor_encrypted_static_pubkey, tag)
             }
             WireResponse::Error(code) => {
@@ -655,7 +641,7 @@ impl ThpBackend for BleBackend {
             response: handshake_response,
             encode_handshake_payload: &encode_handshake_payload,
         })
-        .map_err(|e| self.map_crypto_error(e))?;
+        .map_err(Self::transport_error)?;
 
         self.state
             .set_keys(handshake_result.host_key, handshake_result.trezor_key);
@@ -703,7 +689,7 @@ impl ThpBackend for BleBackend {
                 tag,
             } => {
                 self.state.on_receive(parsed.header.magic);
-                self.state.set_expected_responses(Vec::new());
+                self.state.set_expected_responses(&[]);
 
                 // Handshake completion response is AES-GCM encrypted with key_response,
                 // nonce 0, empty associated data and a single-byte plaintext state.
@@ -756,7 +742,7 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: PairingRequest,
     ) -> BackendResult<PairingRequestApproved> {
-        let encoded = encode_pairing_request(&request).map_err(|e| self.map_proto_error(e))?;
+        let encoded = encode_pairing_request(&request).map_err(Self::transport_error)?;
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
@@ -777,7 +763,7 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: SelectMethodRequest,
     ) -> BackendResult<SelectMethodResponse> {
-        let encoded = encode_select_method(&request).map_err(|e| self.map_proto_error(e))?;
+        let encoded = encode_select_method(&request).map_err(Self::transport_error)?;
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
@@ -809,7 +795,7 @@ impl ThpBackend for BleBackend {
             request.challenge.len()
         );
         let encoded =
-            encode_code_entry_challenge(&request.challenge).map_err(|e| self.map_proto_error(e))?;
+            encode_code_entry_challenge(&request.challenge).map_err(Self::transport_error)?;
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
@@ -856,7 +842,7 @@ impl ThpBackend for BleBackend {
                 let hashed = hasher.finalize();
                 let hashed_hex = hex::encode(hashed);
 
-                let encoded = encode_qr_tag(&hashed_hex).map_err(|e| self.map_proto_error(e))?;
+                let encoded = encode_qr_tag(&hashed_hex).map_err(Self::transport_error)?;
                 self.send_encrypted_request(encoded).await?;
 
                 let parsed = self.read_next().await?;
@@ -900,7 +886,7 @@ impl ThpBackend for BleBackend {
                 let hashed = hasher.finalize();
                 let hashed_hex = hex::encode(hashed);
 
-                let encoded = encode_nfc_tag(&hashed_hex).map_err(|e| self.map_proto_error(e))?;
+                let encoded = encode_nfc_tag(&hashed_hex).map_err(Self::transport_error)?;
                 self.send_encrypted_request(encoded).await?;
 
                 let parsed = self.read_next().await?;
@@ -948,7 +934,7 @@ impl ThpBackend for BleBackend {
                 let shared_secret = get_shared_secret(&trezor_key, &keys.private_key);
 
                 let encoded = encode_code_entry_tag(&keys.public_key, &shared_secret)
-                    .map_err(|e| self.map_proto_error(e))?;
+                    .map_err(Self::transport_error)?;
                 self.send_encrypted_request(encoded).await?;
 
                 let parsed = self.read_next().await?;
@@ -994,7 +980,7 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: CredentialRequest,
     ) -> BackendResult<CredentialResponse> {
-        let encoded = encode_credential_request(&request).map_err(|e| self.map_proto_error(e))?;
+        let encoded = encode_credential_request(&request).map_err(Self::transport_error)?;
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
@@ -1011,7 +997,7 @@ impl ThpBackend for BleBackend {
     }
 
     async fn end_request(&mut self) -> BackendResult<()> {
-        let encoded = encode_end_request().map_err(|e| self.map_proto_error(e))?;
+        let encoded = encode_end_request().map_err(Self::transport_error)?;
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
@@ -1071,7 +1057,7 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: GetAddressRequest,
     ) -> BackendResult<GetAddressResponse> {
-        let encoded = encode_get_address_request(&request).map_err(|e| self.map_proto_error(e))?;
+        let encoded = encode_get_address_request(&request).map_err(Self::transport_error)?;
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
@@ -1084,7 +1070,7 @@ impl ThpBackend for BleBackend {
         if request.include_public_key {
             let encoded =
                 encode_get_public_key_request(request.chain, &request.path, request.show_display)
-                    .map_err(|e| self.map_proto_error(e))?;
+                    .map_err(Self::transport_error)?;
             self.send_encrypted_request(encoded).await?;
 
             let parsed = self.read_next().await?;

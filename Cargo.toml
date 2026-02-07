@@ -17,7 +17,9 @@ resolver = "2"
 edition = "2021"
 
 [workspace.lints]
-rust.unused = "allow"
+rust.unused_imports = "warn"
+rust.dead_code = "warn"
+rust.unused_variables = "allow"
 
 [workspace.dependencies]
 aes-gcm = { version = "0.10", features = ["aes"] }

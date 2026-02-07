@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use thiserror::Error;
 
 use super::types::*;
@@ -15,8 +14,8 @@ pub enum BackendError {
 
 pub type BackendResult<T> = std::result::Result<T, BackendError>;
 
-#[async_trait]
-pub trait ThpBackend {
+#[allow(async_fn_in_trait)]
+pub trait ThpBackend: Send {
     async fn create_channel(
         &mut self,
         request: CreateChannelRequest,

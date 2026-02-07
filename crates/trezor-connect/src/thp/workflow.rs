@@ -109,14 +109,15 @@ where
             return Err(ThpWorkflowError::NonceMismatch);
         }
 
-        let available = response.properties.pairing_methods.clone();
         let host_supported = if self.config.pairing_methods.is_empty() {
-            available.clone()
+            response.properties.pairing_methods
         } else {
-            available
+            response
+                .properties
+                .pairing_methods
                 .into_iter()
                 .filter(|m| self.config.pairing_methods.contains(m))
-                .collect::<Vec<_>>()
+                .collect()
         };
 
         if host_supported.is_empty() {
@@ -125,7 +126,7 @@ where
 
         let cache = HandshakeCache {
             channel: response.channel,
-            handshake_hash: response.handshake_hash.clone(),
+            handshake_hash: response.handshake_hash,
             pairing_methods: host_supported,
         };
         self.state.set_handshake_cache(cache);
@@ -148,50 +149,53 @@ where
 
         let outcome = self.backend.handshake_init(request).await?;
 
-        let creds = HandshakeCredentials {
-            pairing_methods: outcome.pairing_methods.clone(),
-            handshake_hash: outcome.handshake_hash.clone(),
-            trezor_encrypted_static_pubkey: outcome.trezor_encrypted_static_pubkey.clone(),
-            host_encrypted_static_pubkey: outcome.host_encrypted_static_pubkey.clone(),
-            host_key: outcome.host_key.clone(),
-            trezor_key: outcome.trezor_key.clone(),
-            host_static_key: outcome.host_static_key.clone(),
-            host_static_public_key: outcome.host_static_public_key.clone(),
-            nfc_data: outcome.nfc_data.clone(),
-            handshake_commitment: outcome.handshake_commitment.clone(),
-            trezor_cpace_public_key: outcome.trezor_cpace_public_key.clone(),
-            code_entry_challenge: outcome.code_entry_challenge.clone(),
-            pairing_credentials: outcome.credentials.clone(),
-            selected_credential: outcome.selected_credential.clone(),
+        // Extract fields needed for the completion request before moving outcome.
+        let completion_request = HandshakeCompletionRequest {
+            host_pubkey: outcome.host_encrypted_static_pubkey.clone(),
+            encrypted_payload: outcome.encrypted_payload,
         };
+
+        let autoconnect = outcome
+            .selected_credential
+            .as_ref()
+            .is_some_and(|c| c.autoconnect);
+        let first_method = outcome.pairing_methods.first().copied();
 
         self.config.static_key = Some(outcome.host_static_key.clone());
         self.config.known_credentials = outcome.credentials.clone();
 
-        self.state.set_handshake_credentials(creds);
-        if let Some(method) = outcome.pairing_methods.first() {
-            self.state.set_pairing_method(*method);
-        }
-        self.state
-            .set_pairing_credentials(outcome.credentials.clone());
-        self.state.set_autoconnect_paired(
-            outcome
-                .selected_credential
-                .as_ref()
-                .is_some_and(|c| c.autoconnect),
-        );
+        let creds = HandshakeCredentials {
+            pairing_methods: outcome.pairing_methods,
+            handshake_hash: outcome.handshake_hash,
+            trezor_encrypted_static_pubkey: outcome.trezor_encrypted_static_pubkey,
+            host_encrypted_static_pubkey: outcome.host_encrypted_static_pubkey,
+            host_key: outcome.host_key,
+            trezor_key: outcome.trezor_key,
+            host_static_key: outcome.host_static_key,
+            host_static_public_key: outcome.host_static_public_key,
+            nfc_data: outcome.nfc_data,
+            handshake_commitment: outcome.handshake_commitment,
+            trezor_cpace_public_key: outcome.trezor_cpace_public_key,
+            code_entry_challenge: outcome.code_entry_challenge,
+            pairing_credentials: outcome.credentials,
+            selected_credential: outcome.selected_credential,
+        };
 
-        let completion = self
-            .backend
-            .handshake_complete(HandshakeCompletionRequest {
-                host_pubkey: outcome.host_encrypted_static_pubkey.clone(),
-                encrypted_payload: outcome.encrypted_payload.clone(),
-            })
-            .await?;
+        self.state
+            .set_pairing_credentials(creds.pairing_credentials.clone());
+        self.state.set_autoconnect_paired(autoconnect);
+
+        let selected_credential = creds.selected_credential.clone();
+        self.state.set_handshake_credentials(creds);
+        if let Some(method) = first_method {
+            self.state.set_pairing_method(method);
+        }
+
+        let completion = self.backend.handshake_complete(completion_request).await?;
 
         match completion.state {
             HandshakeCompletionState::RequiresPairing => {
-                if let Some(selected) = outcome.selected_credential {
+                if let Some(selected) = selected_credential {
                     self.config
                         .known_credentials
                         .retain(|c| c.credential != selected.credential);
@@ -225,6 +229,7 @@ where
         let handshake = self
             .state
             .handshake_credentials()
+            .cloned()
             .ok_or(ThpWorkflowError::MissingHandshakeCredentials)?;
 
         if self.state.is_paired()
@@ -740,7 +745,6 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
     impl ThpBackend for MockBackend {
         async fn create_channel(
             &mut self,
