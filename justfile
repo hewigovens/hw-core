@@ -43,3 +43,6 @@ cli-scan:
 
 cli-pair:
     cargo run -p hw-cli -- pair
+
+cli-pair-debug:
+    cargo run -p hw-cli -- -vv pair

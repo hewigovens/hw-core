@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod config;
+mod logging;
 mod pairing;
 mod ui;
 
@@ -12,6 +13,7 @@ use crate::cli::{Cli, Command};
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    logging::init_tracing(cli.verbose);
 
     match cli.command {
         Command::Scan(args) => commands::scan::run(args).await,

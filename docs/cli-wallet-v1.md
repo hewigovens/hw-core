@@ -35,6 +35,9 @@ Out of scope:
 - [x] CLI crate `crates/hw-cli` exists with `scan`, `pair`, `address eth`, and `sign eth` command surface.
 - [x] CLI `--pairing-method` currently supports `ble` only.
 - [x] CLI `pair` timeout is configurable via `--timeout-secs` (default: `30`).
+- [x] CLI supports verbose debug logging via `-v` / `-vv`.
+- [x] BLE THP backend auto-acknowledges `ButtonRequest` with `ButtonAck` during encrypted flow.
+- [x] Pair workflow tests cover storage snapshot load and persistence on handshake.
 - [ ] ETH address/signing flows are not implemented in host workflow/backend.
 - [ ] `address eth` and `sign eth` are scaffolded as explicit not-implemented stubs pending P3/P4.
 - [ ] End-to-end CLI tests for `scan -> pair -> address -> sign` do not exist yet.
@@ -74,7 +77,8 @@ Exit criteria:
 - [x] `P2-03` Add `pair --force` to clear/recreate credential path safely. `DONE`
 - [x] `P2-04` Ensure re-run path uses saved static key and credentials by default. `DONE`
 - [x] `P2-05` Make pair timeout configurable and raise default to 30s. `DONE`
-- [ ] `P2-06` Add focused tests for pairing command state transitions and storage reuse. `TODO`
+- [x] `P2-06` Add focused tests for pairing command state transitions and storage reuse. `DONE`
+- [x] `P2-07` Add verbose pairing logs and handle THP `ButtonRequest`/`ButtonAck` continuation flow. `DONE`
 
 Exit criteria:
 - First run pairs manually; second run avoids re-pair unless `--force`.
@@ -120,6 +124,7 @@ Exit criteria:
 - `hw-cli pair --pairing-method ble --timeout-secs 30`
 - `hw-cli address eth --path "m/44'/60'/0'/0/0"`
 - `hw-cli sign eth --path "m/44'/60'/0'/0/0" --tx ./tx.json`
+- Debug mode: add `-v`/`-vv` before command, e.g. `hw-cli -vv pair --pairing-method ble --timeout-secs 30`
 
 UX requirements:
 - Clear step-by-step messaging for device actions
