@@ -42,6 +42,11 @@ pub trait ThpBackend {
         request: SelectMethodRequest,
     ) -> BackendResult<SelectMethodResponse>;
 
+    async fn code_entry_challenge(
+        &mut self,
+        request: CodeEntryChallengeRequest,
+    ) -> BackendResult<CodeEntryChallengeResponse>;
+
     async fn send_pairing_tag(
         &mut self,
         request: PairingTagRequest,

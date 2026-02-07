@@ -22,11 +22,12 @@ use crate::thp::crypto::{aes256gcm_decrypt, aes256gcm_encrypt, get_iv_from_nonce
 use crate::thp::proto;
 use crate::thp::proto_conversions::to_pairing_tag_response;
 use crate::thp::proto_conversions::{
-    decode_credential_response, decode_get_address_response, decode_get_public_key_response,
-    decode_pairing_request_approved, decode_select_method_response, decode_tag_response,
-    encode_code_entry_tag, encode_credential_request, encode_end_request,
-    encode_get_address_request, encode_get_public_key_request, encode_nfc_tag,
-    encode_pairing_request, encode_qr_tag, encode_select_method, EncodedMessage, ProtoMappingError,
+    decode_code_entry_cpace_response, decode_credential_response, decode_get_address_response,
+    decode_get_public_key_response, decode_pairing_request_approved, decode_select_method_response,
+    decode_tag_response, encode_code_entry_challenge, encode_code_entry_tag,
+    encode_credential_request, encode_end_request, encode_get_address_request,
+    encode_get_public_key_request, encode_nfc_tag, encode_pairing_request, encode_qr_tag,
+    encode_select_method, EncodedMessage, ProtoMappingError,
 };
 use crate::thp::types::*;
 use crate::thp::wire::{
@@ -709,6 +710,27 @@ impl ThpBackend for BleBackend {
                 let message_type_enum = proto::ThpMessageType::try_from(message_type as i32)
                     .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
                 decode_select_method_response(message_type_enum, payload)
+            })
+            .await?;
+
+        Ok(response)
+    }
+
+    async fn code_entry_challenge(
+        &mut self,
+        request: CodeEntryChallengeRequest,
+    ) -> BackendResult<CodeEntryChallengeResponse> {
+        let encoded =
+            encode_code_entry_challenge(&request.challenge).map_err(|e| self.map_proto_error(e))?;
+        self.send_encrypted_request(encoded).await?;
+
+        let parsed = self.read_next().await?;
+        let response = self
+            .parse_encrypted_response(parsed, |message_type, payload| {
+                if message_type != proto::ThpMessageType::ThpCodeEntryCpaceTrezor as i32 as u16 {
+                    return Err(ProtoMappingError::UnexpectedMessage(message_type));
+                }
+                decode_code_entry_cpace_response(payload)
             })
             .await?;
 

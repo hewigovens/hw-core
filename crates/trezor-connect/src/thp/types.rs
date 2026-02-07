@@ -105,6 +105,16 @@ pub struct SelectMethodRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct CodeEntryChallengeRequest {
+    pub challenge: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CodeEntryChallengeResponse {
+    pub trezor_cpace_public_key: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
 pub enum SelectMethodResponse {
     End,
     CodeEntryCommitment { commitment: Vec<u8> },
