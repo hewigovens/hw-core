@@ -14,12 +14,12 @@ members = [
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 
 [workspace.lints]
 rust.unused_imports = "warn"
 rust.dead_code = "warn"
-rust.unused_variables = "allow"
+rust.unused_variables = "warn"
 
 [workspace.dependencies]
 aes-gcm = { version = "0.10", features = ["aes"] }
