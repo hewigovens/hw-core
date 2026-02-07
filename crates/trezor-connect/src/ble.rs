@@ -43,6 +43,7 @@ const MESSAGE_TYPE_CREATE_SESSION: u16 = 1000;
 const MESSAGE_TYPE_FAILURE: u16 = 3;
 const MESSAGE_TYPE_BUTTON_REQUEST: u16 = proto::ThpMessageType::ButtonRequest as i32 as u16;
 const MESSAGE_TYPE_BUTTON_ACK: u16 = proto::ThpMessageType::ButtonAck as i32 as u16;
+const MIN_THP_FRAME_SIZE: usize = 9; // 1 magic + 2 channel + 2 len + 4 crc
 
 #[derive(Clone, PartialEq, Message)]
 struct FailureProto {
@@ -269,6 +270,14 @@ impl BleBackend {
                 chunk.first().copied().unwrap_or(0),
                 chunk.len()
             );
+            if chunk.len() < MIN_THP_FRAME_SIZE {
+                debug!(
+                    "BLE THP ignoring short non-frame chunk len={} first=0x{:02x}",
+                    chunk.len(),
+                    chunk.first().copied().unwrap_or(0)
+                );
+                continue;
+            }
             self.rx_buffer.extend_from_slice(&chunk);
         }
     }
@@ -397,12 +406,11 @@ impl BleBackend {
         decoder: impl Fn(u16, &[u8]) -> Result<T, ProtoMappingError>,
     ) -> BackendResult<T> {
         loop {
-            if self.should_ack(&parsed.header) {
-                self.send_ack(&parsed.header).await?;
-            }
-
             let (message_type, payload) = match parsed.response {
                 WireResponse::Protobuf { payload } => {
+                    if self.should_ack(&parsed.header) {
+                        self.send_ack(&parsed.header).await?;
+                    }
                     let res = self.decrypt_device_message(&payload)?;
                     self.state.on_receive(parsed.header.magic);
                     res
@@ -413,10 +421,12 @@ impl BleBackend {
                     )))
                 }
                 other => {
-                    return Err(BackendError::Transport(format!(
-                        "unexpected response type {:?}",
+                    debug!(
+                        "BLE THP ignoring out-of-phase frame while awaiting encrypted response: {:?}",
                         other
-                    )))
+                    );
+                    parsed = self.read_next().await?;
+                    continue;
                 }
             };
 
