@@ -245,7 +245,9 @@ pub fn get_cpace_host_keys<R: Rng + CryptoRng>(
 }
 
 pub fn get_shared_secret(public_key: &[u8; 32], private_key: &[u8; 32]) -> [u8; 32] {
-    let secret = diffie_hellman(private_key, public_key);
+    // Match Trezor Suite implementation exactly: shared_secret = X25519(private, public),
+    // then tag = SHA-256(shared_secret).
+    let secret = curve25519(private_key, public_key);
     sha256(&secret)
 }
 
@@ -627,5 +629,14 @@ mod tests {
         let err =
             validate_nfc_tag(&handshake_hash, &value_hex, &secret).expect_err("validator fails");
         assert!(matches!(err, PairingCryptoError::CodeMismatch));
+    }
+
+    #[test]
+    fn shared_secret_matches_curve25519_then_sha256() {
+        let private_key = [0x11; 32];
+        let public_key = [0x22; 32];
+        let expected = sha256(&curve25519(&private_key, &public_key));
+        let actual = get_shared_secret(&public_key, &private_key);
+        assert_eq!(actual, expected);
     }
 }
