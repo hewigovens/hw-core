@@ -109,10 +109,46 @@ pub async fn create_channel_with_retry(
     unreachable!("attempts is always >= 1")
 }
 
+pub async fn handshake_with_retry(
+    workflow: &mut ThpWorkflow<BleBackend>,
+    try_to_unlock: bool,
+    attempts: usize,
+    retry_delay: Duration,
+) -> WalletResult<usize> {
+    let attempts = attempts.max(1);
+    for attempt in 1..=attempts {
+        match workflow.handshake(try_to_unlock).await {
+            Ok(()) => return Ok(attempt),
+            Err(err) if is_retryable_handshake_error(&err) && attempt < attempts => {
+                debug!(
+                    "handshake failed with transient device state on attempt {}; retrying after {:?}",
+                    attempt, retry_delay
+                );
+                sleep(retry_delay).await;
+                create_channel_with_retry(workflow, 3, retry_delay).await?;
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    unreachable!("attempts is always >= 1")
+}
+
 fn is_transport_timeout(error: &ThpWorkflowError) -> bool {
     match error {
         ThpWorkflowError::Backend(BackendError::Transport(msg)) => {
             msg.contains("timeout waiting for BLE response")
+        }
+        _ => false,
+    }
+}
+
+fn is_retryable_handshake_error(error: &ThpWorkflowError) -> bool {
+    match error {
+        ThpWorkflowError::Backend(BackendError::Device(message)) => {
+            message.contains("error code 5")
+                || message.contains("ThpTransportBusy")
+                || message.contains("transport busy")
         }
         _ => false,
     }

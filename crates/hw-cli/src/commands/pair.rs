@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use ble_transport::BleManager;
 use hw_wallet::ble::{
-    backend_from_session, connect_trezor_device, create_channel_with_retry,
+    backend_from_session, connect_trezor_device, create_channel_with_retry, handshake_with_retry,
     scan_profile_until_match, trezor_profile, workflow_with_storage,
 };
 use hw_wallet::WalletError;
@@ -132,10 +132,13 @@ pub async fn run(args: PairArgs) -> Result<()> {
     info!("THP channel created");
     println!("Performing THP handshake...");
     let try_to_unlock = args.interactive;
-    workflow
-        .handshake(try_to_unlock)
+    let handshake_attempt =
+        handshake_with_retry(&mut workflow, try_to_unlock, 2, Duration::from_millis(800))
         .await
         .context("handshake failed")?;
+    if handshake_attempt > 1 {
+        info!("handshake succeeded on retry attempt {}", handshake_attempt);
+    }
     info!(
         "handshake complete: phase={:?}, paired={}",
         workflow.state().phase(),
