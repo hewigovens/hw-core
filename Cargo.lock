@@ -904,6 +904,7 @@ dependencies = [
  "cargo_metadata",
  "clap",
  "hw-wallet",
+ "parking_lot",
  "thiserror 2.0.18",
  "tokio",
  "trezor-connect",

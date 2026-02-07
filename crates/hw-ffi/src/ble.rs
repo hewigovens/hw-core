@@ -1,10 +1,11 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use ble_transport::{BleManager, BleProfile, BleSession, DeviceInfo, DiscoveredDevice};
 use hw_wallet::ble::{
     backend_from_session, connect_trezor_device, scan_trezor, workflow as new_workflow,
 };
+use parking_lot::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 use trezor_connect::ble::BleBackend;
 use trezor_connect::thp::ThpWorkflow;
@@ -69,7 +70,7 @@ impl BleDiscoveredDevice {
     #[uniffi::method]
     pub async fn connect(&self) -> Result<Arc<BleSessionHandle>, HWCoreError> {
         let device = {
-            let mut slot = self.device.lock().expect("poisoned mutex");
+            let mut slot = self.device.lock();
             slot.take()
                 .ok_or_else(|| HWCoreError::message("device already connected"))?
         };
@@ -146,6 +147,7 @@ impl BleWorkflowHandle {
         let cache = workflow
             .state()
             .handshake_cache()
+            .cloned()
             .ok_or_else(|| HWCoreError::message("handshake cache missing"))?;
         Ok(cache)
     }

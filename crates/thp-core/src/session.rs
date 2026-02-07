@@ -238,7 +238,6 @@ mod tests {
         tx: mpsc::Sender<Vec<u8>>,
     }
 
-    #[async_trait::async_trait]
     impl Link for MockLink {
         async fn write(&mut self, chunk: &[u8]) -> anyhow::Result<()> {
             self.tx.send(chunk.to_vec()).await?;
