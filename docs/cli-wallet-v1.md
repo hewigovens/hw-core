@@ -39,8 +39,10 @@ Out of scope:
 - [x] Pair flow retries `create-channel` on transient BLE timeout.
 - [x] Pair/address scanning exits early when a matching device is discovered instead of always waiting full timeout.
 - [x] CLI supports verbose debug logging via `-v` / `-vv`.
+- [x] `pair --interactive` keeps BLE/THP session open and provides REPL commands (currently `address eth`) to avoid reconnecting per action.
 - [x] BLE THP backend auto-acknowledges `ButtonRequest` with `ButtonAck` during encrypted flow.
 - [x] Pair/address detect BLE "Peer removed pairing information" and show explicit OS unpair/removal recovery guidance.
+- [x] CLI defaults host pairing preference to `CodeEntry` (aligned with Trezor Suite default) instead of accepting all methods implicitly.
 - [x] Pair workflow tests cover storage snapshot load and persistence on handshake.
 - [x] Pair host/app identity defaults to machine device name + `hw-core/cli`.
 - [x] Shared wallet BLE orchestration crate `crates/hw-wallet` exists and is wired into `hw-cli` and `hw-ffi`.
@@ -91,6 +93,7 @@ Exit criteria:
 - [x] `P2-06` Add focused tests for pairing command state transitions and storage reuse. `DONE`
 - [x] `P2-07` Add verbose pairing logs and handle THP `ButtonRequest`/`ButtonAck` continuation flow. `DONE`
 - [x] `P2-08` Add configurable THP timeout and retry for create-channel timeout recovery. `DONE`
+- [x] `P2-09` Add `pair --interactive` session mode (REPL) for multi-step commands without reconnect/disconnect churn. `DONE`
 
 Exit criteria:
 - First run pairs manually; second run avoids re-pair unless `--force`.
@@ -134,6 +137,7 @@ Exit criteria:
 ## Proposed v1 Command UX
 - `hw-cli scan`
 - `hw-cli pair --pairing-method ble --timeout-secs 60 --thp-timeout-secs 60`
+- `hw-cli pair --interactive` (session mode)
 - `hw-cli address eth --path "m/44'/60'/0'/0/0" --include-public-key`
 - `hw-cli sign eth --path "m/44'/60'/0'/0/0" --tx ./tx.json`
 - Debug mode: add `-v`/`-vv` before command, e.g. `hw-cli -vv pair --pairing-method ble --timeout-secs 60`

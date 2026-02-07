@@ -9,8 +9,11 @@ use hw_wallet::ble::{
     scan_profile_until_match, trezor_profile, workflow_with_storage,
 };
 use hw_wallet::WalletError;
+use tokio::time::timeout;
 use tracing::{debug, info};
-use trezor_connect::thp::{Chain, FileStorage, GetAddressRequest, HostConfig, Phase};
+use trezor_connect::thp::{
+    Chain, FileStorage, GetAddressRequest, HostConfig, PairingMethod as ThpPairingMethod, Phase,
+};
 
 use crate::cli::{AddressArgs, AddressCommand, AddressEthArgs};
 use crate::commands::common::select_device;
@@ -70,29 +73,46 @@ async fn run_eth(args: AddressEthArgs) -> Result<()> {
         selected_name
     );
 
-    let session = match connect_trezor_device(selected, profile).await {
-        Ok(session) => session,
-        Err(WalletError::PeerRemovedPairingInfo) => {
+    println!("Opening BLE session...");
+    let session = match timeout(
+        Duration::from_secs(args.thp_timeout_secs),
+        connect_trezor_device(selected, profile),
+    )
+    .await
+    {
+        Err(_) => bail!(
+            "opening BLE session timed out after {}s",
+            args.thp_timeout_secs
+        ),
+        Ok(Ok(session)) => session,
+        Ok(Err(WalletError::PeerRemovedPairingInfo)) => {
             bail!(
                 "opening BLE session failed: peer removed pairing information. Remove this Trezor from macOS Bluetooth settings, then pair again."
             );
         }
-        Err(err) => return Err(err).context("opening BLE session failed"),
+        Ok(Err(err)) => return Err(err).context("opening BLE session failed"),
     };
+    println!("BLE session established.");
     let backend = backend_from_session(session, Duration::from_secs(args.thp_timeout_secs));
 
     let storage_path = args.storage_path.unwrap_or_else(default_storage_path);
     let host_name = args.host_name.unwrap_or_else(default_host_name);
-    let config = HostConfig::new(host_name, args.app_name);
+    let mut config = HostConfig::new(host_name, args.app_name);
+    config.pairing_methods = vec![ThpPairingMethod::CodeEntry];
     let storage = Arc::new(FileStorage::new(storage_path.clone()));
     let mut workflow = workflow_with_storage(backend, config, storage)
         .await
         .context("workflow setup failed")?;
     debug!("address workflow initialized with persisted host state");
 
+    println!(
+        "Creating THP channel (may take up to ~{}s with retries)...",
+        args.thp_timeout_secs * 3
+    );
     create_channel_with_retry(&mut workflow, 3, Duration::from_millis(800))
         .await
         .context("create-channel failed")?;
+    println!("Performing THP handshake...");
     workflow
         .handshake(false)
         .await
@@ -108,11 +128,13 @@ async fn run_eth(args: AddressEthArgs) -> Result<()> {
         }
     }
 
+    println!("Creating wallet session...");
     workflow
         .create_session(None, false, false)
         .await
         .context("create-session failed")?;
 
+    println!("Requesting Ethereum address from device...");
     let request = GetAddressRequest::ethereum(address_n)
         .with_show_display(args.show_on_device)
         .with_chunkify(args.chunkify)
