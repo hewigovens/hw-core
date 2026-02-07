@@ -629,10 +629,30 @@ impl ThpBackend for BleBackend {
 
         let parsed = self.read_next().await?;
         let state = match parsed.response {
-            WireResponse::HandshakeCompletion { state } => {
+            WireResponse::HandshakeCompletion {
+                encrypted_state,
+                tag,
+            } => {
                 self.state.on_receive(parsed.header.magic);
                 self.state.set_expected_responses(Vec::new());
-                state
+
+                // Handshake completion response is AES-GCM encrypted with key_response,
+                // nonce 0, empty associated data and a single-byte plaintext state.
+                let key = self.trezor_key()?;
+                let iv = [0u8; 12];
+                let plaintext = aes256gcm_decrypt(&key, &iv, &[], &[encrypted_state], &tag)
+                    .map_err(|_| {
+                        BackendError::Transport(
+                            "failed to decrypt handshake completion state".into(),
+                        )
+                    })?;
+                if plaintext.len() != 1 {
+                    return Err(BackendError::Transport(format!(
+                        "invalid decrypted handshake completion state length {}",
+                        plaintext.len()
+                    )));
+                }
+                plaintext[0]
             }
             WireResponse::Error(code) => {
                 return Err(BackendError::Device(format!(
