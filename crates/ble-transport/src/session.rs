@@ -2,6 +2,7 @@ use btleplug::api::{Characteristic, Peripheral as _, WriteType};
 use btleplug::platform::Peripheral;
 use futures::StreamExt;
 use tokio::{sync::mpsc, task::JoinHandle};
+use tracing::debug;
 
 use crate::{BleError, BleProfile, BleResult, DeviceInfo};
 
@@ -11,6 +12,7 @@ pub struct BleSession {
     device: DeviceInfo,
     write_char: Characteristic,
     notify_char: Characteristic,
+    push_char: Option<Characteristic>,
     receiver: mpsc::Receiver<Vec<u8>>,
     notify_task: JoinHandle<()>,
     mtu: usize,
@@ -38,6 +40,25 @@ impl BleSession {
             .find(|c| c.uuid == profile.notify_uuid)
             .cloned()
             .ok_or_else(|| BleError::missing("notify", profile))?;
+        let push_char = match profile.push_uuid {
+            Some(push_uuid) => Some(
+                characteristics
+                    .iter()
+                    .find(|c| c.uuid == push_uuid)
+                    .cloned()
+                    .ok_or_else(|| BleError::missing("push", profile))?,
+            ),
+            None => None,
+        };
+
+        debug!(
+            device_id = %device.id,
+            profile = profile.id,
+            write_uuid = %write_char.uuid,
+            notify_uuid = %notify_char.uuid,
+            push_uuid = ?push_char.as_ref().map(|c| c.uuid),
+            "BLE characteristics resolved"
+        );
 
         // Match Suite's BLE connect behavior: perform a write-with-response probe
         // so CoreBluetooth can surface pairing/auth failures before THP begins.
@@ -45,12 +66,20 @@ impl BleSession {
             .write(&write_char, b"Proof of connection", WriteType::WithResponse)
             .await?;
 
-        peripheral.subscribe(&notify_char).await?;
-
         let mut notifications = peripheral.notifications().await?;
+        peripheral.subscribe(&notify_char).await?;
+        if let Some(push_char) = &push_char {
+            peripheral.subscribe(push_char).await?;
+        }
+
         let (tx, rx) = mpsc::channel(64);
         let notify_task = tokio::spawn(async move {
             while let Some(event) = notifications.next().await {
+                debug!(
+                    characteristic = %event.uuid,
+                    bytes = event.value.len(),
+                    "BLE notification received"
+                );
                 if tx.send(event.value).await.is_err() {
                     break;
                 }
@@ -65,6 +94,7 @@ impl BleSession {
             device,
             write_char,
             notify_char,
+            push_char,
             receiver: rx,
             notify_task,
             mtu,
@@ -88,6 +118,7 @@ impl BleSession {
             peripheral: self.peripheral,
             write_char: self.write_char,
             notify_char: self.notify_char,
+            push_char: self.push_char,
             receiver: self.receiver,
             notify_task: self.notify_task,
             mtu: self.mtu,
@@ -104,6 +135,7 @@ pub struct BleLink {
     peripheral: Peripheral,
     write_char: Characteristic,
     notify_char: Characteristic,
+    push_char: Option<Characteristic>,
     receiver: mpsc::Receiver<Vec<u8>>,
     notify_task: JoinHandle<()>,
     mtu: usize,
@@ -115,20 +147,31 @@ impl BleLink {
             return Ok(());
         }
         self.peripheral.unsubscribe(&self.notify_char).await?;
+        if let Some(push_char) = &self.push_char {
+            self.peripheral.unsubscribe(push_char).await?;
+        }
         self.peripheral.disconnect().await?;
         Ok(())
     }
 
     pub async fn write(&mut self, chunk: &[u8]) -> anyhow::Result<()> {
+        debug!(
+            bytes = chunk.len(),
+            write_type = "with-response",
+            "BLE write chunk"
+        );
         self.peripheral
-            .write(&self.write_char, chunk, WriteType::WithoutResponse)
+            .write(&self.write_char, chunk, WriteType::WithResponse)
             .await?;
         Ok(())
     }
 
     pub async fn read(&mut self) -> anyhow::Result<Vec<u8>> {
         match self.receiver.recv().await {
-            Some(data) => Ok(data),
+            Some(data) => {
+                debug!(bytes = data.len(), "BLE read chunk");
+                Ok(data)
+            }
             None => Err(BleError::NotificationStreamClosed.into()),
         }
     }

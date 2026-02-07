@@ -10,6 +10,7 @@ pub struct BleProfile {
     pub service_uuid: Uuid,
     pub write_uuid: Uuid,
     pub notify_uuid: Uuid,
+    pub push_uuid: Option<Uuid>,
     pub mtu_hint: Option<u16>,
     pub preferred_scan_duration: Option<Duration>,
 }
@@ -24,6 +25,7 @@ impl BleProfile {
                 service_uuid: uuid::uuid!("8c000001-a59b-4d58-a9ad-073df69fa1b1"),
                 write_uuid: uuid::uuid!("8c000002-a59b-4d58-a9ad-073df69fa1b1"),
                 notify_uuid: uuid::uuid!("8c000003-a59b-4d58-a9ad-073df69fa1b1"),
+                push_uuid: Some(uuid::uuid!("8c000004-a59b-4d58-a9ad-073df69fa1b1")),
                 mtu_hint: Some(244),
                 preferred_scan_duration: Some(Duration::from_secs(3)),
             })

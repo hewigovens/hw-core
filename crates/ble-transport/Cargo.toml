@@ -17,4 +17,5 @@ btleplug = { version = "0.11.8", optional = true }
 futures = "0.3"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing = { workspace = true }
 uuid = { workspace = true }

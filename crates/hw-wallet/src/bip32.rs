@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn parses_hardened_and_non_hardened_segments() {
         let path = parse_bip32_path("m/44'/60'/0'/0/0").unwrap();
-        assert_eq!(path, vec![44 | HARDENED, 60 | HARDENED, 0 | HARDENED, 0, 0]);
+        assert_eq!(path, vec![44 | HARDENED, 60 | HARDENED, HARDENED, 0, 0]);
     }
 
     #[test]

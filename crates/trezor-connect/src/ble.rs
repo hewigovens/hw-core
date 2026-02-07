@@ -103,6 +103,11 @@ impl BleBackend {
     }
 
     async fn send_frame(&mut self, frame: Vec<u8>) -> BackendResult<()> {
+        debug!(
+            "BLE THP TX frame: magic=0x{:02x} len={}",
+            frame.first().copied().unwrap_or(0),
+            frame.len()
+        );
         let mtu = {
             let link = self.inner.link_mut();
             link.mtu()
@@ -180,6 +185,11 @@ impl BleBackend {
                 .await
                 .map_err(|_| BackendError::Transport("timeout waiting for BLE response".into()))?
                 .map_err(|e| self.map_transport_error(e))?;
+            debug!(
+                "BLE THP RX chunk: first=0x{:02x} len={}",
+                chunk.first().copied().unwrap_or(0),
+                chunk.len()
+            );
             self.rx_buffer.extend_from_slice(&chunk);
         }
     }
@@ -384,6 +394,10 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: CreateChannelRequest,
     ) -> BackendResult<CreateChannelResponse> {
+        debug!(
+            "THP create_channel start: nonce={}",
+            hex::encode(request.nonce)
+        );
         let frame = wire::encode_create_channel_request(&request.nonce);
         self.send_frame(frame).await?;
         self.state.on_send(MAGIC_CREATE_CHANNEL_REQUEST);
@@ -404,6 +418,15 @@ impl ThpBackend for BleBackend {
                 self.state.on_receive(parsed.header.magic);
                 self.state.set_channel(channel);
                 self.state.set_handshake_hash(handshake_hash);
+                debug!(
+                    "THP create_channel ok: channel=0x{:04x} methods={:?} protocol={}.{} model={} variant={}",
+                    channel,
+                    properties.pairing_methods,
+                    properties.protocol_version_major,
+                    properties.protocol_version_minor,
+                    properties.internal_model,
+                    properties.model_variant
+                );
                 CreateChannelResponse {
                     nonce,
                     channel,
