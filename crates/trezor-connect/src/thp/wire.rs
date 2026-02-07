@@ -550,6 +550,18 @@ mod tests {
     }
 
     #[test]
+    fn handshake_completion_requires_encrypted_state_and_tag() {
+        let header = WireHeader::new(MAGIC_HANDSHAKE_COMPLETION_RESPONSE, 0x0042, 0, 0);
+        let frame = encode_frame(header, &[0xAA; 1]);
+        let decoded = decode_frame(&frame, Some(0x0042)).expect("decode");
+        match parse_response(decoded.message) {
+            Err(WireError::ShortPacket) => {}
+            Err(other) => panic!("unexpected error: {other}"),
+            Ok(_) => panic!("short payload should fail"),
+        }
+    }
+
+    #[test]
     fn state_tracks_encrypted_expected_responses() {
         let mut state = ThpWireState::new();
         assert!(state.expected_responses().is_empty());

@@ -293,17 +293,28 @@ where
                     let mut challenge = vec![0u8; 32];
                     self.rng.fill(challenge.as_mut_slice());
 
+                    debug!(
+                        "code-entry commitment received: commitment_len={}, challenge_len={}",
+                        commitment.len(),
+                        challenge.len()
+                    );
+
                     self.state.update_handshake_credentials(|creds| {
                         creds.handshake_commitment = Some(commitment.clone());
                         creds.code_entry_challenge = Some(challenge.clone());
                     });
 
+                    debug!("code-entry: sending ThpCodeEntryChallenge");
                     let cpace_response = self
                         .backend
                         .code_entry_challenge(CodeEntryChallengeRequest {
                             challenge: challenge.clone(),
                         })
                         .await?;
+                    debug!(
+                        "code-entry: received ThpCodeEntryCpaceTrezor, public_key_len={}",
+                        cpace_response.trezor_cpace_public_key.len()
+                    );
                     self.state.update_handshake_credentials(|creds| {
                         creds.trezor_cpace_public_key =
                             Some(cpace_response.trezor_cpace_public_key.clone());
@@ -511,6 +522,9 @@ mod tests {
         credential_response: Option<CredentialResponse>,
         select_responses: Mutex<VecDeque<SelectMethodResponse>>,
         tag_response: Mutex<Option<PairingTagResponse>>,
+        code_entry_challenge_response: Option<CodeEntryChallengeResponse>,
+        code_entry_challenge_requests: Mutex<Vec<CodeEntryChallengeRequest>>,
+        last_tag_request: Mutex<Option<PairingTagRequest>>,
         pairing_requested: Mutex<bool>,
         end_called: Mutex<bool>,
     }
@@ -563,6 +577,9 @@ mod tests {
                 }),
                 select_responses: Mutex::new(VecDeque::new()),
                 tag_response: Mutex::new(None),
+                code_entry_challenge_response: None,
+                code_entry_challenge_requests: Mutex::new(Vec::new()),
+                last_tag_request: Mutex::new(None),
                 pairing_requested: Mutex::new(false),
                 end_called: Mutex::new(false),
             }
@@ -609,6 +626,62 @@ mod tests {
                 }),
                 select_responses: Mutex::new(select),
                 tag_response: Mutex::new(Some(PairingTagResponse::Accepted { secret: vec![1, 2] })),
+                code_entry_challenge_response: None,
+                code_entry_challenge_requests: Mutex::new(Vec::new()),
+                last_tag_request: Mutex::new(None),
+                pairing_requested: Mutex::new(false),
+                end_called: Mutex::new(false),
+            }
+        }
+
+        fn code_entry_flow() -> Self {
+            let mut select = VecDeque::new();
+            select.push_back(SelectMethodResponse::CodeEntryCommitment {
+                commitment: vec![0xAA; 32],
+            });
+            Self {
+                create_channel_resp: CreateChannelResponse {
+                    nonce: [3u8; 8],
+                    channel: 3,
+                    handshake_hash: b"code-entry".to_vec(),
+                    properties: ThpProperties {
+                        internal_model: "T3W1".into(),
+                        model_variant: 1,
+                        protocol_version_major: 2,
+                        protocol_version_minor: 0,
+                        pairing_methods: vec![PairingMethod::CodeEntry],
+                    },
+                },
+                handshake_outcome: HandshakeInitOutcome {
+                    host_encrypted_static_pubkey: vec![1, 2, 3],
+                    encrypted_payload: vec![4, 5, 6],
+                    trezor_encrypted_static_pubkey: vec![7, 8, 9],
+                    handshake_hash: b"code-entry".to_vec(),
+                    host_key: vec![10],
+                    trezor_key: vec![11],
+                    host_static_key: vec![12],
+                    host_static_public_key: vec![13],
+                    pairing_methods: vec![PairingMethod::CodeEntry],
+                    credentials: vec![],
+                    selected_credential: None,
+                    nfc_data: None,
+                    handshake_commitment: None,
+                    trezor_cpace_public_key: None,
+                    code_entry_challenge: None,
+                },
+                handshake_state: HandshakeCompletionState::RequiresPairing,
+                credential_response: Some(CredentialResponse {
+                    trezor_static_public_key: vec![0x33; 32],
+                    credential: "code-entry-cred".into(),
+                    autoconnect: false,
+                }),
+                select_responses: Mutex::new(select),
+                tag_response: Mutex::new(Some(PairingTagResponse::Accepted { secret: vec![9, 9] })),
+                code_entry_challenge_response: Some(CodeEntryChallengeResponse {
+                    trezor_cpace_public_key: vec![0x44; 32],
+                }),
+                code_entry_challenge_requests: Mutex::new(Vec::new()),
+                last_tag_request: Mutex::new(None),
                 pairing_requested: Mutex::new(false),
                 end_called: Mutex::new(false),
             }
@@ -662,17 +735,19 @@ mod tests {
 
         async fn code_entry_challenge(
             &mut self,
-            _request: CodeEntryChallengeRequest,
+            request: CodeEntryChallengeRequest,
         ) -> BackendResult<CodeEntryChallengeResponse> {
-            Ok(CodeEntryChallengeResponse {
-                trezor_cpace_public_key: vec![0x44; 32],
-            })
+            self.code_entry_challenge_requests.lock().push(request);
+            self.code_entry_challenge_response
+                .clone()
+                .ok_or_else(|| BackendError::Device("unexpected code entry challenge".into()))
         }
 
         async fn send_pairing_tag(
             &mut self,
-            _request: PairingTagRequest,
+            request: PairingTagRequest,
         ) -> BackendResult<PairingTagResponse> {
+            *self.last_tag_request.lock() = Some(request);
             self.tag_response
                 .lock()
                 .take()
@@ -729,6 +804,25 @@ mod tests {
                 Ok(PairingDecision::SubmitTag {
                     method: PairingMethod::QrCode,
                     tag: "deadbeef".into(),
+                })
+            } else {
+                Err("no supported method".into())
+            }
+        }
+    }
+
+    struct CodeEntryController;
+
+    #[async_trait::async_trait]
+    impl PairingController for CodeEntryController {
+        async fn on_prompt(
+            &self,
+            prompt: PairingPrompt,
+        ) -> std::result::Result<PairingDecision, String> {
+            if prompt.available_methods.contains(&PairingMethod::CodeEntry) {
+                Ok(PairingDecision::SubmitTag {
+                    method: PairingMethod::CodeEntry,
+                    tag: "123456".into(),
                 })
             } else {
                 Err("no supported method".into())
@@ -826,6 +920,55 @@ mod tests {
         assert!(state.is_paired());
         assert!(*backend.pairing_requested.lock());
         assert!(*backend.end_called.lock());
+    }
+
+    #[tokio::test]
+    async fn code_entry_pairing_populates_cpace_inputs_before_tag() {
+        let backend = MockBackend::code_entry_flow();
+        let controller = CodeEntryController;
+        let mut workflow = ThpWorkflow::new(
+            backend,
+            HostConfig {
+                pairing_methods: vec![PairingMethod::CodeEntry],
+                known_credentials: vec![],
+                static_key: None,
+                host_name: "host".into(),
+                app_name: "app".into(),
+            },
+        );
+
+        workflow.create_channel().await.unwrap();
+        workflow.handshake(false).await.unwrap();
+        workflow
+            .pairing(Some(&controller))
+            .await
+            .expect("code-entry pairing succeeds");
+
+        let (backend, _, _) = workflow.into_parts();
+        let requests = backend.code_entry_challenge_requests.lock().clone();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].challenge.len(), 32);
+
+        let tag_request = backend
+            .last_tag_request
+            .lock()
+            .clone()
+            .expect("tag request recorded");
+        match tag_request {
+            PairingTagRequest::CodeEntry {
+                code,
+                commitment,
+                challenge,
+                trezor_cpace_public_key,
+                ..
+            } => {
+                assert_eq!(code, "123456");
+                assert_eq!(commitment.as_ref().map(Vec::len), Some(32));
+                assert_eq!(challenge.as_ref().map(Vec::len), Some(32));
+                assert_eq!(trezor_cpace_public_key.as_ref().map(Vec::len), Some(32));
+            }
+            _ => panic!("expected code-entry tag request"),
+        }
     }
 
     #[tokio::test]
