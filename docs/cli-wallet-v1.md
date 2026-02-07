@@ -45,6 +45,9 @@ Out of scope:
 - [x] CLI defaults host pairing preference to `CodeEntry` (aligned with Trezor Suite default) instead of accepting all methods implicitly.
 - [x] Pair workflow tests cover storage snapshot load and persistence on handshake.
 - [x] Pair host/app identity defaults to machine device name + `hw-core/cli`.
+- [x] BLE session setup aligns closer with Trezor Suite by probing write-with-response (`"Proof of connection"`) and subscribing both `notify` and `push` characteristics.
+- [x] BLE transport + THP backend include verbose TX/RX frame/chunk debug logs to diagnose channel-allocation stalls.
+- [x] BLE protocol writes currently use GATT write-with-response for reliability while debugging channel-allocation timeouts on macOS.
 - [x] Shared wallet BLE orchestration crate `crates/hw-wallet` exists and is wired into `hw-cli` and `hw-ffi`.
 - [x] Shared BIP32 parser moved to `crates/hw-wallet` for reuse by CLI/FFI.
 - [x] Chain-generic host `get-address` API exists in THP layer (Ethereum implementation complete, extensible to more chains).
