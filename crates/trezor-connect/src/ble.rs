@@ -112,11 +112,12 @@ impl BleBackend {
             let link = self.inner.link_mut();
             link.mtu()
         };
+        let chunks = chunk_v2_frame(&frame, mtu);
 
-        for chunk in frame.chunks(mtu) {
+        for chunk in chunks {
             let write_future = {
                 let link = self.inner.link_mut();
-                link.write(chunk)
+                link.write(&chunk)
             };
 
             if let Err(err) = write_future.await {
@@ -127,6 +128,7 @@ impl BleBackend {
     }
 
     fn try_parse(&mut self) -> BackendResult<Option<ParsedMessage>> {
+        trim_zero_padding(&mut self.rx_buffer);
         if self.rx_buffer.is_empty() {
             return Ok(None);
         }
@@ -140,6 +142,7 @@ impl BleBackend {
         match wire::decode_frame(&self.rx_buffer, expected_channel) {
             Ok(decoded) => {
                 self.rx_buffer.drain(..decoded.consumed);
+                trim_zero_padding(&mut self.rx_buffer);
                 let parsed =
                     wire::parse_response(decoded.message).map_err(|e| self.map_wire_error(e))?;
                 Ok(Some(parsed))
@@ -385,6 +388,53 @@ fn thp_message_name(message_type: u16) -> String {
     match proto::ThpMessageType::try_from(message_type as i32) {
         Ok(kind) => format!("{kind:?}"),
         Err(_) => format!("Unknown({message_type})"),
+    }
+}
+
+fn chunk_v2_frame(frame: &[u8], mtu: usize) -> Vec<Vec<u8>> {
+    if mtu == 0 {
+        return vec![frame.to_vec()];
+    }
+
+    if frame.len() <= mtu {
+        let mut chunk = vec![0u8; mtu];
+        chunk[..frame.len()].copy_from_slice(frame);
+        return vec![chunk];
+    }
+
+    let mut chunks = Vec::new();
+    chunks.push(frame[..mtu].to_vec());
+
+    let continuation_header = if frame.len() >= 3 {
+        [wire::MAGIC_CONTINUATION, frame[1], frame[2]]
+    } else {
+        [wire::MAGIC_CONTINUATION, 0, 0]
+    };
+
+    let mut position = mtu;
+    while position < frame.len() {
+        let payload_budget = mtu.saturating_sub(continuation_header.len());
+        if payload_budget == 0 {
+            break;
+        }
+        let end = (position + payload_budget).min(frame.len());
+        let payload = &frame[position..end];
+
+        let mut chunk = vec![0u8; mtu];
+        chunk[..continuation_header.len()].copy_from_slice(&continuation_header);
+        let payload_end = continuation_header.len() + payload.len();
+        chunk[continuation_header.len()..payload_end].copy_from_slice(payload);
+        chunks.push(chunk);
+        position = end;
+    }
+
+    chunks
+}
+
+fn trim_zero_padding(buffer: &mut Vec<u8>) {
+    let leading_zeros = buffer.iter().take_while(|b| **b == 0).count();
+    if leading_zeros > 0 {
+        buffer.drain(..leading_zeros);
     }
 }
 

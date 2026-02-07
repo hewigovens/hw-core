@@ -327,6 +327,9 @@ pub fn decode_frame(data: &[u8], expected_channel: Option<u16>) -> Result<Decode
         }
     }
     let length = u16::from_be_bytes([data[3], data[4]]) as usize;
+    if length < CRC_LENGTH {
+        return Err(WireError::ShortPacket);
+    }
     if data.len() < 5 + length {
         return Err(WireError::ShortPacket);
     }
