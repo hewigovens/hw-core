@@ -17,3 +17,4 @@ trezor-connect = { path = "../trezor-connect", features = ["ble"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 whoami = "1.5"
+rustyline = "14.0"

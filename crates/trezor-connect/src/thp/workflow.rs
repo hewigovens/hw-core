@@ -71,6 +71,10 @@ where
         &self.config
     }
 
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.backend
+    }
+
     pub fn into_parts(self) -> (B, HostConfig, ThpState) {
         (self.backend, self.config, self.state)
     }

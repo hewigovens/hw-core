@@ -180,7 +180,14 @@ pub async fn run(args: PairArgs) -> Result<()> {
             .create_session(None, false, false)
             .await
             .context("create-session failed before entering interactive mode")?;
-        session::run(&mut workflow).await?;
+        let session_result = session::run(&mut workflow).await;
+
+        println!("Closing BLE session...");
+        if let Err(err) = workflow.backend_mut().link_mut().disconnect().await {
+            debug!("BLE disconnect failed during interactive shutdown: {err}");
+        }
+
+        session_result?;
     }
 
     Ok(())

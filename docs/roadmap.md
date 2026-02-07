@@ -7,7 +7,7 @@
 - THP host workflow: create-channel, handshake, pairing (QR/NFC/code entry), session creation
 - Vendored THP protobuf types with prost
 - Pluggable BLE wallet profiles (Trezor Safe 7)
-- Interactive CLI: `scan`, `pair`, `address eth`
+- Interactive CLI: `scan`, `pair`, `address --chain <eth|btc>`
 - Shared wallet orchestration layer (`hw-wallet`) for CLI and FFI
 - UniFFI-based FFI surface with Swift/Kotlin binding generation
 

@@ -2,6 +2,9 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
+pub const DEFAULT_ETH_BIP32_PATH: &str = "m/44'/60'/0'/0/0";
+pub const DEFAULT_BTC_BIP32_PATH: &str = "m/84'/0'/0'/0/0";
+
 #[derive(Parser, Debug)]
 #[command(name = "hw-cli")]
 #[command(about = "Interactive Trezor Safe 7 CLI over BLE")]
@@ -55,20 +58,11 @@ pub struct PairArgs {
 
 #[derive(Args, Debug)]
 pub struct AddressArgs {
-    #[command(subcommand)]
-    pub command: AddressCommand,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum AddressCommand {
-    Eth(AddressEthArgs),
-}
-
-#[derive(Args, Debug)]
-pub struct AddressEthArgs {
+    #[arg(long, value_enum)]
+    pub chain: Option<Chain>,
     #[arg(long)]
-    pub path: String,
-    #[arg(long, default_value_t = false)]
+    pub path: Option<String>,
+    #[arg(long, default_value_t = true)]
     pub show_on_device: bool,
     #[arg(long, default_value_t = false)]
     pub include_public_key: bool,
@@ -86,6 +80,12 @@ pub struct AddressEthArgs {
     pub host_name: Option<String>,
     #[arg(long, default_value = "hw-core/cli")]
     pub app_name: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum Chain {
+    Eth,
+    Btc,
 }
 
 #[derive(Args, Debug)]
@@ -167,17 +167,27 @@ mod tests {
 
     #[test]
     fn address_eth_defaults() {
-        let cli = Cli::parse_from(["hw-cli", "address", "eth", "--path", "m/44'/60'/0'/0/0"]);
+        let cli = Cli::parse_from(["hw-cli", "address"]);
         let Command::Address(args) = cli.command else {
             panic!("expected address command");
         };
-        let AddressCommand::Eth(args) = args.command;
 
-        assert!(!args.show_on_device);
+        assert_eq!(args.chain, None);
+        assert_eq!(args.path, None);
+        assert!(args.show_on_device);
         assert!(!args.include_public_key);
         assert!(!args.chunkify);
         assert_eq!(args.timeout_secs, 60);
         assert_eq!(args.thp_timeout_secs, 60);
         assert_eq!(args.app_name, "hw-core/cli");
+    }
+
+    #[test]
+    fn address_accepts_chain_value() {
+        let cli = Cli::parse_from(["hw-cli", "address", "--chain", "btc"]);
+        let Command::Address(args) = cli.command else {
+            panic!("expected address command");
+        };
+        assert_eq!(args.chain, Some(Chain::Btc));
     }
 }
