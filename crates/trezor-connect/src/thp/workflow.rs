@@ -290,54 +290,56 @@ where
                     return Ok(());
                 }
                 super::types::SelectMethodResponse::CodeEntryCommitment { ref commitment } => {
-                    let mut challenge = vec![0u8; 32];
-                    self.rng.fill(challenge.as_mut_slice());
-                    let mut code_entry_retry_count = 0usize;
-
                     debug!(
-                        "code-entry commitment received: commitment_len={}, challenge_len={}",
+                        "code-entry commitment received: commitment_len={}",
                         commitment.len(),
-                        challenge.len()
                     );
 
                     self.state.update_handshake_credentials(|creds| {
                         creds.handshake_commitment = Some(commitment.clone());
-                        creds.code_entry_challenge = Some(challenge.clone());
-                    });
-
-                    debug!("code-entry: sending ThpCodeEntryChallenge");
-                    let cpace_response = match self
-                        .backend
-                        .code_entry_challenge(CodeEntryChallengeRequest {
-                            challenge: challenge.clone(),
-                        })
-                        .await
-                    {
-                        Ok(response) => response,
-                        Err(super::backend::BackendError::Device(reason)) => {
-                            debug!(
-                                "code-entry challenge rejected by device: {reason}; requesting fresh commitment"
-                            );
-                            select_response = self
-                                .backend
-                                .select_pairing_method(SelectMethodRequest {
-                                    method: current_method,
-                                })
-                                .await?;
-                            continue;
-                        }
-                        Err(err) => return Err(err.into()),
-                    };
-                    debug!(
-                        "code-entry: received ThpCodeEntryCpaceTrezor, public_key_len={}",
-                        cpace_response.trezor_cpace_public_key.len()
-                    );
-                    self.state.update_handshake_credentials(|creds| {
-                        creds.trezor_cpace_public_key =
-                            Some(cpace_response.trezor_cpace_public_key.clone());
                     });
 
                     'code_entry: loop {
+                        let mut challenge = vec![0u8; 32];
+                        self.rng.fill(challenge.as_mut_slice());
+                        debug!(
+                            "code-entry: sending ThpCodeEntryChallenge, challenge_len={}",
+                            challenge.len()
+                        );
+                        self.state.update_handshake_credentials(|creds| {
+                            creds.code_entry_challenge = Some(challenge.clone());
+                        });
+                        let cpace_response = match self
+                            .backend
+                            .code_entry_challenge(CodeEntryChallengeRequest {
+                                challenge: challenge.clone(),
+                            })
+                            .await
+                        {
+                            Ok(response) => response,
+                            Err(super::backend::BackendError::Device(reason)) => {
+                                debug!(
+                                    "code-entry challenge rejected by device: {reason}; requesting fresh commitment"
+                                );
+                                select_response = self
+                                    .backend
+                                    .select_pairing_method(SelectMethodRequest {
+                                        method: current_method,
+                                    })
+                                    .await?;
+                                continue 'pairing_flow;
+                            }
+                            Err(err) => return Err(err.into()),
+                        };
+                        debug!(
+                            "code-entry: received ThpCodeEntryCpaceTrezor, public_key_len={}",
+                            cpace_response.trezor_cpace_public_key.len()
+                        );
+                        self.state.update_handshake_credentials(|creds| {
+                            creds.trezor_cpace_public_key =
+                                Some(cpace_response.trezor_cpace_public_key.clone());
+                        });
+
                         let prompt = PairingPrompt {
                             available_methods: handshake.pairing_methods.clone(),
                             selected_method: current_method,
@@ -391,23 +393,9 @@ where
                                 break 'code_entry;
                             }
                             super::types::PairingTagResponse::Retry(reason) => {
-                                code_entry_retry_count += 1;
                                 debug!(
-                                    "code entry retry requested: {reason}; retry_count={}",
-                                    code_entry_retry_count
+                                    "code entry retry requested: {reason}; requesting fresh challenge"
                                 );
-                                if code_entry_retry_count >= 2 {
-                                    debug!(
-                                        "code entry retry threshold reached; requesting fresh commitment"
-                                    );
-                                    select_response = self
-                                        .backend
-                                        .select_pairing_method(SelectMethodRequest {
-                                            method: current_method,
-                                        })
-                                        .await?;
-                                    continue 'pairing_flow;
-                                }
                                 continue 'code_entry;
                             }
                         }
@@ -1020,7 +1008,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn code_entry_retry_prompts_again_before_fresh_commitment() {
+    async fn code_entry_retry_requests_fresh_challenge_before_reprompt() {
         let backend = MockBackend::code_entry_flow();
         backend.tag_responses.lock().clear();
         backend.tag_responses.lock().extend([
@@ -1050,8 +1038,8 @@ mod tests {
         let challenge_requests = backend.code_entry_challenge_requests.lock().clone();
         assert_eq!(
             challenge_requests.len(),
-            1,
-            "should reuse the same challenge for first retry"
+            2,
+            "should request a fresh challenge after retry"
         );
         let tag_requests = backend.tag_requests.lock().clone();
         assert_eq!(tag_requests.len(), 2, "should prompt and submit code twice");
