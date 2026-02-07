@@ -394,9 +394,15 @@ where
                             }
                             super::types::PairingTagResponse::Retry(reason) => {
                                 debug!(
-                                    "code entry retry requested: {reason}; requesting fresh challenge"
+                                    "code entry retry requested: {reason}; requesting fresh commitment"
                                 );
-                                continue 'code_entry;
+                                select_response = self
+                                    .backend
+                                    .select_pairing_method(SelectMethodRequest {
+                                        method: current_method,
+                                    })
+                                    .await?;
+                                continue 'pairing_flow;
                             }
                         }
                     }
@@ -1008,8 +1014,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn code_entry_retry_requests_fresh_challenge_before_reprompt() {
+    async fn code_entry_retry_requests_fresh_commitment() {
         let backend = MockBackend::code_entry_flow();
+        backend
+            .select_responses
+            .lock()
+            .push_back(SelectMethodResponse::CodeEntryCommitment {
+                commitment: vec![0xBB; 32],
+            });
         backend.tag_responses.lock().clear();
         backend.tag_responses.lock().extend([
             PairingTagResponse::Retry("firmware failure code=99: Firmware error".into()),
@@ -1039,7 +1051,7 @@ mod tests {
         assert_eq!(
             challenge_requests.len(),
             2,
-            "should request a fresh challenge after retry"
+            "should request a fresh challenge after fresh commitment"
         );
         let tag_requests = backend.tag_requests.lock().clone();
         assert_eq!(tag_requests.len(), 2, "should prompt and submit code twice");
