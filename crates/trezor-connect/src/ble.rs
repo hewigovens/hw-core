@@ -1089,7 +1089,7 @@ impl ThpBackend for BleBackend {
         let chain = request.chain;
         let full_data = request.data.clone();
         let (encoded, initial_chunk_len) =
-            encode_sign_tx_request(&request).map_err(|e| self.map_proto_error(e))?;
+            encode_sign_tx_request(&request).map_err(Self::transport_error)?;
         self.send_encrypted_request(encoded).await?;
         let mut data_offset = initial_chunk_len;
 
@@ -1143,13 +1143,13 @@ impl ThpBackend for BleBackend {
             }
 
             let tx_request =
-                decode_tx_request(message_type, &payload).map_err(|e| self.map_proto_error(e))?;
+                decode_tx_request(message_type, &payload).map_err(Self::transport_error)?;
             if let (Some(v), Some(r), Some(s)) = (
                 tx_request.signature_v,
                 tx_request.signature_r,
                 tx_request.signature_s,
             ) {
-                self.state.set_expected_responses(Vec::new());
+                self.state.set_expected_responses(&[]);
                 return Ok(SignTxResponse { chain, v, r, s });
             }
 
@@ -1166,7 +1166,7 @@ impl ThpBackend for BleBackend {
                 let chunk = &full_data[data_offset..end];
                 data_offset = end;
 
-                let encoded_ack = encode_tx_ack(chunk).map_err(|e| self.map_proto_error(e))?;
+                let encoded_ack = encode_tx_ack(chunk).map_err(Self::transport_error)?;
                 self.send_encrypted_request(encoded_ack).await?;
                 continue;
             }
