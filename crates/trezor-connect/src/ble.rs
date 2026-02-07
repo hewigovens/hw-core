@@ -209,13 +209,6 @@ impl BleBackend {
         Ok(out)
     }
 
-    fn ensure_session_id(&mut self) -> u8 {
-        if self.state.session_id() == 0 {
-            self.state.next_session_id();
-        }
-        self.state.session_id()
-    }
-
     fn host_key(&self) -> BackendResult<[u8; 32]> {
         self.state
             .host_key()
@@ -234,7 +227,7 @@ impl BleBackend {
         payload: &[u8],
     ) -> BackendResult<Vec<u8>> {
         let key = self.host_key()?;
-        let session_id = self.ensure_session_id();
+        let session_id = self.state.session_id();
         let nonce = self.state.send_nonce();
         let iv = get_iv_from_nonce(nonce);
 
@@ -282,11 +275,11 @@ impl BleBackend {
 
         let session_id = plaintext[0];
         if session_id != self.state.session_id() {
-            return Err(BackendError::Transport(format!(
-                "session id mismatch: expected {}, received {}",
-                self.state.session_id(),
-                session_id
-            )));
+            debug!(
+                expected = self.state.session_id(),
+                received = session_id,
+                "BLE THP response session id differs from local state"
+            );
         }
 
         let message_type = u16::from_be_bytes([plaintext[1], plaintext[2]]);
@@ -677,14 +670,6 @@ impl ThpBackend for BleBackend {
                 )))
             }
         };
-
-        if matches!(
-            completion_state,
-            HandshakeCompletionState::Paired | HandshakeCompletionState::AutoPaired
-        ) && self.state.session_id() == 0
-        {
-            self.state.next_session_id();
-        }
 
         Ok(HandshakeCompletionResponse {
             state: completion_state,
