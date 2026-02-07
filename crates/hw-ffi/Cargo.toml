@@ -28,7 +28,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 trezor-connect = { path = "../trezor-connect", features = ["ble"] }
 uniffi = { version = "0.30", features = ["tokio"] }
-uniffi_macros = "0.30"
 uuid = { workspace = true }
 anyhow = { workspace = true, optional = true }
 clap = { version = "4.5", features = ["derive"], optional = true }

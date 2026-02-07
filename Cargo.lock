@@ -218,7 +218,6 @@ name = "ble-transport"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "btleplug",
  "futures",
  "thiserror 2.0.18",
@@ -910,7 +909,6 @@ dependencies = [
  "trezor-connect",
  "uniffi",
  "uniffi_bindgen",
- "uniffi_macros",
  "uuid",
 ]
 
@@ -1781,16 +1779,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_bytes"
-version = "0.11.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
-dependencies = [
- "serde",
- "serde_core",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2029,14 +2017,12 @@ dependencies = [
  "subtle",
  "thiserror 2.0.18",
  "x25519-dalek",
- "zeroize",
 ]
 
 [[package]]
 name = "thp-proto"
 version = "0.1.0"
 dependencies = [
- "bytes",
  "prost 0.14.3",
  "prost-build",
  "protoc-bin-vendored",
@@ -2219,7 +2205,6 @@ dependencies = [
  "prost 0.14.3",
  "rand",
  "serde",
- "serde_bytes",
  "serde_json",
  "sha2",
  "tempfile",
