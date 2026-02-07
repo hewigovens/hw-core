@@ -46,3 +46,9 @@ cli-pair:
 
 cli-pair-debug:
     cargo run -p hw-cli -- -vv pair
+
+cli-address-eth path="m/44'/60'/0'/0/0":
+    cargo run -p hw-cli -- address eth --path "{{path}}" --include-public-key
+
+cli-address-eth-debug path="m/44'/60'/0'/0/0":
+    cargo run -p hw-cli -- -vv address eth --path "{{path}}" --include-public-key
