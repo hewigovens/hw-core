@@ -21,16 +21,31 @@ High-level references:
 ## Architecture
 
 ```mermaid
-flowchart LR
-  CLI["hw-cli"]
-  APP["SwiftUI app (iOS/macOS)"]
-  FFI["hw-ffi (UniFFI)"]
-  WALLET["hw-wallet (shared orchestration)"]
-  CHAIN["hw-chain"]
-  CONNECT["trezor-connect (THP workflow/backend)"]
-  BLE["ble-transport"]
-  THP["thp-core / thp-crypto / thp-codec / thp-proto"]
-  DEVICE["Trezor Safe 7"]
+%%{init: {'theme':'base', 'flowchart': {'rankSpacing': 80, 'nodeSpacing': 55, 'curve': 'basis'}}}%%
+flowchart TB
+  subgraph L1["Application Layer"]
+    CLI["hw-cli"]
+    APP["SwiftUI app (iOS/macOS)"]
+  end
+
+  subgraph L2["FFI Layer"]
+    FFI["hw-ffi (UniFFI)"]
+  end
+
+  subgraph L3["Wallet Layer"]
+    WALLET["hw-wallet (shared orchestration)"]
+    CHAIN["hw-chain (chain config)"]
+  end
+
+  subgraph L4["Protocol Layer"]
+    CONNECT["trezor-connect (THP workflow/backend)"]
+    BLE["ble-transport"]
+    THP["thp-core / thp-crypto / thp-codec / thp-proto"]
+  end
+
+  subgraph L5["Hardware Layer"]
+    DEVICE["Trezor Safe 7"]
+  end
 
   CLI --> WALLET
   APP --> FFI
@@ -40,6 +55,18 @@ flowchart LR
   CONNECT --> BLE
   CONNECT --> THP
   BLE --> DEVICE
+
+  classDef appLayer fill:#E3F2FD,stroke:#1E88E5,color:#0D47A1,stroke-width:1.5px;
+  classDef ffiLayer fill:#E8F5E9,stroke:#43A047,color:#1B5E20,stroke-width:1.5px;
+  classDef walletLayer fill:#FFF8E1,stroke:#FB8C00,color:#E65100,stroke-width:1.5px;
+  classDef protoLayer fill:#ECEFF1,stroke:#546E7A,color:#263238,stroke-width:1.5px;
+  classDef hwLayer fill:#FFEBEE,stroke:#E53935,color:#B71C1C,stroke-width:1.5px;
+
+  class CLI,APP appLayer;
+  class FFI ffiLayer;
+  class WALLET,CHAIN walletLayer;
+  class CONNECT,BLE,THP protoLayer;
+  class DEVICE hwLayer;
 ```
 
 ## Workspace layout
