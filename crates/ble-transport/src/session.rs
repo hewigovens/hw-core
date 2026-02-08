@@ -34,14 +34,10 @@ impl BleSession {
         peripheral.discover_services().await?;
 
         let characteristics = peripheral.characteristics();
-        let discovered: Vec<String> = characteristics
-            .iter()
-            .map(|c| format!("{}/{:?}/{:?}", c.service_uuid, c.uuid, c.properties))
-            .collect();
         debug!(
             device_id = %device.id,
             profile = profile.id,
-            characteristics = ?discovered,
+            characteristic_count = characteristics.len(),
             "BLE discovered characteristics"
         );
 
