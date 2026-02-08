@@ -1,10 +1,9 @@
 [package]
 name = "hw-cli"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Interactive CLI for Trezor Safe 7 workflows over BLE"
-license = "Apache-2.0 OR MIT"
-
+license.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }

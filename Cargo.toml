@@ -15,6 +15,8 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
+license = "GPL-3.0-only"
+version = "0.1.0"
 
 [workspace.lints]
 rust.unused_imports = "warn"

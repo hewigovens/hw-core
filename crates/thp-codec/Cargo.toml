@@ -1,10 +1,9 @@
 [package]
 name = "thp-codec"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "THP transport framing utilities (length-prefix, chunking, CRC)"
-license = "Apache-2.0 OR MIT"
-
+license.workspace = true
 [dependencies]
 crc32fast = { workspace = true }
 thiserror = { workspace = true }
