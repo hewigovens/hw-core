@@ -7,7 +7,9 @@ use tokio::time::{sleep, timeout};
 use tracing::debug;
 use trezor_connect::ble::BleBackend;
 use trezor_connect::thp::storage::ThpStorage;
-use trezor_connect::thp::{BackendError, HostConfig, ThpWorkflow, ThpWorkflowError};
+use trezor_connect::thp::{
+    BackendError, HostConfig, Phase, ThpBackend, ThpWorkflow, ThpWorkflowError,
+};
 
 use crate::error::{WalletError, WalletResult};
 
@@ -68,19 +70,114 @@ pub fn workflow(backend: BleBackend, config: HostConfig) -> ThpWorkflow<BleBacke
     ThpWorkflow::new(backend, config)
 }
 
-pub async fn create_channel_with_retry(
-    workflow: &mut ThpWorkflow<BleBackend>,
+pub const CREATE_CHANNEL_ATTEMPTS: usize = 3;
+pub const HANDSHAKE_ATTEMPTS: usize = 2;
+pub const CREATE_SESSION_ATTEMPTS: usize = 3;
+pub const RETRY_DELAY: Duration = Duration::from_millis(800);
+const CREATE_CHANNEL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[derive(Debug, Clone)]
+pub struct ReadyWorkflowOptions {
+    pub thp_timeout: Duration,
+    pub try_to_unlock: bool,
+    pub passphrase: Option<String>,
+    pub on_device: bool,
+    pub derive_cardano: bool,
+}
+
+impl Default for ReadyWorkflowOptions {
+    fn default() -> Self {
+        Self {
+            thp_timeout: Duration::from_secs(60),
+            try_to_unlock: false,
+            passphrase: None,
+            on_device: false,
+            derive_cardano: false,
+        }
+    }
+}
+
+pub async fn connect_and_prepare_workflow(
+    device: DiscoveredDevice,
+    profile: BleProfile,
+    config: HostConfig,
+    storage: Option<Arc<dyn ThpStorage>>,
+    options: ReadyWorkflowOptions,
+) -> WalletResult<ThpWorkflow<BleBackend>> {
+    let session = connect_trezor_device(device, profile).await?;
+    let backend = backend_from_session(session, options.thp_timeout);
+
+    let mut workflow = if let Some(storage) = storage {
+        workflow_with_storage(backend, config, storage).await?
+    } else {
+        workflow(backend, config)
+    };
+
+    prepare_ready_workflow(&mut workflow, &options).await?;
+    Ok(workflow)
+}
+
+pub async fn prepare_ready_workflow<B>(
+    workflow: &mut ThpWorkflow<B>,
+    options: &ReadyWorkflowOptions,
+) -> WalletResult<()>
+where
+    B: ThpBackend + Send,
+{
+    establish_authenticated_phase(workflow, options.try_to_unlock).await?;
+    create_session_with_retry(
+        workflow,
+        options.passphrase.clone(),
+        options.on_device,
+        options.derive_cardano,
+        CREATE_SESSION_ATTEMPTS,
+        RETRY_DELAY,
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn establish_authenticated_phase<B>(
+    workflow: &mut ThpWorkflow<B>,
+    try_to_unlock: bool,
+) -> WalletResult<()>
+where
+    B: ThpBackend + Send,
+{
+    create_channel_with_retry(workflow, CREATE_CHANNEL_ATTEMPTS, RETRY_DELAY).await?;
+    handshake_with_retry(workflow, try_to_unlock, HANDSHAKE_ATTEMPTS, RETRY_DELAY).await?;
+
+    match workflow.state().phase() {
+        Phase::Paired => Ok(()),
+        Phase::Pairing => {
+            if workflow.state().is_paired() {
+                workflow.pairing(None).await.map_err(WalletError::from)?;
+                Ok(())
+            } else {
+                Err(WalletError::Workflow(
+                    ThpWorkflowError::PairingInteractionRequired,
+                ))
+            }
+        }
+        _ => Err(WalletError::Workflow(ThpWorkflowError::InvalidPhase)),
+    }
+}
+
+pub async fn create_channel_with_retry<B>(
+    workflow: &mut ThpWorkflow<B>,
     attempts: usize,
     retry_delay: Duration,
-) -> WalletResult<usize> {
+) -> WalletResult<usize>
+where
+    B: ThpBackend + Send,
+{
     let attempts = attempts.max(1);
-    let per_attempt_timeout = Duration::from_secs(15);
     for attempt in 1..=attempts {
-        match timeout(per_attempt_timeout, workflow.create_channel()).await {
+        match timeout(CREATE_CHANNEL_ATTEMPT_TIMEOUT, workflow.create_channel()).await {
             Err(_) if attempt < attempts => {
                 debug!(
                     "create-channel timed out after {:?} on attempt {}; retrying after {:?}",
-                    per_attempt_timeout, attempt, retry_delay
+                    CREATE_CHANNEL_ATTEMPT_TIMEOUT, attempt, retry_delay
                 );
                 sleep(retry_delay).await;
             }
@@ -88,7 +185,7 @@ pub async fn create_channel_with_retry(
                 return Err(WalletError::Workflow(ThpWorkflowError::Backend(
                     BackendError::Transport(format!(
                         "timeout waiting for BLE response (create-channel attempt timeout {:?})",
-                        per_attempt_timeout
+                        CREATE_CHANNEL_ATTEMPT_TIMEOUT
                     )),
                 )));
             }
@@ -109,12 +206,15 @@ pub async fn create_channel_with_retry(
     unreachable!("attempts is always >= 1")
 }
 
-pub async fn handshake_with_retry(
-    workflow: &mut ThpWorkflow<BleBackend>,
+pub async fn handshake_with_retry<B>(
+    workflow: &mut ThpWorkflow<B>,
     try_to_unlock: bool,
     attempts: usize,
     retry_delay: Duration,
-) -> WalletResult<usize> {
+) -> WalletResult<usize>
+where
+    B: ThpBackend + Send,
+{
     let attempts = attempts.max(1);
     for attempt in 1..=attempts {
         match workflow.handshake(try_to_unlock).await {
@@ -128,6 +228,38 @@ pub async fn handshake_with_retry(
                 create_channel_with_retry(workflow, 3, retry_delay).await?;
             }
             Err(err) => return Err(err.into()),
+        }
+    }
+
+    unreachable!("attempts is always >= 1")
+}
+
+pub async fn create_session_with_retry<B>(
+    workflow: &mut ThpWorkflow<B>,
+    passphrase: Option<String>,
+    on_device: bool,
+    derive_cardano: bool,
+    attempts: usize,
+    retry_delay: Duration,
+) -> WalletResult<usize>
+where
+    B: ThpBackend + Send,
+{
+    let attempts = attempts.max(1);
+    for attempt in 1..=attempts {
+        match workflow
+            .create_session(passphrase.clone(), on_device, derive_cardano)
+            .await
+        {
+            Ok(()) => return Ok(attempt),
+            Err(err) if is_retryable_session_error(&err) && attempt < attempts => {
+                debug!(
+                    "create-session hit transient device state on attempt {}; retrying after {:?}",
+                    attempt, retry_delay
+                );
+                sleep(retry_delay).await;
+            }
+            Err(err) => return Err(normalize_session_error(err)),
         }
     }
 
@@ -151,6 +283,39 @@ fn is_retryable_handshake_error(error: &ThpWorkflowError) -> bool {
                 || message.contains("transport busy")
         }
         _ => false,
+    }
+}
+
+fn is_retryable_session_error(error: &ThpWorkflowError) -> bool {
+    match error {
+        ThpWorkflowError::Backend(BackendError::Device(message)) => {
+            message.contains("error code 5")
+                || message.contains("error code 99")
+                || message.contains("ThpTransportBusy")
+                || message.contains("transport busy")
+                || message.contains("session requires connection confirmation")
+        }
+        _ => false,
+    }
+}
+
+fn normalize_session_error(error: ThpWorkflowError) -> WalletError {
+    match error {
+        ThpWorkflowError::Backend(BackendError::Device(message))
+            if message.contains("error code 99") =>
+        {
+            WalletError::Workflow(ThpWorkflowError::Backend(BackendError::Device(
+                "device reported firmware busy (error code 99). Ensure the Trezor screen is unlocked and idle, then retry.".into(),
+            )))
+        }
+        ThpWorkflowError::Backend(BackendError::Device(message))
+            if message.contains("error code 5") =>
+        {
+            WalletError::Workflow(ThpWorkflowError::Backend(BackendError::Device(
+                "device is not ready yet (error code 5). Wait for the device prompt/unlock and retry.".into(),
+            )))
+        }
+        other => WalletError::Workflow(other),
     }
 }
 

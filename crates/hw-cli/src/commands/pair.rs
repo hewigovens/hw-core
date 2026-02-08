@@ -4,8 +4,10 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use ble_transport::BleManager;
 use hw_wallet::ble::{
-    backend_from_session, connect_trezor_device, create_channel_with_retry, handshake_with_retry,
-    scan_profile_until_match, trezor_profile, workflow_with_storage,
+    backend_from_session, connect_trezor_device, create_channel_with_retry,
+    create_session_with_retry, handshake_with_retry, scan_profile_until_match, trezor_profile,
+    workflow_with_storage, CREATE_CHANNEL_ATTEMPTS, CREATE_SESSION_ATTEMPTS, HANDSHAKE_ATTEMPTS,
+    RETRY_DELAY,
 };
 use hw_wallet::WalletError;
 use tokio::time::timeout;
@@ -120,9 +122,10 @@ pub async fn run(args: PairArgs) -> Result<()> {
         "Creating THP channel (may take up to ~{}s with retries)...",
         args.thp_timeout_secs * 3
     );
-    let channel_attempt = create_channel_with_retry(&mut workflow, 3, Duration::from_millis(800))
-        .await
-        .context("create-channel failed")?;
+    let channel_attempt =
+        create_channel_with_retry(&mut workflow, CREATE_CHANNEL_ATTEMPTS, RETRY_DELAY)
+            .await
+            .context("create-channel failed")?;
     if channel_attempt > 1 {
         info!(
             "create-channel succeeded on retry attempt {}",
@@ -132,10 +135,14 @@ pub async fn run(args: PairArgs) -> Result<()> {
     info!("THP channel created");
     println!("Performing THP handshake...");
     let try_to_unlock = args.interactive;
-    let handshake_attempt =
-        handshake_with_retry(&mut workflow, try_to_unlock, 2, Duration::from_millis(800))
-        .await
-        .context("handshake failed")?;
+    let handshake_attempt = handshake_with_retry(
+        &mut workflow,
+        try_to_unlock,
+        HANDSHAKE_ATTEMPTS,
+        RETRY_DELAY,
+    )
+    .await
+    .context("handshake failed")?;
     if handshake_attempt > 1 {
         info!("handshake succeeded on retry attempt {}", handshake_attempt);
     }
@@ -189,10 +196,16 @@ pub async fn run(args: PairArgs) -> Result<()> {
 
     if args.interactive {
         println!("Creating wallet session...");
-        workflow
-            .create_session(None, false, false)
-            .await
-            .context("create-session failed before entering interactive mode")?;
+        create_session_with_retry(
+            &mut workflow,
+            None,
+            false,
+            false,
+            CREATE_SESSION_ATTEMPTS,
+            RETRY_DELAY,
+        )
+        .await
+        .context("create-session failed before entering interactive mode")?;
         let session_result = session::run(&mut workflow).await;
 
         println!("Closing BLE session...");

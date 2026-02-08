@@ -25,6 +25,30 @@ APIs are unstable while we iterate on the transport abstraction and vendor-agnos
 - `crates/hw-cli`: interactive CLI for Trezor Safe 7 (scan, pair, address, sign).
 - `crates/hw-ffi`: cdylib exposing the BLE manager + THP workflow over UniFFI (Swift/Kotlin).
 
+## Architecture
+
+```mermaid
+flowchart LR
+  CLI["hw-cli"]
+  FFI["hw-ffi (UniFFI)"]
+  WALLET["hw-wallet (shared orchestration)"]
+  CHAIN["hw-chain"]
+  CONNECT["trezor-connect (THP workflow/backend)"]
+  BLE["ble-transport"]
+  THP["thp-core/thp-crypto/thp-codec/thp-proto"]
+  APP["SwiftUI iOS/macOS app"]
+  DEVICE["Trezor Safe 7"]
+
+  CLI --> WALLET
+  APP --> FFI
+  FFI --> WALLET
+  WALLET --> CHAIN
+  WALLET --> CONNECT
+  CONNECT --> BLE
+  CONNECT --> THP
+  BLE --> DEVICE
+```
+
 ## Feature flags
 
 - `ble`: enables the BLE transport stack (btleplug, Noise handshake, pairing).
@@ -56,8 +80,37 @@ just scan-demo        # scan for Trezor devices over BLE
 just workflow-demo    # drive the THP BLE workflow (requires a device)
 just cli-scan         # scan via CLI
 just cli-pair         # pair via CLI
-just cli-pair-debug   # pair with verbose logging (-vv)
+just cli-pair-interactive
+just cli-address-eth
+just cli-sign-eth
 ```
+
+## CLI usage (Trezor Safe 7)
+
+Pair and start an interactive session:
+
+```bash
+cargo run -p hw-cli -- -vv pair --interactive
+```
+
+Fetch Ethereum address (default path `m/44'/60'/0'/0/0`):
+
+```bash
+cargo run -p hw-cli -- -vv address --chain eth --include-public-key
+```
+
+Sign an EIP-1559 transaction:
+
+```bash
+cargo run -p hw-cli -- -vv sign eth --path "m/44'/60'/0'/0/0" --tx '{"to":"0x000000000000000000000000000000000000dead","nonce":"0x0","gas_limit":"0x5208","chain_id":1,"max_fee_per_gas":"0x3b9aca00","max_priority_fee":"0x59682f00","value":"0x0"}'
+```
+
+Notes:
+
+- Pairing state persists at `~/.hw-core/thp-host.json`; use `pair --force` to reset.
+- Current v1 scope is BLE + Trezor Safe 7 + Ethereum flows.
+- For `Peer removed pairing information`, remove device from OS Bluetooth settings then pair again.
+- Some transient firmware busy states are retried automatically (notably device error codes 5/99).
 
 ## Examples
 

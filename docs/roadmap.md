@@ -7,9 +7,12 @@
 - THP host workflow: create-channel, handshake, pairing (QR/NFC/code entry), session creation
 - Vendored THP protobuf types with prost
 - Pluggable BLE wallet profiles (Trezor Safe 7)
-- Interactive CLI: `scan`, `pair`, `address --chain <eth|btc>`
+- Interactive CLI: `scan`, `pair`, `address --chain <eth|btc>`, `sign eth`
 - Shared wallet orchestration layer (`hw-wallet`) for CLI and FFI
 - UniFFI-based FFI surface with Swift/Kotlin binding generation
+- Persistent host pairing storage (`~/.hw-core/thp-host.json`) with reconnect/reuse flows
+- Mock-backed orchestration tests for address/sign/session flows
+- Local post-sign Ethereum verification output (tx hash + recovered signer address)
 
 ## Current: CLI Wallet v1 (Trezor Safe 7 over BLE)
 
@@ -17,12 +20,12 @@ Deliver an interactive CLI that can pair, read ETH addresses, and sign ETH trans
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| P0 | Protocol contract and design | Mostly done (ETH wire contract still blocked) |
+| P0 | Protocol contract and design | Done |
 | P1 | CLI skeleton (`hw-cli`, `hw-wallet`) | Done |
 | P2 | Pairing UX and persistence | Done |
-| P3 | Ethereum address flow | Done (tests in progress) |
-| P4 | Ethereum signing flow | TODO |
-| P5 | Reliability, validation, docs | TODO |
+| P3 | Ethereum address flow | Done |
+| P4 | Ethereum signing flow | Done |
+| P5 | Reliability, validation, docs | Done |
 
 See [cli-wallet-v1.md](cli-wallet-v1.md) for the full task tracker.
 

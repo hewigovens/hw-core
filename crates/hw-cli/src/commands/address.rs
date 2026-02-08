@@ -4,8 +4,8 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use ble_transport::BleManager;
 use hw_wallet::ble::{
-    backend_from_session, connect_trezor_device, create_channel_with_retry, handshake_with_retry,
-    scan_profile_until_match, trezor_profile, workflow_with_storage,
+    backend_from_session, connect_trezor_device, prepare_ready_workflow, scan_profile_until_match,
+    trezor_profile, workflow_with_storage, ReadyWorkflowOptions,
 };
 use hw_wallet::chain::{resolve_derivation_path, Chain, ResolvedDerivationPath};
 use hw_wallet::WalletError;
@@ -13,7 +13,7 @@ use tokio::time::timeout;
 use tracing::{debug, info};
 use trezor_connect::thp::{
     Chain as ThpChain, FileStorage, GetAddressRequest, HostConfig,
-    PairingMethod as ThpPairingMethod, Phase,
+    PairingMethod as ThpPairingMethod, ThpBackend, ThpWorkflow,
 };
 
 use crate::cli::{AddressArgs, DEFAULT_ETH_BIP32_PATH};
@@ -107,54 +107,29 @@ pub async fn run(args: AddressArgs) -> Result<()> {
         .context("workflow setup failed")?;
     debug!("address workflow initialized with persisted host state");
 
-    println!(
-        "Creating THP channel (may take up to ~{}s with retries)...",
-        args.thp_timeout_secs * 3
-    );
-    create_channel_with_retry(&mut workflow, 3, Duration::from_millis(800))
-        .await
-        .context("create-channel failed")?;
-    println!("Performing THP handshake...");
-    let handshake_attempt = handshake_with_retry(&mut workflow, false, 2, Duration::from_millis(800))
-        .await
-        .context("handshake failed")?;
-    if handshake_attempt > 1 {
-        info!("handshake succeeded on retry attempt {}", handshake_attempt);
-    }
-
-    match workflow.state().phase() {
-        Phase::Paired => {}
-        Phase::Pairing => {
-            if workflow.state().is_paired() {
-                println!("Confirming THP connection...");
-                workflow
-                    .pairing(None)
-                    .await
-                    .context("connection confirmation failed")?;
-            } else {
-                bail!("device is not paired for this host; run `hw-cli pair` first");
-            }
-        }
-        other => {
-            bail!("unexpected workflow phase after handshake: {:?}", other);
-        }
-    }
-
-    println!("Creating wallet session...");
-    workflow
-        .create_session(None, false, false)
-        .await
-        .context("create-session failed")?;
+    println!("Preparing authenticated wallet session...");
+    prepare_ready_workflow(
+        &mut workflow,
+        &ReadyWorkflowOptions {
+            thp_timeout: Duration::from_secs(args.thp_timeout_secs),
+            try_to_unlock: false,
+            passphrase: None,
+            on_device: false,
+            derive_cardano: false,
+        },
+    )
+    .await
+    .context("failed to prepare authenticated wallet session")?;
 
     println!("Requesting {:?} address from device...", resolved.chain);
-    let request = GetAddressRequest::ethereum(resolved.path_indices)
-        .with_show_display(args.show_on_device)
-        .with_chunkify(args.chunkify)
-        .with_include_public_key(args.include_public_key);
-    let response = workflow
-        .get_address(request)
-        .await
-        .context("get-address failed")?;
+    let response = get_address_with_workflow(
+        &mut workflow,
+        resolved.path_indices.clone(),
+        args.show_on_device,
+        args.include_public_key,
+        args.chunkify,
+    )
+    .await?;
 
     if response.chain != ThpChain::Ethereum {
         bail!("unexpected response chain");
@@ -169,6 +144,26 @@ pub async fn run(args: AddressArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn get_address_with_workflow<B>(
+    workflow: &mut ThpWorkflow<B>,
+    path_indices: Vec<u32>,
+    show_on_device: bool,
+    include_public_key: bool,
+    chunkify: bool,
+) -> Result<trezor_connect::thp::GetAddressResponse>
+where
+    B: ThpBackend + Send,
+{
+    let request = GetAddressRequest::ethereum(path_indices)
+        .with_show_display(show_on_device)
+        .with_chunkify(chunkify)
+        .with_include_public_key(include_public_key);
+    workflow
+        .get_address(request)
+        .await
+        .context("get-address failed")
 }
 
 #[derive(Debug)]
@@ -198,7 +193,12 @@ impl ResolvedAddressTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::commands::test_support::{
+        canned_eth_address_response, default_test_host_config, MockBackend,
+    };
     use hw_wallet::chain::DEFAULT_BTC_BIP32_PATH;
+    use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
 
     fn args(chain: Option<Chain>, path: Option<&str>) -> AddressArgs {
         AddressArgs {
@@ -243,5 +243,54 @@ mod tests {
             ResolvedAddressTarget::from_args(&args(Some(Chain::Ethereum), Some("m/84'/0'/0'/0/0")))
                 .unwrap_err();
         assert!(err.to_string().contains("chain/path mismatch"));
+    }
+
+    #[tokio::test]
+    async fn address_flow_orchestrates_handshake_confirmation_and_session_retry() {
+        let backend = MockBackend::paired_with_session_retry(b"addr-test")
+            .with_get_address_response(canned_eth_address_response(
+                "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE",
+            ));
+        let config = default_test_host_config();
+        let mut workflow = ThpWorkflow::new(backend, config);
+
+        prepare_ready_workflow(
+            &mut workflow,
+            &ReadyWorkflowOptions {
+                thp_timeout: Duration::from_secs(60),
+                try_to_unlock: false,
+                passphrase: None,
+                on_device: false,
+                derive_cardano: false,
+            },
+        )
+        .await
+        .unwrap();
+        let response = get_address_with_workflow(
+            &mut workflow,
+            vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0],
+            true,
+            true,
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            response.address,
+            "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE"
+        );
+        let backend = workflow.backend_mut();
+        assert_eq!(backend.counters.credential_calls, 1);
+        assert_eq!(backend.counters.create_session_calls, 2);
+        assert_eq!(backend.counters.get_address_calls, 1);
+        let request = backend.last_get_address_request.as_ref().unwrap();
+        assert_eq!(request.chain, ThpChain::Ethereum);
+        assert_eq!(
+            request.path,
+            vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0]
+        );
+        assert!(request.show_display);
+        assert!(request.include_public_key);
     }
 }

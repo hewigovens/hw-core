@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use camino::Utf8PathBuf;
 use cargo_metadata::MetadataCommand;
 use clap::Parser;

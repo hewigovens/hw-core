@@ -1085,7 +1085,10 @@ mod tests {
             ThpWorkflowError::Backend(BackendError::Device(_))
         ));
 
-        workflow.pairing(None).await.expect("connection flow succeeds");
+        workflow
+            .pairing(None)
+            .await
+            .expect("connection flow succeeds");
         assert_eq!(workflow.state().phase(), Phase::Paired);
         workflow
             .create_session(None, false, false)

@@ -9,8 +9,11 @@ license = "Apache-2.0 OR MIT"
 ble-transport = { path = "../ble-transport", features = ["backend-btleplug", "trezor-safe7"] }
 hex = { workspace = true }
 hw-chain = { path = "../hw-chain" }
+k256 = { version = "0.13", features = ["ecdsa"] }
+rlp = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha3 = "0.10"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 trezor-connect = { path = "../trezor-connect", features = ["ble"] }
