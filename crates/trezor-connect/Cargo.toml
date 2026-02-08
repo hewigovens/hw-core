@@ -1,10 +1,9 @@
 [package]
 name = "trezor-connect"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Experimental Rust port of trezor-connect THP workflows"
-license = "Apache-2.0 OR MIT"
-
+license.workspace = true
 [features]
 default = []
 ble = ["dep:ble-transport", "ble-transport/backend-btleplug", "ble-transport/trezor-safe7"]

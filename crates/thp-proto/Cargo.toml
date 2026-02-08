@@ -1,10 +1,9 @@
 [package]
 name = "thp-proto"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Generated Trezor Host Protocol protobuf messages"
-license = "Apache-2.0 OR MIT"
-
+license.workspace = true
 [dependencies]
 prost = { workspace = true }
 

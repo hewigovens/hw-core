@@ -1,10 +1,9 @@
 [package]
 name = "ble-transport"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "BLE transport primitives for hardware wallet SDKs"
-license = "Apache-2.0 OR MIT"
-
+license.workspace = true
 [features]
 default = ["backend-btleplug"]
 backend-btleplug = ["dep:btleplug"]

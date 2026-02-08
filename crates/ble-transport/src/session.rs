@@ -10,6 +10,23 @@ use crate::{BleError, BleProfile, BleResult, DeviceInfo};
 
 const PROOF_OF_CONNECTION: &[u8] = b"Proof of connection";
 
+fn redact_device_id(device_id: &str) -> String {
+    const VISIBLE_SUFFIX_CHARS: usize = 6;
+    let suffix: String = device_id
+        .chars()
+        .rev()
+        .take(VISIBLE_SUFFIX_CHARS)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    if suffix.is_empty() {
+        "<redacted>".to_string()
+    } else {
+        format!("...{suffix}")
+    }
+}
+
 pub struct BleSession {
     peripheral: Peripheral,
     profile: BleProfile,
@@ -34,8 +51,9 @@ impl BleSession {
         peripheral.discover_services().await?;
 
         let characteristics = peripheral.characteristics();
+        let redacted_device_id = redact_device_id(&device.id);
         debug!(
-            device_id = %device.id,
+            device_id = %redacted_device_id,
             profile = profile.id,
             characteristic_count = characteristics.len(),
             "BLE discovered characteristics"
@@ -56,7 +74,7 @@ impl BleSession {
         };
 
         debug!(
-            device_id = %device.id,
+            device_id = %redacted_device_id,
             profile = profile.id,
             write_uuid = %write_char.uuid,
             write_props = ?write_char.properties,
