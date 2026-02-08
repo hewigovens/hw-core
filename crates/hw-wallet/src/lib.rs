@@ -5,4 +5,4 @@ pub mod error;
 pub mod eth;
 pub mod hex;
 
-pub use error::{WalletError, WalletResult};
+pub use error::{WalletError, WalletErrorKind, WalletResult};

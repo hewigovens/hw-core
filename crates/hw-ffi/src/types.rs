@@ -1,7 +1,7 @@
 use ble_transport::DeviceInfo;
+use trezor_connect::thp::Phase;
 use trezor_connect::thp::state::{HandshakeCache, ThpState};
 use trezor_connect::thp::types::{HostConfig, KnownCredential, PairingMethod};
-use trezor_connect::thp::Phase;
 
 pub type HWUuid = uuid::Uuid;
 
@@ -89,6 +89,22 @@ impl From<&ThpState> for HWThpState {
             handshake_cache: state.handshake_cache().cloned(),
         }
     }
+}
+
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum HWWorkflowEventKind {
+    Progress,
+    PairingPrompt,
+    ButtonRequest,
+    Ready,
+    Error,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HWWorkflowEvent {
+    pub kind: HWWorkflowEventKind,
+    pub code: String,
+    pub message: String,
 }
 
 #[uniffi::export]

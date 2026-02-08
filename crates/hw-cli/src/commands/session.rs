@@ -3,7 +3,7 @@ use hw_wallet::bip32::parse_bip32_path;
 use hw_wallet::chain::{
     infer_chain_from_path as infer_chain_from_path_wallet, Chain, CHAIN_BTC, CHAIN_ETH,
 };
-use hw_wallet::eth::{build_sign_tx_request, parse_tx_json};
+use hw_wallet::eth::{build_sign_tx_request, parse_tx_json, verify_sign_tx_response};
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
@@ -11,8 +11,7 @@ use rustyline::hint::Hinter;
 use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
 use rustyline::{Context as ReadlineContext, Editor, Helper};
-use trezor_connect::ble::BleBackend;
-use trezor_connect::thp::{GetAddressRequest, ThpWorkflow};
+use trezor_connect::thp::{GetAddressRequest, ThpBackend, ThpWorkflow};
 
 use crate::cli::DEFAULT_ETH_BIP32_PATH;
 
@@ -57,7 +56,10 @@ impl Completer for ReplHelper {
     }
 }
 
-pub async fn run(workflow: &mut ThpWorkflow<BleBackend>) -> Result<()> {
+pub async fn run<B>(workflow: &mut ThpWorkflow<B>) -> Result<()>
+where
+    B: ThpBackend + Send,
+{
     println!("Interactive session started.");
     println!(
         "Commands: help | address [--chain <eth|btc>] [--path <bip32>] [--hide-on-device] [--include-public-key] [--chunkify] | sign eth --path <bip32> --tx <json|@file> | exit"
@@ -189,7 +191,10 @@ fn current_token(line: &str, pos: usize) -> (usize, &str) {
     (start, &prefix[start..])
 }
 
-async fn handle_line(workflow: &mut ThpWorkflow<BleBackend>, line: &str) -> Result<()> {
+async fn handle_line<B>(workflow: &mut ThpWorkflow<B>, line: &str) -> Result<()>
+where
+    B: ThpBackend + Send,
+{
     let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.is_empty() {
         return Ok(());
@@ -202,7 +207,10 @@ async fn handle_line(workflow: &mut ThpWorkflow<BleBackend>, line: &str) -> Resu
     }
 }
 
-async fn handle_address(workflow: &mut ThpWorkflow<BleBackend>, parts: &[&str]) -> Result<()> {
+async fn handle_address<B>(workflow: &mut ThpWorkflow<B>, parts: &[&str]) -> Result<()>
+where
+    B: ThpBackend + Send,
+{
     let mut chain: Option<Chain> = None;
     let mut path: Option<&str> = None;
     let mut show_on_device = true;
@@ -292,7 +300,10 @@ async fn handle_address(workflow: &mut ThpWorkflow<BleBackend>, parts: &[&str]) 
     Ok(())
 }
 
-async fn handle_sign(workflow: &mut ThpWorkflow<BleBackend>, parts: &[&str]) -> Result<()> {
+async fn handle_sign<B>(workflow: &mut ThpWorkflow<B>, parts: &[&str]) -> Result<()>
+where
+    B: ThpBackend + Send,
+{
     if parts.get(1).copied() != Some(CHAIN_ETH) {
         bail!("only 'sign eth' is supported");
     }
@@ -335,11 +346,18 @@ async fn handle_sign(workflow: &mut ThpWorkflow<BleBackend>, parts: &[&str]) -> 
     let tx = parse_tx_json(&tx_json).context("failed to parse tx JSON")?;
     let request =
         build_sign_tx_request(path_indices, tx).context("failed to build sign request")?;
-    let response = workflow.sign_tx(request).await.context("sign-tx failed")?;
+    let response = workflow
+        .sign_tx(request.clone())
+        .await
+        .context("sign-tx failed")?;
 
     println!("v: {}", response.v);
     println!("r: 0x{}", hex::encode(&response.r));
     println!("s: 0x{}", hex::encode(&response.s));
+    if let Ok(verification) = verify_sign_tx_response(&request, &response) {
+        println!("tx_hash: 0x{}", hex::encode(verification.tx_hash));
+        println!("recovered_address: {}", verification.recovered_address);
+    }
     Ok(())
 }
 
@@ -378,7 +396,12 @@ fn detect_selected_chain(words: &[&str]) -> Option<Chain> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::test_support::{
+        canned_eth_address_response, canned_eth_sign_response, default_test_host_config,
+        MockBackend,
+    };
     use hw_wallet::chain::DEFAULT_BTC_BIP32_PATH;
+    use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
 
     fn replacements(line: &str, pos: usize) -> Vec<String> {
         let (_, pairs) = completion_pairs(line, pos);
@@ -424,5 +447,41 @@ mod tests {
         let suggestions = replacements("sign --", "sign --".len());
         assert!(suggestions.contains(&"--path".to_string()));
         assert!(suggestions.contains(&"--tx".to_string()));
+    }
+
+    #[tokio::test]
+    async fn interactive_handlers_execute_address_then_sign_on_same_workflow() {
+        let config = default_test_host_config();
+        let backend = MockBackend::autopaired(b"session-test")
+            .with_get_address_response(canned_eth_address_response(
+                "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE",
+            ))
+            .with_sign_tx_response(canned_eth_sign_response());
+        let mut workflow = ThpWorkflow::new(backend, config);
+
+        workflow.create_channel().await.unwrap();
+        workflow.handshake(false).await.unwrap();
+
+        handle_line(&mut workflow, "address --chain eth")
+            .await
+            .unwrap();
+        handle_line(
+            &mut workflow,
+            "sign eth --path m/44'/60'/0'/0/0 --tx {\"to\":\"0x000000000000000000000000000000000000dead\"}",
+        )
+        .await
+        .unwrap();
+
+        let backend = workflow.backend_mut();
+        assert_eq!(backend.counters.get_address_calls, 1);
+        assert_eq!(backend.counters.sign_tx_calls, 1);
+        assert_eq!(
+            backend.last_get_address_request.as_ref().unwrap().chain,
+            ThpChain::Ethereum
+        );
+        assert_eq!(
+            backend.last_sign_tx_request.as_ref().unwrap().chain,
+            ThpChain::Ethereum
+        );
     }
 }

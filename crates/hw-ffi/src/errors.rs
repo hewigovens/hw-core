@@ -3,12 +3,44 @@
 #[uniffi(flat_error)]
 pub enum HWCoreError {
     #[error("{0}")]
-    Message(String),
+    Ble(String),
+    #[error("{0}")]
+    Workflow(String),
+    #[error("{0}")]
+    Device(String),
+    #[error("{0}")]
+    Validation(String),
+    #[error("{0}")]
+    Timeout(String),
+    #[error("{0}")]
+    Unknown(String),
 }
 
 impl HWCoreError {
     pub fn message(msg: impl Into<String>) -> Self {
-        Self::Message(msg.into())
+        Self::Unknown(msg.into())
+    }
+
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Ble(_) => "BLE",
+            Self::Workflow(_) => "WORKFLOW",
+            Self::Device(_) => "DEVICE",
+            Self::Validation(_) => "VALIDATION",
+            Self::Timeout(_) => "TIMEOUT",
+            Self::Unknown(_) => "UNKNOWN",
+        }
+    }
+
+    pub fn detail(&self) -> &str {
+        match self {
+            Self::Ble(msg)
+            | Self::Workflow(msg)
+            | Self::Device(msg)
+            | Self::Validation(msg)
+            | Self::Timeout(msg)
+            | Self::Unknown(msg) => msg,
+        }
     }
 }
 
@@ -26,24 +58,72 @@ impl From<String> for HWCoreError {
 
 impl From<ble_transport::BleError> for HWCoreError {
     fn from(error: ble_transport::BleError) -> Self {
-        HWCoreError::message(error.to_string())
+        HWCoreError::Ble(error.to_string())
     }
 }
 
 impl From<trezor_connect::thp::BackendError> for HWCoreError {
     fn from(error: trezor_connect::thp::BackendError) -> Self {
-        HWCoreError::message(error.to_string())
+        use trezor_connect::thp::BackendError;
+
+        match error {
+            BackendError::Device(message) => HWCoreError::Device(message),
+            BackendError::Transport(message) => {
+                if message.to_lowercase().contains("timeout") {
+                    HWCoreError::Timeout(message)
+                } else {
+                    HWCoreError::Workflow(message)
+                }
+            }
+            BackendError::UnsupportedPairingMethod => {
+                HWCoreError::Validation("unsupported pairing method".to_string())
+            }
+        }
     }
 }
 
 impl From<trezor_connect::thp::ThpWorkflowError> for HWCoreError {
     fn from(error: trezor_connect::thp::ThpWorkflowError) -> Self {
-        HWCoreError::message(error.to_string())
+        use trezor_connect::thp::{BackendError, ThpWorkflowError};
+
+        match error {
+            ThpWorkflowError::Backend(BackendError::Device(message)) => {
+                HWCoreError::Device(message)
+            }
+            ThpWorkflowError::Backend(BackendError::Transport(message)) => {
+                if message.to_lowercase().contains("timeout") {
+                    HWCoreError::Timeout(message)
+                } else {
+                    HWCoreError::Workflow(message)
+                }
+            }
+            ThpWorkflowError::Backend(BackendError::UnsupportedPairingMethod) => {
+                HWCoreError::Validation("unsupported pairing method".to_string())
+            }
+            ThpWorkflowError::InvalidPhase
+            | ThpWorkflowError::MissingHandshake
+            | ThpWorkflowError::MissingHandshakeCredentials
+            | ThpWorkflowError::AlreadyPaired
+            | ThpWorkflowError::NonceMismatch
+            | ThpWorkflowError::NoCommonPairingMethod
+            | ThpWorkflowError::PairingAborted
+            | ThpWorkflowError::PairingInteractionRequired
+            | ThpWorkflowError::PairingController(_) => HWCoreError::Workflow(error.to_string()),
+            ThpWorkflowError::Storage(message) => HWCoreError::Workflow(message.to_string()),
+        }
     }
 }
 
 impl From<hw_wallet::WalletError> for HWCoreError {
     fn from(error: hw_wallet::WalletError) -> Self {
-        HWCoreError::message(error.to_string())
+        use hw_wallet::error::WalletErrorKind;
+
+        match error.kind() {
+            WalletErrorKind::Ble => HWCoreError::Ble(error.to_string()),
+            WalletErrorKind::Workflow => HWCoreError::Workflow(error.to_string()),
+            WalletErrorKind::Device => HWCoreError::Device(error.to_string()),
+            WalletErrorKind::Validation => HWCoreError::Validation(error.to_string()),
+            WalletErrorKind::Timeout => HWCoreError::Timeout(error.to_string()),
+        }
     }
 }
