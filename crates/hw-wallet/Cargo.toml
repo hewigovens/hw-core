@@ -4,16 +4,20 @@ version.workspace = true
 edition.workspace = true
 description = "Shared wallet orchestration utilities for CLI and FFI"
 license.workspace = true
+
 [dependencies]
-ble-transport = { path = "../ble-transport", features = ["backend-btleplug", "trezor-safe7"] }
+ble-transport = { workspace = true, features = [
+    "backend-btleplug",
+    "trezor-safe7",
+] }
 hex = { workspace = true }
-hw-chain = { path = "../hw-chain" }
+hw-chain = { workspace = true }
 k256 = { version = "0.13", features = ["ecdsa"] }
-rlp = "0.5"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+rlp = "0.6.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
 sha3 = "0.10"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
-trezor-connect = { path = "../trezor-connect", features = ["ble"] }
+trezor-connect = { workspace = true, features = ["ble"] }
 tracing = { workspace = true }

@@ -2,11 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 use camino::Utf8PathBuf;
-use cargo_metadata::MetadataCommand;
 use clap::Parser;
-use uniffi_bindgen::bindings::{KotlinBindingGenerator, SwiftBindingGenerator};
-use uniffi_bindgen::cargo_metadata::CrateConfigSupplier;
-use uniffi_bindgen::library_mode;
+use uniffi_bindgen::bindings::{self, GenerateOptions, TargetLanguage};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -50,31 +47,26 @@ fn main() -> Result<()> {
     let swift_out = to_utf8_path(args.swift_out, "Swift output directory")?;
     let kotlin_out = to_utf8_path(args.kotlin_out, "Kotlin output directory")?;
 
-    let metadata = MetadataCommand::new()
-        .exec()
-        .context("running cargo metadata")?;
-    let config_supplier = CrateConfigSupplier::from(metadata);
-
-    library_mode::generate_bindings(
-        lib_path.as_ref(),
-        None,
-        &SwiftBindingGenerator,
-        &config_supplier,
-        None,
-        swift_out.as_ref(),
-        false,
-    )
+    bindings::generate(GenerateOptions {
+        languages: vec![TargetLanguage::Swift],
+        source: lib_path.clone(),
+        out_dir: swift_out,
+        config_override: None,
+        format: false,
+        crate_filter: None,
+        metadata_no_deps: false,
+    })
     .context("generating Swift bindings")?;
 
-    library_mode::generate_bindings(
-        lib_path.as_ref(),
-        None,
-        &KotlinBindingGenerator,
-        &config_supplier,
-        None,
-        kotlin_out.as_ref(),
-        false,
-    )
+    bindings::generate(GenerateOptions {
+        languages: vec![TargetLanguage::Kotlin],
+        source: lib_path,
+        out_dir: kotlin_out,
+        config_override: None,
+        format: false,
+        crate_filter: None,
+        metadata_no_deps: false,
+    })
     .context("generating Kotlin bindings")?;
 
     Ok(())

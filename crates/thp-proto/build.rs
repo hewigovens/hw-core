@@ -1,6 +1,8 @@
 fn main() {
     let protoc = protoc_bin_vendored::protoc_bin_path().expect("protoc not found");
-    std::env::set_var("PROTOC", protoc);
+    unsafe {
+        std::env::set_var("PROTOC", protoc);
+    }
 
     let mut config = prost_build::Config::new();
     config.btree_map(["."]);

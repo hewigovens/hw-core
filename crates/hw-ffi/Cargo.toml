@@ -11,7 +11,6 @@ default = []
 bindings-cli = [
     "dep:anyhow",
     "dep:camino",
-    "dep:cargo_metadata",
     "dep:clap",
     "dep:uniffi_bindgen",
 ]
@@ -22,16 +21,20 @@ path = "bin/generate_bindings.rs"
 required-features = ["bindings-cli"]
 
 [dependencies]
-ble-transport = { path = "../ble-transport", features = ["backend-btleplug", "trezor-safe7"] }
-hw-wallet = { path = "../hw-wallet" }
+ble-transport = { workspace = true, features = [
+    "backend-btleplug",
+    "trezor-safe7",
+] }
+hw-wallet = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
-trezor-connect = { path = "../trezor-connect", features = ["ble"] }
-uniffi = { version = "0.30", features = ["tokio"] }
+trezor-connect = { workspace = true, features = ["ble"] }
+uniffi = { version = "0.31.0", features = ["tokio"] }
 uuid = { workspace = true }
 anyhow = { workspace = true, optional = true }
-clap = { version = "4.5", features = ["derive"], optional = true }
+clap = { workspace = true, optional = true }
 camino = { version = "1", optional = true }
-cargo_metadata = { version = "0.19", optional = true }
-uniffi_bindgen = { version = "0.30", features = ["cargo-metadata"], optional = true }
+uniffi_bindgen = { version = "0.31.0", features = [
+    "cargo-metadata",
+], optional = true }

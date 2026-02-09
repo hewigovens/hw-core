@@ -1,14 +1,14 @@
 [package]
 name = "thp-proto"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "Generated Trezor Host Protocol protobuf messages"
 license.workspace = true
 [dependencies]
 prost = { workspace = true }
 
 [build-dependencies]
-prost-build = "0.12"
+prost-build = "0.14.3"
 protoc-bin-vendored = "3"
 
 [features]

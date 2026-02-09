@@ -1,7 +1,7 @@
 [package]
 name = "thp-core"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "Core host-side state machine for the Trezor Host Protocol"
 license.workspace = true
 [dependencies]
@@ -11,9 +11,9 @@ parking_lot = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time", "sync"] }
 tracing = { workspace = true }
-thp-codec = { path = "../thp-codec" }
-thp-crypto = { path = "../thp-crypto" }
-snow = "0.9"
+thp-codec = { workspace = true }
+thp-crypto = { workspace = true }
+snow = "0.10.0"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
