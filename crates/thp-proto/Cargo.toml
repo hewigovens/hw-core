@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "Generated Trezor Host Protocol protobuf messages"
 license.workspace = true
+repository.workspace = true
 [dependencies]
 prost = { workspace = true }
 

@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "Rust port of trezor-connect based on THP"
 license.workspace = true
+repository.workspace = true
 [features]
 default = []
 ble = [

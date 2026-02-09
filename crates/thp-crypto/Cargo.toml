@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "Cryptographic primitives for the Trezor Host Protocol (Noise XX over BLE/USB)"
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 aes-gcm = { workspace = true }

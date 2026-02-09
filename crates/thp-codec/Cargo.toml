@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "THP transport framing utilities (length-prefix, chunking, CRC)"
 license.workspace = true
+repository.workspace = true
 [dependencies]
 crc32fast = { workspace = true }
 thiserror = { workspace = true }

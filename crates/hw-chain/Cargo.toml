@@ -4,3 +4,4 @@ version.workspace = true
 edition.workspace = true
 description = "Shared chain models/configuration for wallet and transport layers"
 license.workspace = true
+repository.workspace = true

@@ -17,6 +17,7 @@ resolver = "2"
 edition = "2024"
 license = "GPL-3.0-only"
 version = "0.1.0"
+repository = "https://github.com/hewigovens/hw-core"
 
 [workspace.lints]
 rust.unused_imports = "warn"
