@@ -34,14 +34,14 @@ jobs:
       - name: Tests
         run: cargo test --workspace
 
-  mobile-ci:
+  mobile-android-ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Install Rust with mobile targets
+      - name: Install Rust with Android target
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,aarch64-apple-ios
+          targets: aarch64-linux-android
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
@@ -75,6 +75,17 @@ jobs:
           restore-keys: |
             mobile-
       - name: cargo check
-        run: cargo check -p hw-ffi --target aarch64-linux-android --target aarch64-apple-ios
+        run: cargo check -p hw-ffi --target aarch64-linux-android
       - name: Generate Swift and Kotlin bindings
         run: just bindings
+
+  mobile-ios-ci:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust with iOS target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - name: cargo check (iOS)
+        run: cargo check -p hw-ffi --target aarch64-apple-ios
