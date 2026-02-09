@@ -1,8 +1,8 @@
 [package]
 name = "ble-transport"
 version.workspace = true
-edition = "2021"
-description = "BLE transport primitives for hardware wallet SDKs"
+edition.workspace = true
+description = "BLE transport primitives for hardware wallet interaction"
 license.workspace = true
 [features]
 default = ["backend-btleplug"]

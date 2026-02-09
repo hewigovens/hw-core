@@ -49,10 +49,10 @@ impl BleManager {
         let peripherals = self.adapter.peripherals().await?;
         let mut devices = Vec::new();
         for peripheral in peripherals {
-            if let Some(info) = fetch_device_info(&peripheral).await? {
-                if services.is_empty() || info.services.iter().any(|uuid| services.contains(uuid)) {
-                    devices.push(DiscoveredDevice { info, peripheral });
-                }
+            if let Some(info) = fetch_device_info(&peripheral).await?
+                && (services.is_empty() || info.services.iter().any(|uuid| services.contains(uuid)))
+            {
+                devices.push(DiscoveredDevice { info, peripheral });
             }
         }
         self.adapter.stop_scan().await?;
@@ -207,17 +207,17 @@ async fn handle_central_event(
 ) -> BleResult<()> {
     match event {
         CentralEvent::DeviceDiscovered(id) => {
-            if let Ok(peripheral) = adapter.peripheral(&id).await {
-                if let Some(info) = fetch_device_info(&peripheral).await? {
-                    let _ = sender.send(ScanEvent::DeviceDiscovered(info)).await;
-                }
+            if let Ok(peripheral) = adapter.peripheral(&id).await
+                && let Some(info) = fetch_device_info(&peripheral).await?
+            {
+                let _ = sender.send(ScanEvent::DeviceDiscovered(info)).await;
             }
         }
         CentralEvent::DeviceUpdated(id) => {
-            if let Ok(peripheral) = adapter.peripheral(&id).await {
-                if let Some(info) = fetch_device_info(&peripheral).await? {
-                    let _ = sender.send(ScanEvent::DeviceUpdated(info)).await;
-                }
+            if let Ok(peripheral) = adapter.peripheral(&id).await
+                && let Some(info) = fetch_device_info(&peripheral).await?
+            {
+                let _ = sender.send(ScanEvent::DeviceUpdated(info)).await;
             }
         }
         CentralEvent::DeviceConnected(id) => {

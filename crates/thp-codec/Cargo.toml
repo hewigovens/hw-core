@@ -1,7 +1,7 @@
 [package]
 name = "thp-codec"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "THP transport framing utilities (length-prefix, chunking, CRC)"
 license.workspace = true
 [dependencies]

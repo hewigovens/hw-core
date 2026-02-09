@@ -321,13 +321,13 @@ pub fn decode_frame(data: &[u8], expected_channel: Option<u16>) -> Result<Decode
 
     let raw_magic = data[0];
     let channel = u16::from_be_bytes([data[1], data[2]]);
-    if let Some(expected) = expected_channel {
-        if channel != expected {
-            return Err(WireError::UnexpectedChannel {
-                expected,
-                actual: channel,
-            });
-        }
+    if let Some(expected) = expected_channel
+        && channel != expected
+    {
+        return Err(WireError::UnexpectedChannel {
+            expected,
+            actual: channel,
+        });
     }
     let length = u16::from_be_bytes([data[3], data[4]]) as usize;
     if length < CRC_LENGTH {

@@ -1,9 +1,10 @@
 [package]
 name = "thp-crypto"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "Cryptographic primitives for the Trezor Host Protocol (Noise XX over BLE/USB)"
 license.workspace = true
+
 [dependencies]
 aes-gcm = { workspace = true }
 hkdf = "0.12"

@@ -1,13 +1,13 @@
 use std::{
     sync::{
-        atomic::{AtomicU32, Ordering},
         Arc,
+        atomic::{AtomicU32, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use snow::Builder as NoiseBuilder;
-use thp_codec::{encode_frame, ThpFrame, ThpFrameDecoder};
+use thp_codec::{ThpFrame, ThpFrameDecoder, encode_frame};
 use tokio::{sync::Mutex, time};
 use tracing::debug;
 
@@ -66,7 +66,7 @@ impl ThpSession {
         let builder = NoiseBuilder::new(params);
         let host_keys = builder.generate_keypair()?;
         let mut noise = builder
-            .local_private_key(&host_keys.private)
+            .local_private_key(&host_keys.private)?
             .build_initiator()?;
 
         let mtu = link.mtu();
@@ -97,10 +97,10 @@ impl ThpSession {
             .map(|k| k.to_vec())
             .ok_or(ThpError::MissingRemoteStatic)?;
 
-        if let Some(trusted) = trust_store.get(&device_id).await.map_err(ThpError::from)? {
-            if trusted.peer_static_key != remote_static {
-                return Err(ThpError::PeerStaticMismatch);
-            }
+        if let Some(trusted) = trust_store.get(&device_id).await.map_err(ThpError::from)?
+            && trusted.peer_static_key != remote_static
+        {
+            return Err(ThpError::PeerStaticMismatch);
         }
 
         // Message 3 (handshake completion)
@@ -278,6 +278,7 @@ mod tests {
         let device_keys = builder.generate_keypair().unwrap();
         let mut noise = builder
             .local_private_key(&device_keys.private)
+            .unwrap()
             .build_responder()
             .unwrap();
         let mut decoder = ThpFrameDecoder::new();

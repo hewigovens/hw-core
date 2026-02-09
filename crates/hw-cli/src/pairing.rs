@@ -87,10 +87,11 @@ fn parse_pairing_method_input(
     input: &str,
     available: &[ThpPairingMethod],
 ) -> Option<ThpPairingMethod> {
-    if let Ok(number) = input.parse::<usize>() {
-        if number > 0 && number <= available.len() {
-            return Some(available[number - 1]);
-        }
+    if let Ok(number) = input.parse::<usize>()
+        && number > 0
+        && number <= available.len()
+    {
+        return Some(available[number - 1]);
     }
 
     let normalized = input.to_ascii_lowercase();

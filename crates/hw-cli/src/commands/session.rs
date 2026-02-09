@@ -253,15 +253,15 @@ where
             let inferred = infer_chain_from_path(&path_indices);
             let explicit = chain;
             let chain = explicit.or(inferred).unwrap_or(Chain::Ethereum);
-            if let (Some(explicit), Some(inferred)) = (explicit, inferred) {
-                if explicit != inferred {
-                    bail!(
-                        "chain/path mismatch: --chain {:?} conflicts with inferred {:?} from path '{}'",
-                        explicit,
-                        inferred,
-                        path
-                    );
-                }
+            if let (Some(explicit), Some(inferred)) = (explicit, inferred)
+                && explicit != inferred
+            {
+                bail!(
+                    "chain/path mismatch: --chain {:?} conflicts with inferred {:?} from path '{}'",
+                    explicit,
+                    inferred,
+                    path
+                );
             }
             (path, chain)
         }

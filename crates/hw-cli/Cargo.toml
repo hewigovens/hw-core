@@ -1,18 +1,22 @@
 [package]
 name = "hw-cli"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "Interactive CLI for Trezor Safe 7 workflows over BLE"
 license.workspace = true
+
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-ble-transport = { path = "../ble-transport", features = ["backend-btleplug", "trezor-safe7"] }
-clap = { version = "4.5", features = ["derive"] }
+ble-transport = { workspace = true, features = [
+    "backend-btleplug",
+    "trezor-safe7",
+] }
+clap = { workspace = true }
 hex = { workspace = true }
-hw-wallet = { path = "../hw-wallet" }
+hw-wallet = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-trezor-connect = { path = "../trezor-connect", features = ["ble"] }
+trezor-connect = { workspace = true, features = ["ble"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 whoami = "2.1.0"
