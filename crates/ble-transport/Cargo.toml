@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "BLE transport primitives for hardware wallet interaction"
 license.workspace = true
+repository.workspace = true
 [features]
 default = ["backend-btleplug"]
 backend-btleplug = ["dep:btleplug"]

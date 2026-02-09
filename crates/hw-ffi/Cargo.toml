@@ -2,7 +2,9 @@
 name = "hw-ffi"
 version.workspace = true
 edition.workspace = true
+description = "UniFFI bindings for hw-core (Swift/Kotlin)"
 license.workspace = true
+repository.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 

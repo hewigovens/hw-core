@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "Shared wallet orchestration utilities for CLI and FFI"
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 ble-transport = { workspace = true, features = [
