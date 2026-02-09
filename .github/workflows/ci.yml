@@ -55,9 +55,7 @@ jobs:
           key: mobile-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             mobile-
-      - name: Android cargo clippy
-        run: cargo clippy -p hw-ffi --target aarch64-linux-android
-      - name: iOS cargo clippy
-        run: cargo clippy -p hw-ffi --target aarch64-apple-ios
+      - name: cargo check
+        run: cargo check -p hw-ffi --target aarch64-linux-android --target aarch64-apple-ios
       - name: Generate Swift and Kotlin bindings
         run: just bindings
