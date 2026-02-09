@@ -15,10 +15,11 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - uses: extractions/setup-just@v3
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev pkg-config just
+          sudo apt-get install -y libdbus-1-dev pkg-config
       - name: Cache cargo registry
         uses: actions/cache@v5
         with:
@@ -34,17 +35,37 @@ jobs:
       - name: Tests
         run: cargo test --workspace
 
-  mobile-ci:
+  android-ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Install Rust with mobile targets
+      - name: Install Rust with Android target
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,aarch64-apple-ios
+          targets: aarch64-linux-android
+      - uses: extractions/setup-just@v3
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android NDK
+        run: sdkmanager "ndk;26.3.11579264"
+      - name: Configure Android toolchain env
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          NDK_ROOT="${SDK_ROOT}/ndk/26.3.11579264"
+          echo "ANDROID_NDK_HOME=${NDK_ROOT}" >> "$GITHUB_ENV"
+          echo "CC_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" >> "$GITHUB_ENV"
+          echo "CXX_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" >> "$GITHUB_ENV"
       - name: Install build dependencies
         run: |
-          sudo apt-get install -y libdbus-1-dev pkg-config just
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
       - name: Cache cargo registry
         uses: actions/cache@v5
         with:
@@ -56,6 +77,19 @@ jobs:
           restore-keys: |
             mobile-
       - name: cargo check
-        run: cargo check -p hw-ffi --target aarch64-linux-android --target aarch64-apple-ios
+        run: cargo check -p hw-ffi --target aarch64-linux-android
+
+
+  ios-ci:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust with iOS target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: extractions/setup-just@v3
+      - name: cargo check (iOS)
+        run: cargo check -p hw-ffi --target aarch64-apple-ios
       - name: Generate Swift and Kotlin bindings
         run: just bindings
