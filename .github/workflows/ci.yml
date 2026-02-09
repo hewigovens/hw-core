@@ -34,7 +34,7 @@ jobs:
       - name: Tests
         run: cargo test --workspace
 
-  mobile-android-ci:
+  android-ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -51,15 +51,15 @@ jobs:
         uses: android-actions/setup-android@v3
       - name: Install Android NDK
         run: sdkmanager "ndk;26.3.11579264"
-      - name: Configure Android toolchain env
-        run: |
-          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          NDK_ROOT="${SDK_ROOT}/ndk/26.3.11579264"
-          echo "ANDROID_NDK_HOME=${NDK_ROOT}" >> "$GITHUB_ENV"
-          echo "CC_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" >> "$GITHUB_ENV"
-          echo "CXX_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++" >> "$GITHUB_ENV"
-          echo "AR_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" >> "$GITHUB_ENV"
+      # - name: Configure Android toolchain env
+      #   run: |
+      #     SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+      #     NDK_ROOT="${SDK_ROOT}/ndk/26.3.11579264"
+      #     echo "ANDROID_NDK_HOME=${NDK_ROOT}" >> "$GITHUB_ENV"
+      #     echo "CC_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" >> "$GITHUB_ENV"
+      #     echo "CXX_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++" >> "$GITHUB_ENV"
+      #     echo "AR_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" >> "$GITHUB_ENV"
+      #     echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" >> "$GITHUB_ENV"
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -76,10 +76,9 @@ jobs:
             mobile-
       - name: cargo check
         run: cargo check -p hw-ffi --target aarch64-linux-android
-      - name: Generate Swift and Kotlin bindings
-        run: just bindings
 
-  mobile-ios-ci:
+
+  ios-ci:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
@@ -89,3 +88,5 @@ jobs:
           targets: aarch64-apple-ios
       - name: cargo check (iOS)
         run: cargo check -p hw-ffi --target aarch64-apple-ios
+      - name: Generate Swift and Kotlin bindings
+        run: just bindings
