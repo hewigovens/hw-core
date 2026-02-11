@@ -29,7 +29,7 @@ Ship a production-ready iOS app that can:
 2. FFI boundary:
    - `hw-ffi` exposes stable async API via UniFFI
 3. iOS app (Swift):
-   - `CoreWalletKit` wrapper around generated UniFFI Swift bindings
+   - `HWCoreKit` wrapper around generated UniFFI Swift bindings
    - Feature modules: `Pairing`, `Address`, `Signing`
    - UI state machine driven by FFI events/results
 
@@ -50,19 +50,19 @@ Missing for iOS V1:
 
 ## Milestones
 ## M1: Expand Rust FFI Surface
-- [ ] Add `pairing_start/pairing_submit_code/pairing_confirm_connection` methods
-- [ ] Add `get_address` method (+ options: show on device, include public key, chunkify)
-- [ ] Add `sign_eth_tx` method (typed input model, no raw JSON in Swift)
-- [ ] Add storage configuration in FFI (`storage_path` or `app_group`-safe path)
-- [ ] Add structured FFI errors (`Ble`, `Workflow`, `Device`, `Validation`, `Timeout`)
-- [ ] Add FFI integration tests for end-to-end state transitions
+- [x] Add `pairing_start/pairing_submit_code/pairing_confirm_connection` methods
+- [x] Add `get_address` method (+ options: show on device, include public key, chunkify)
+- [x] Add `sign_eth_tx` method (typed input model, no raw JSON in Swift)
+- [x] Add storage configuration in FFI (`storage_path` or `app_group`-safe path)
+- [x] Add structured FFI errors (`Ble`, `Workflow`, `Device`, `Validation`, `Timeout`)
+- [x] Add FFI integration tests for end-to-end state transitions
 
 ## M2: iOS Core Integration
-- [ ] Add generated Swift bindings to iOS workspace
-- [ ] Build `CoreWalletKit` thin wrapper with async Swift API
-- [ ] Add cancellation and timeout wrappers around long-running calls
-- [ ] Map Rust errors to user-facing Swift domain errors
-- [ ] Add deterministic logging hooks (redacted)
+- [x] Add generated Swift bindings to iOS workspace
+- [x] Build `HWCoreKit` thin wrapper with async Swift API
+- [x] Add cancellation and timeout wrappers around long-running calls
+- [x] Map Rust errors to user-facing Swift domain errors
+- [x] Add deterministic logging hooks (redacted)
 
 ## M3: Pairing + Session UX
 - [ ] Device list and connect screen
@@ -97,7 +97,7 @@ Missing for iOS V1:
 - `session.disconnect() async`
 
 ### Async UX Pattern (SwiftUI/macOS)
-- Expose an `AsyncStream<WalletEvent>` from `CoreWalletKit` so UI can react to:
+- Expose an `AsyncStream<WalletEvent>` from `HWCoreKit` so UI can react to:
   - pairing prompts
   - button-request/device-confirm states
   - progress transitions
@@ -115,7 +115,8 @@ Missing for iOS V1:
 
 ## Task Tracking
 ### Immediate next tasks
-- [ ] Implement M1 FFI methods for pairing/address/sign
-- [ ] Add FFI test for “paired handshake requires connection confirmation”
-- [ ] Add iOS wrapper package scaffold (`CoreWalletKit`)
+- [x] Implement M1 FFI methods for pairing/address/sign
+- [x] Add FFI test for “paired handshake requires connection confirmation”
+- [x] Add iOS wrapper package scaffold (`HWCoreKit`)
+- [x] Add sample app scaffold using `HWCoreKit` API
 - [ ] Wire first happy path: scan -> pair -> address

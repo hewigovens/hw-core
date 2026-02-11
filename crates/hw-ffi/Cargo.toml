@@ -23,6 +23,7 @@ path = "bin/generate_bindings.rs"
 required-features = ["bindings-cli"]
 
 [dependencies]
+async-trait = { workspace = true }
 ble-transport = { workspace = true, features = [
     "backend-btleplug",
     "trezor-safe7",
