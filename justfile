@@ -31,6 +31,11 @@ bindings:
     cargo build -p hw-ffi
     mkdir -p target/bindings/swift target/bindings/kotlin
     cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
+    ./apple/HWCoreKit/Scripts/sync-bindings.sh
+
+hwcorekit-sample:
+    just bindings
+    swift run --package-path apple/HWCoreKitSampleApp
 
 scan-demo:
     cargo run -p ble-transport --features trezor-safe7,backend-btleplug --example scan_trezor

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>HWCoreKitSampleApp</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.hwcore.sample</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>HWCoreKitSampleApp uses Bluetooth to discover and communicate with your hardware wallet.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>HWCoreKitSampleApp uses Bluetooth to connect to hardware wallet peripherals.</string>
+</dict>
+</plist>

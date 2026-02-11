@@ -1,1 +1,6 @@
 target/
+apple/HWCoreKit/.build/
+apple/HWCoreKitSampleApp/.build/
+apple/HWCoreKit/Sources/HWCoreKitBindings/hw_ffi.swift
+apple/HWCoreKit/Sources/hw_ffiFFI/hw_ffiFFI.h
+apple/HWCoreKit/Sources/hw_ffiFFI/module.modulemap

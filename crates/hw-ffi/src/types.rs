@@ -1,4 +1,5 @@
 use ble_transport::DeviceInfo;
+use trezor_connect::thp::Chain;
 use trezor_connect::thp::Phase;
 use trezor_connect::thp::state::{HandshakeCache, ThpState};
 use trezor_connect::thp::types::{HostConfig, KnownCredential, PairingMethod};
@@ -28,6 +29,14 @@ pub enum HWPhase {
     Handshake,
     Pairing,
     Paired,
+}
+
+pub type HWChain = Chain;
+
+#[uniffi::remote(Enum)]
+pub enum HWChain {
+    Ethereum,
+    Bitcoin,
 }
 
 pub type HWKnownCredential = KnownCredential;
@@ -105,6 +114,74 @@ pub struct HWWorkflowEvent {
     pub kind: HWWorkflowEventKind,
     pub code: String,
     pub message: String,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HWPairingPrompt {
+    pub available_methods: Vec<HWPairingMethod>,
+    pub selected_method: Option<HWPairingMethod>,
+    pub requires_connection_confirmation: bool,
+    pub message: String,
+}
+
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
+pub enum HWPairingProgressKind {
+    AwaitingCode,
+    AwaitingConnectionConfirmation,
+    Completed,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HWPairingProgress {
+    pub kind: HWPairingProgressKind,
+    pub message: String,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HWGetAddressRequest {
+    pub chain: HWChain,
+    pub path: String,
+    pub show_on_device: bool,
+    pub include_public_key: bool,
+    pub chunkify: bool,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HWGetAddressResult {
+    pub chain: HWChain,
+    pub address: String,
+    pub mac: Option<Vec<u8>>,
+    pub public_key: Option<String>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HWEthAccessListEntry {
+    pub address: String,
+    pub storage_keys: Vec<String>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HWSignEthTxRequest {
+    pub path: String,
+    pub to: String,
+    pub value: String,
+    pub nonce: String,
+    pub gas_limit: String,
+    pub chain_id: u64,
+    pub data: String,
+    pub max_fee_per_gas: String,
+    pub max_priority_fee: String,
+    pub access_list: Vec<HWEthAccessListEntry>,
+    pub chunkify: bool,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HWSignEthTxResult {
+    pub v: u32,
+    pub r: Vec<u8>,
+    pub s: Vec<u8>,
+    pub tx_hash: Option<Vec<u8>>,
+    pub recovered_address: Option<String>,
 }
 
 #[uniffi::export]
