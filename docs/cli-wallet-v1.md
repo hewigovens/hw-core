@@ -152,9 +152,9 @@ Exit criteria:
 - `hw-cli scan`
 - `hw-cli pair --pairing-method ble --timeout-secs 60 --thp-timeout-secs 60`
 - `hw-cli pair --interactive` (session mode)
-- `hw-cli address --chain eth --include-public-key`
+- `hw-cli address --chain eth --include-public-key` (auto-runs pairing prompt if device is not paired)
 - `hw-cli address --path "m/44'/60'/0'/0/0"` (chain inferred/defaulted from path)
-- `hw-cli sign eth --path "m/44'/60'/0'/0/0" --tx ./tx.json`
+- `hw-cli sign eth --path "m/44'/60'/0'/0/0" --tx ./tx.json` (auto-runs pairing prompt if device is not paired)
 - `just cli-sign-eth` (quick signing smoke helper with inline EIP-1559 JSON)
 - Debug mode: add `-v`/`-vv` before command, e.g. `hw-cli -vv pair --pairing-method ble --timeout-secs 60`
 

@@ -1,5 +1,5 @@
 import Foundation
-import HWCoreKitBindings
+import HWCoreFFI
 
 public final class HWCoreKit: @unchecked Sendable {
     private let manager: BleManagerHandle
@@ -60,7 +60,7 @@ public final class HWCoreKit: @unchecked Sendable {
         }
     }
 
-    private func makeHostConfig() -> HwHostConfig {
+    private func makeHostConfig() -> HostConfig {
         var hostConfig = hostConfigNew(hostName: config.hostName, appName: config.appName)
         hostConfig.pairingMethods = config.pairingMethods
         return hostConfig

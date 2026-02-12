@@ -1,14 +1,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use ble_transport::BleManager;
-use hw_wallet::ble::{
-    backend_from_session, connect_trezor_device, prepare_ready_workflow, scan_profile_until_match,
-    trezor_profile, workflow_with_storage, ReadyWorkflowOptions,
-};
-use hw_wallet::chain::{resolve_derivation_path, Chain, ResolvedDerivationPath};
 use hw_wallet::WalletError;
+use hw_wallet::ble::{
+    SessionBootstrapOptions, SessionPhase, advance_to_ready, backend_from_session,
+    connect_trezor_device, scan_profile_until_match, trezor_profile, workflow_with_storage,
+};
+use hw_wallet::chain::{Chain, ResolvedDerivationPath, resolve_derivation_path};
 use tokio::time::timeout;
 use tracing::{debug, info};
 use trezor_connect::thp::{
@@ -19,6 +19,7 @@ use trezor_connect::thp::{
 use crate::cli::{AddressArgs, DEFAULT_ETH_BIP32_PATH};
 use crate::commands::common::select_device;
 use crate::config::{default_host_name, default_storage_path};
+use crate::pairing::CliPairingController;
 
 pub async fn run(args: AddressArgs) -> Result<()> {
     let resolved = ResolvedAddressTarget::from_args(&args)?;
@@ -108,18 +109,31 @@ pub async fn run(args: AddressArgs) -> Result<()> {
     debug!("address workflow initialized with persisted host state");
 
     println!("Preparing authenticated wallet session...");
-    prepare_ready_workflow(
-        &mut workflow,
-        &ReadyWorkflowOptions {
-            thp_timeout: Duration::from_secs(args.thp_timeout_secs),
-            try_to_unlock: false,
-            passphrase: None,
-            on_device: false,
-            derive_cardano: false,
-        },
-    )
-    .await
-    .context("failed to prepare authenticated wallet session")?;
+    let mut session_ready = false;
+    let options = SessionBootstrapOptions {
+        thp_timeout: Duration::from_secs(args.thp_timeout_secs),
+        try_to_unlock: true,
+        passphrase: None,
+        on_device: false,
+        derive_cardano: false,
+    };
+    loop {
+        let step = advance_to_ready(&mut workflow, &mut session_ready, &options)
+            .await
+            .context("failed to prepare authenticated wallet session")?;
+        match step {
+            SessionPhase::Ready => break,
+            SessionPhase::NeedsPairingCode => {
+                println!("Pairing required. Complete code-entry pairing on this terminal.");
+                let controller = CliPairingController;
+                workflow
+                    .pairing(Some(&controller))
+                    .await
+                    .context("pairing failed during address workflow")?;
+            }
+            other => bail!("address workflow reached unexpected step: {:?}", other),
+        }
+    }
 
     println!("Requesting {:?} address from device...", resolved.chain);
     let response = get_address_with_workflow(
@@ -195,7 +209,7 @@ mod tests {
     use super::*;
 
     use crate::commands::test_support::{
-        canned_eth_address_response, default_test_host_config, MockBackend,
+        MockBackend, canned_eth_address_response, default_test_host_config,
     };
     use hw_wallet::chain::DEFAULT_BTC_BIP32_PATH;
     use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
@@ -254,11 +268,13 @@ mod tests {
         let config = default_test_host_config();
         let mut workflow = ThpWorkflow::new(backend, config);
 
-        prepare_ready_workflow(
+        let mut session_ready = false;
+        let step = advance_to_ready(
             &mut workflow,
-            &ReadyWorkflowOptions {
+            &mut session_ready,
+            &SessionBootstrapOptions {
                 thp_timeout: Duration::from_secs(60),
-                try_to_unlock: false,
+                try_to_unlock: true,
                 passphrase: None,
                 on_device: false,
                 derive_cardano: false,
@@ -266,6 +282,7 @@ mod tests {
         )
         .await
         .unwrap();
+        assert_eq!(step, SessionPhase::Ready);
         let response = get_address_with_workflow(
             &mut workflow,
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0],

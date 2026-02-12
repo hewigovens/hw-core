@@ -6,6 +6,8 @@
     <string>HWCoreKitSampleApp</string>
     <key>CFBundleIdentifier</key>
     <string>com.hwcore.sample</string>
+    <key>LSUIElement</key>
+    <false/>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>HWCoreKitSampleApp uses Bluetooth to discover and communicate with your hardware wallet.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>

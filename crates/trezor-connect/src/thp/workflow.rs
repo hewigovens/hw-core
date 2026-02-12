@@ -270,8 +270,6 @@ where
             return Ok(());
         }
 
-        let controller = controller.ok_or(ThpWorkflowError::PairingInteractionRequired)?;
-
         self.backend
             .pairing_request(super::types::PairingRequest {
                 host_name: self.config.host_name.clone(),
@@ -356,6 +354,9 @@ where
                             selected_method: current_method,
                             nfc_data: None,
                         };
+                        let Some(controller) = controller else {
+                            return Err(ThpWorkflowError::PairingInteractionRequired);
+                        };
                         let decision = controller.on_prompt(prompt).await;
                         let decision = match decision {
                             Ok(v) => v,
@@ -428,6 +429,9 @@ where
                         selected_method: current_method,
                         nfc_data: nfc_data.clone().or(handshake.nfc_data.clone()),
                     };
+                    let Some(controller) = controller else {
+                        return Err(ThpWorkflowError::PairingInteractionRequired);
+                    };
                     let decision = controller
                         .on_prompt(prompt)
                         .await
@@ -488,6 +492,59 @@ where
             }
         }
 
+        self.finalize_pairing_with_credential_request(&handshake)
+            .await
+    }
+
+    pub async fn submit_code_entry_pairing_tag(&mut self, code: String) -> Result<()> {
+        if self.state.phase() != Phase::Pairing {
+            return Err(ThpWorkflowError::InvalidPhase);
+        }
+        if self.state.is_paired() {
+            return Err(ThpWorkflowError::AlreadyPaired);
+        }
+
+        let handshake = self
+            .state
+            .handshake_credentials()
+            .cloned()
+            .ok_or(ThpWorkflowError::MissingHandshakeCredentials)?;
+
+        if self.state.pairing_method() != Some(PairingMethod::CodeEntry) {
+            return Err(ThpWorkflowError::PairingInteractionRequired);
+        }
+        if handshake.handshake_commitment.is_none()
+            || handshake.code_entry_challenge.is_none()
+            || handshake.trezor_cpace_public_key.is_none()
+        {
+            return Err(ThpWorkflowError::PairingInteractionRequired);
+        }
+
+        let request = PairingTagRequest::CodeEntry {
+            code,
+            handshake_hash: handshake.handshake_hash.clone(),
+            commitment: handshake.handshake_commitment.clone(),
+            challenge: handshake.code_entry_challenge.clone(),
+            trezor_cpace_public_key: handshake.trezor_cpace_public_key.clone(),
+        };
+
+        match self.backend.send_pairing_tag(request).await? {
+            super::types::PairingTagResponse::Accepted { .. } => {}
+            super::types::PairingTagResponse::Retry(reason) => {
+                return Err(ThpWorkflowError::Backend(
+                    super::backend::BackendError::Device(reason),
+                ));
+            }
+        }
+
+        self.finalize_pairing_with_credential_request(&handshake)
+            .await
+    }
+
+    async fn finalize_pairing_with_credential_request(
+        &mut self,
+        handshake: &HandshakeCredentials,
+    ) -> Result<()> {
         let credential_resp = self
             .backend
             .credential_request(super::types::CredentialRequest {
@@ -1148,6 +1205,70 @@ mod tests {
             }
             _ => panic!("expected code-entry tag request"),
         }
+    }
+
+    #[tokio::test]
+    async fn code_entry_pairing_without_controller_primes_device_prompt() {
+        let backend = MockBackend::code_entry_flow();
+        let mut workflow = ThpWorkflow::new(
+            backend,
+            HostConfig {
+                pairing_methods: vec![PairingMethod::CodeEntry],
+                known_credentials: vec![],
+                static_key: None,
+                host_name: "host".into(),
+                app_name: "app".into(),
+            },
+        );
+
+        workflow.create_channel().await.unwrap();
+        workflow.handshake(false).await.unwrap();
+        let err = workflow
+            .pairing(None)
+            .await
+            .expect_err("pairing should pause for host interaction");
+        assert!(matches!(err, ThpWorkflowError::PairingInteractionRequired));
+
+        let creds = workflow
+            .state()
+            .handshake_credentials()
+            .expect("handshake creds available");
+        assert!(creds.handshake_commitment.is_some());
+        assert!(creds.code_entry_challenge.is_some());
+        assert!(creds.trezor_cpace_public_key.is_some());
+
+        let (backend, _, _) = workflow.into_parts();
+        assert!(*backend.pairing_requested.lock());
+        assert_eq!(backend.code_entry_challenge_requests.lock().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn code_entry_submit_tag_completes_after_pairing_start() {
+        let backend = MockBackend::code_entry_flow();
+        let mut workflow = ThpWorkflow::new(
+            backend,
+            HostConfig {
+                pairing_methods: vec![PairingMethod::CodeEntry],
+                known_credentials: vec![],
+                static_key: None,
+                host_name: "host".into(),
+                app_name: "app".into(),
+            },
+        );
+
+        workflow.create_channel().await.unwrap();
+        workflow.handshake(false).await.unwrap();
+        workflow
+            .pairing(None)
+            .await
+            .expect_err("pairing should pause for host interaction");
+        workflow
+            .submit_code_entry_pairing_tag("123456".into())
+            .await
+            .expect("submit code completes pairing");
+
+        assert!(workflow.state().is_paired());
+        assert_eq!(workflow.state().phase(), Phase::Paired);
     }
 
     #[tokio::test]

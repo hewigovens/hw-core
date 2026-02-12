@@ -1,4 +1,5 @@
 import Foundation
+import HWCoreFFI
 
 func withTimeout<T: Sendable>(
     seconds: TimeInterval?,
@@ -14,7 +15,7 @@ func withTimeout<T: Sendable>(
         group.addTask { try await block() }
         group.addTask {
             try await Task.sleep(nanoseconds: durationNs)
-            throw HWCoreKitError.timedOut(operation: operation, seconds: seconds)
+            throw HwCoreError.timedOut(operation: operation, seconds: seconds)
         }
 
         let result = try await group.next()!
@@ -23,11 +24,4 @@ func withTimeout<T: Sendable>(
     }
 }
 
-func redacted(_ value: String) -> String {
-    guard value.count > 10 else {
-        return "***"
-    }
-    let prefix = value.prefix(6)
-    let suffix = value.suffix(4)
-    return "\(prefix)...\(suffix)"
-}
+

@@ -1,7 +1,7 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use hw_wallet::bip32::parse_bip32_path;
 use hw_wallet::chain::{
-    infer_chain_from_path as infer_chain_from_path_wallet, Chain, CHAIN_BTC, CHAIN_ETH,
+    CHAIN_BTC, CHAIN_ETH, Chain, infer_chain_from_path as infer_chain_from_path_wallet,
 };
 use hw_wallet::eth::{build_sign_tx_request, parse_tx_json, verify_sign_tx_response};
 use rustyline::completion::{Completer, Pair};
@@ -397,8 +397,8 @@ fn detect_selected_chain(words: &[&str]) -> Option<Chain> {
 mod tests {
     use super::*;
     use crate::commands::test_support::{
-        canned_eth_address_response, canned_eth_sign_response, default_test_host_config,
-        MockBackend,
+        MockBackend, canned_eth_address_response, canned_eth_sign_response,
+        default_test_host_config,
     };
     use hw_wallet::chain::DEFAULT_BTC_BIP32_PATH;
     use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};

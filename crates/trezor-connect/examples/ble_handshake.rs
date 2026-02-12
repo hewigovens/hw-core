@@ -6,11 +6,11 @@
 
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use ble_transport::{BleProfile, BleSession};
 use trezor_connect::ble::BleBackend;
-use trezor_connect::thp::types::{HostConfig, PairingMethod};
 use trezor_connect::thp::ThpWorkflow;
+use trezor_connect::thp::types::{HostConfig, PairingMethod};
 
 #[tokio::main]
 async fn main() -> Result<()> {

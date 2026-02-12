@@ -323,8 +323,8 @@ mod tests {
     use crate::thp::types::KnownCredential;
     use hex::encode as hex_encode;
     use num_traits::ToPrimitive;
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use sha2::Sha512;
 
     fn encode_handshake_payload(credential: Option<&str>) -> Vec<u8> {

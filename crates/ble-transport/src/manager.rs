@@ -7,8 +7,8 @@ use btleplug::api::{
     Central, CentralEvent, CentralState, Manager as _, Peripheral as _, ScanFilter,
 };
 use btleplug::platform::{Adapter, Manager, Peripheral};
-use futures::stream::Stream;
 use futures::StreamExt;
+use futures::stream::Stream;
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;

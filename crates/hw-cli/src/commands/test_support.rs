@@ -10,8 +10,8 @@ use trezor_connect::thp::types::{
     SignTxRequest, SignTxResponse, ThpProperties,
 };
 use trezor_connect::thp::{
-    backend::{BackendError, BackendResult, ThpBackend},
     Chain, HostConfig, PairingMethod,
+    backend::{BackendError, BackendResult, ThpBackend},
 };
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]

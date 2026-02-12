@@ -2,4 +2,4 @@
 
 pub mod frame;
 
-pub use frame::{encode_frame, ThpCodecError, ThpFrame, ThpFrameDecoder};
+pub use frame::{ThpCodecError, ThpFrame, ThpFrameDecoder, encode_frame};
