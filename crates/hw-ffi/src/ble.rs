@@ -1077,15 +1077,15 @@ impl BleWorkflowHandle {
     #[uniffi::method]
     pub async fn pairing_start(&self) -> Result<PairingPrompt, HWCoreError> {
         let mut workflow = self.workflow.lock().await;
-        if workflow.state().phase() == Phase::Pairing && !workflow.state().is_paired() {
-            if let Err(err) = workflow.pairing(None).await {
-                if !matches!(err, ThpWorkflowError::PairingInteractionRequired) {
-                    let ffi_err = HWCoreError::from(err);
-                    drop(workflow);
-                    self.push_error_event(&ffi_err).await;
-                    return Err(ffi_err);
-                }
-            }
+        if workflow.state().phase() == Phase::Pairing
+            && !workflow.state().is_paired()
+            && let Err(err) = workflow.pairing(None).await
+            && !matches!(err, ThpWorkflowError::PairingInteractionRequired)
+        {
+            let ffi_err = HWCoreError::from(err);
+            drop(workflow);
+            self.push_error_event(&ffi_err).await;
+            return Err(ffi_err);
         }
         let prompt = pairing_start_for_state(workflow.state())?;
         drop(workflow);
