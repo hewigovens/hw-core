@@ -20,5 +20,5 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 trezor-connect = { workspace = true, features = ["ble"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
-whoami = "2.1.0"
+whoami = "2.1.1"
 rustyline = "17.0"
