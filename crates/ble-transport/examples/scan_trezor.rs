@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use ble_transport::{BleManager, BleProfile};
 
 #[tokio::main]

@@ -11,22 +11,21 @@ let package = Package(
         .library(name: "HWCoreKit", targets: ["HWCoreKit"]),
     ],
     targets: [
-        .target(
-            name: "hw_ffiFFI",
-            path: "Sources/hw_ffiFFI",
-            publicHeadersPath: "."
+        .systemLibrary(
+            name: "libhwcore",
+            path: "Sources/libhwcore"
         ),
         .target(
-            name: "HWCoreKitBindings",
-            dependencies: ["hw_ffiFFI"],
-            path: "Sources/HWCoreKitBindings",
+            name: "HWCoreFFI",
+            dependencies: ["libhwcore"],
+            path: "Sources/HWCoreFFI",
             linkerSettings: [
                 .unsafeFlags(["-L", "../../target/debug", "-lhw_ffi"]),
             ]
         ),
         .target(
             name: "HWCoreKit",
-            dependencies: ["HWCoreKitBindings"],
+            dependencies: ["HWCoreFFI"],
             path: "Sources/HWCoreKit"
         ),
     ]

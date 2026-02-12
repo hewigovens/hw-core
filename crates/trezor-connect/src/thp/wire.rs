@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use crc32fast::Hasher;
 use thiserror::Error;
 
-use super::proto::{decode_device_properties, ProtoMappingError};
+use super::proto::{ProtoMappingError, decode_device_properties};
 use super::types::ThpProperties;
 
 pub const MAGIC_CREATE_CHANNEL_REQUEST: u8 = 0x40;

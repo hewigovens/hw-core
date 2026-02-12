@@ -7,9 +7,9 @@
 - Session setup (`prepareChannelAndHandshake`)
 - Pairing loop (`startPairing`, `submitPairingCode`, `confirmPairedConnection`)
 - Wallet session creation (`createWalletSession`)
-- Ethereum flows (`getEthereumAddress`, `signEthereumTx`)
+- Chain-agnostic address/sign flows (`getAddress`, `signTx`)
 - Event stream (`events() -> AsyncStream<WalletEvent>`)
-- Typed Swift errors mapped from Rust (`HWCoreKitError`)
+- Rust-native `HwCoreError` surfaced directly in Swift
 
 ## Sync Generated Bindings
 From repo root:

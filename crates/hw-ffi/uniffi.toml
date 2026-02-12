@@ -1,0 +1,4 @@
+[bindings.swift]
+module_name = "HWCoreFFI"
+ffi_module_name = "libhwcore"
+ffi_module_filename = "libhwcore"

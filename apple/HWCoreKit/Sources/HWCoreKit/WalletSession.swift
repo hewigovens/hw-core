@@ -1,5 +1,5 @@
 import Foundation
-import HWCoreKitBindings
+import HWCoreFFI
 
 public final class WalletSession: @unchecked Sendable {
     private let workflow: BleWorkflowHandle
@@ -31,35 +31,56 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
-    public func prepareChannelAndHandshake(
-        tryToUnlock: Bool = false,
-        timeout: TimeInterval? = nil
-    ) async throws -> SessionHandshakeState {
+    public func sessionState(timeout: TimeInterval? = nil) async throws -> SessionState {
         do {
-            return try await withTimeout(seconds: timeout, operation: "prepareChannelAndHandshake") {
-                _ = try await self.workflow.createChannel()
-                try await self.workflow.handshake(tryToUnlock: tryToUnlock)
-                let state = await self.workflow.state()
-
-                switch state.phase {
-                case .paired:
-                    return .ready
-                case .pairing:
-                    let prompt = try await self.workflow.pairingStart()
-                    if prompt.requiresConnectionConfirmation {
-                        return .connectionConfirmationRequired(prompt)
-                    }
-                    return .pairingRequired(prompt)
-                case .handshake:
-                    throw HWCoreKitError.workflow("unexpected handshake phase")
-                }
+            return try await withTimeout(seconds: timeout, operation: "sessionState") {
+                try await self.workflow.sessionState()
             }
         } catch {
             throw mapError(error)
         }
     }
 
-    public func startPairing(timeout: TimeInterval? = nil) async throws -> HwPairingPrompt {
+    public func pairOnly(
+        tryToUnlock: Bool = false,
+        timeout: TimeInterval? = nil
+    ) async throws -> SessionState {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "pairOnly") {
+                try await self.workflow.pairOnly(tryToUnlock: tryToUnlock)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
+    public func connectReady(
+        tryToUnlock: Bool = false,
+        timeout: TimeInterval? = nil
+    ) async throws -> SessionState {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "connectReady") {
+                try await self.workflow.connectReady(tryToUnlock: tryToUnlock)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
+    public func prepareChannelAndHandshake(
+        tryToUnlock: Bool = false,
+        timeout: TimeInterval? = nil
+    ) async throws -> SessionHandshakeState {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "prepareChannelAndHandshake") {
+                try await self.workflow.prepareChannelAndHandshake(tryToUnlock: tryToUnlock)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
+    public func startPairing(timeout: TimeInterval? = nil) async throws -> PairingPrompt {
         do {
             return try await withTimeout(seconds: timeout, operation: "startPairing") {
                 try await self.workflow.pairingStart()
@@ -69,7 +90,7 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
-    public func submitPairingCode(_ code: String, timeout: TimeInterval? = nil) async throws -> HwPairingProgress {
+    public func submitPairingCode(_ code: String, timeout: TimeInterval? = nil) async throws -> PairingProgress {
         do {
             return try await withTimeout(seconds: timeout, operation: "submitPairingCode") {
                 try await self.workflow.pairingSubmitCode(code: code)
@@ -79,7 +100,7 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
-    public func confirmPairedConnection(timeout: TimeInterval? = nil) async throws -> HwPairingProgress {
+    public func confirmPairedConnection(timeout: TimeInterval? = nil) async throws -> PairingProgress {
         do {
             return try await withTimeout(seconds: timeout, operation: "confirmPairedConnection") {
                 try await self.workflow.pairingConfirmConnection()
@@ -109,18 +130,19 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
-    public func getEthereumAddress(
+    public func getAddress(
+        chain: Chain = .ethereum,
         path: String = "m/44'/60'/0'/0/0",
         showOnDevice: Bool = false,
         includePublicKey: Bool = false,
         chunkify: Bool = false,
         timeout: TimeInterval? = nil
-    ) async throws -> EthereumAddressResult {
+    ) async throws -> AddressResult {
         do {
-            let result = try await withTimeout(seconds: timeout, operation: "getEthereumAddress") {
+            return try await withTimeout(seconds: timeout, operation: "getAddress") {
                 try await self.workflow.getAddress(
-                    request: HwGetAddressRequest(
-                        chain: .ethereum,
+                    request: GetAddressRequest(
+                        chain: chain,
                         path: path,
                         showOnDevice: showOnDevice,
                         includePublicKey: includePublicKey,
@@ -128,49 +150,19 @@ public final class WalletSession: @unchecked Sendable {
                     )
                 )
             }
-
-            return EthereumAddressResult(
-                address: result.address,
-                mac: result.mac,
-                publicKey: result.publicKey
-            )
         } catch {
             throw mapError(error)
         }
     }
 
-    public func signEthereumTx(
-        _ request: EthereumSignRequest,
+    public func signTx(
+        _ request: SignTxRequest,
         timeout: TimeInterval? = nil
-    ) async throws -> EthereumSignResult {
+    ) async throws -> SignTxResult {
         do {
-            let ffiRequest = HwSignEthTxRequest(
-                path: request.path,
-                to: request.to,
-                value: request.value,
-                nonce: request.nonce,
-                gasLimit: request.gasLimit,
-                chainId: request.chainId,
-                data: request.data,
-                maxFeePerGas: request.maxFeePerGas,
-                maxPriorityFee: request.maxPriorityFee,
-                accessList: request.accessList.map {
-                    HwEthAccessListEntry(address: $0.address, storageKeys: $0.storageKeys)
-                },
-                chunkify: request.chunkify
-            )
-
-            let result = try await withTimeout(seconds: timeout, operation: "signEthereumTx") {
-                try await self.workflow.signEthTx(request: ffiRequest)
+            return try await withTimeout(seconds: timeout, operation: "signTx") {
+                try await self.workflow.signTx(request: request)
             }
-
-            return EthereumSignResult(
-                v: result.v,
-                r: result.r,
-                s: result.s,
-                txHash: result.txHash,
-                recoveredAddress: result.recoveredAddress
-            )
         } catch {
             throw mapError(error)
         }

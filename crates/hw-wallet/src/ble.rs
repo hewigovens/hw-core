@@ -8,7 +8,7 @@ use tracing::debug;
 use trezor_connect::ble::BleBackend;
 use trezor_connect::thp::storage::ThpStorage;
 use trezor_connect::thp::{
-    BackendError, HostConfig, Phase, ThpBackend, ThpWorkflow, ThpWorkflowError,
+    BackendError, HostConfig, Phase, ThpBackend, ThpState, ThpWorkflow, ThpWorkflowError,
 };
 
 use crate::error::{WalletError, WalletResult};
@@ -76,8 +76,65 @@ pub const CREATE_SESSION_ATTEMPTS: usize = 3;
 pub const RETRY_DELAY: Duration = Duration::from_millis(800);
 const CREATE_CHANNEL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum SessionPhase {
+    NeedsChannel,
+    NeedsHandshake,
+    NeedsPairingCode,
+    NeedsConnectionConfirmation,
+    NeedsSession,
+    Ready,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SessionState {
+    pub phase: SessionPhase,
+    pub can_pair_only: bool,
+    pub can_connect: bool,
+    pub can_get_address: bool,
+    pub can_sign_tx: bool,
+    pub requires_pairing_code: bool,
+    pub prompt_message: Option<String>,
+}
+
+pub fn session_phase(state: &ThpState, session_ready: bool) -> SessionPhase {
+    if session_ready {
+        return SessionPhase::Ready;
+    }
+
+    match state.phase() {
+        Phase::Handshake => {
+            if state.handshake_cache().is_some() {
+                SessionPhase::NeedsHandshake
+            } else {
+                SessionPhase::NeedsChannel
+            }
+        }
+        Phase::Pairing => {
+            if state.is_paired() {
+                SessionPhase::NeedsConnectionConfirmation
+            } else {
+                SessionPhase::NeedsPairingCode
+            }
+        }
+        Phase::Paired => SessionPhase::NeedsSession,
+    }
+}
+
+pub fn session_state(phase: SessionPhase, prompt_message: Option<String>) -> SessionState {
+    SessionState {
+        phase,
+        can_pair_only: !matches!(phase, SessionPhase::Ready),
+        can_connect: !matches!(phase, SessionPhase::Ready),
+        can_get_address: matches!(phase, SessionPhase::Ready),
+        can_sign_tx: matches!(phase, SessionPhase::Ready),
+        requires_pairing_code: matches!(phase, SessionPhase::NeedsPairingCode),
+        prompt_message,
+    }
+}
+
 #[derive(Debug, Clone)]
-pub struct ReadyWorkflowOptions {
+pub struct SessionBootstrapOptions {
     pub thp_timeout: Duration,
     pub try_to_unlock: bool,
     pub passphrase: Option<String>,
@@ -85,7 +142,7 @@ pub struct ReadyWorkflowOptions {
     pub derive_cardano: bool,
 }
 
-impl Default for ReadyWorkflowOptions {
+impl Default for SessionBootstrapOptions {
     fn default() -> Self {
         Self {
             thp_timeout: Duration::from_secs(60),
@@ -102,7 +159,7 @@ pub async fn connect_and_prepare_workflow(
     profile: BleProfile,
     config: HostConfig,
     storage: Option<Arc<dyn ThpStorage>>,
-    options: ReadyWorkflowOptions,
+    options: SessionBootstrapOptions,
 ) -> WalletResult<ThpWorkflow<BleBackend>> {
     let session = connect_trezor_device(device, profile).await?;
     let backend = backend_from_session(session, options.thp_timeout);
@@ -119,22 +176,19 @@ pub async fn connect_and_prepare_workflow(
 
 pub async fn prepare_ready_workflow<B>(
     workflow: &mut ThpWorkflow<B>,
-    options: &ReadyWorkflowOptions,
+    options: &SessionBootstrapOptions,
 ) -> WalletResult<()>
 where
     B: ThpBackend + Send,
 {
-    establish_authenticated_phase(workflow, options.try_to_unlock).await?;
-    create_session_with_retry(
-        workflow,
-        options.passphrase.clone(),
-        options.on_device,
-        options.derive_cardano,
-        CREATE_SESSION_ATTEMPTS,
-        RETRY_DELAY,
-    )
-    .await?;
-    Ok(())
+    let mut session_ready = false;
+    match advance_to_ready(workflow, &mut session_ready, options).await? {
+        SessionPhase::Ready => Ok(()),
+        SessionPhase::NeedsPairingCode => Err(WalletError::Workflow(
+            ThpWorkflowError::PairingInteractionRequired,
+        )),
+        _ => Err(WalletError::Workflow(ThpWorkflowError::InvalidPhase)),
+    }
 }
 
 pub async fn establish_authenticated_phase<B>(
@@ -144,22 +198,83 @@ pub async fn establish_authenticated_phase<B>(
 where
     B: ThpBackend + Send,
 {
-    create_channel_with_retry(workflow, CREATE_CHANNEL_ATTEMPTS, RETRY_DELAY).await?;
-    handshake_with_retry(workflow, try_to_unlock, HANDSHAKE_ATTEMPTS, RETRY_DELAY).await?;
+    match advance_to_paired(workflow, try_to_unlock).await? {
+        SessionPhase::NeedsSession => Ok(()),
+        SessionPhase::NeedsPairingCode => Err(WalletError::Workflow(
+            ThpWorkflowError::PairingInteractionRequired,
+        )),
+        _ => Err(WalletError::Workflow(ThpWorkflowError::InvalidPhase)),
+    }
+}
 
-    match workflow.state().phase() {
-        Phase::Paired => Ok(()),
-        Phase::Pairing => {
-            if workflow.state().is_paired() {
+pub async fn advance_to_paired<B>(
+    workflow: &mut ThpWorkflow<B>,
+    try_to_unlock: bool,
+) -> WalletResult<SessionPhase>
+where
+    B: ThpBackend + Send,
+{
+    loop {
+        match session_phase(workflow.state(), false) {
+            SessionPhase::NeedsChannel => {
+                create_channel_with_retry(workflow, CREATE_CHANNEL_ATTEMPTS, RETRY_DELAY).await?;
+            }
+            SessionPhase::NeedsHandshake => {
+                handshake_with_retry(workflow, try_to_unlock, HANDSHAKE_ATTEMPTS, RETRY_DELAY)
+                    .await?;
+            }
+            SessionPhase::NeedsConnectionConfirmation => {
                 workflow.pairing(None).await.map_err(WalletError::from)?;
-                Ok(())
-            } else {
-                Err(WalletError::Workflow(
-                    ThpWorkflowError::PairingInteractionRequired,
-                ))
+            }
+            SessionPhase::NeedsPairingCode | SessionPhase::NeedsSession => {
+                return Ok(session_phase(workflow.state(), false));
+            }
+            SessionPhase::Ready => unreachable!("session_ready is always false in paired mode"),
+        }
+    }
+}
+
+pub async fn advance_to_ready<B>(
+    workflow: &mut ThpWorkflow<B>,
+    session_ready: &mut bool,
+    options: &SessionBootstrapOptions,
+) -> WalletResult<SessionPhase>
+where
+    B: ThpBackend + Send,
+{
+    loop {
+        match session_phase(workflow.state(), *session_ready) {
+            SessionPhase::NeedsChannel => {
+                create_channel_with_retry(workflow, CREATE_CHANNEL_ATTEMPTS, RETRY_DELAY).await?;
+            }
+            SessionPhase::NeedsHandshake => {
+                handshake_with_retry(
+                    workflow,
+                    options.try_to_unlock,
+                    HANDSHAKE_ATTEMPTS,
+                    RETRY_DELAY,
+                )
+                .await?;
+            }
+            SessionPhase::NeedsConnectionConfirmation => {
+                workflow.pairing(None).await.map_err(WalletError::from)?;
+            }
+            SessionPhase::NeedsSession => {
+                create_session_with_retry(
+                    workflow,
+                    options.passphrase.clone(),
+                    options.on_device,
+                    options.derive_cardano,
+                    CREATE_SESSION_ATTEMPTS,
+                    RETRY_DELAY,
+                )
+                .await?;
+                *session_ready = true;
+            }
+            SessionPhase::NeedsPairingCode | SessionPhase::Ready => {
+                return Ok(session_phase(workflow.state(), *session_ready));
             }
         }
-        _ => Err(WalletError::Workflow(ThpWorkflowError::InvalidPhase)),
     }
 }
 
@@ -361,4 +476,115 @@ fn is_peer_removed_pairing_info(error: &BleError) -> bool {
         .to_string()
         .to_lowercase()
         .contains("peer removed pairing information")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use trezor_connect::thp::PairingMethod;
+    use trezor_connect::thp::state::HandshakeCache;
+
+    #[test]
+    fn session_phase_starts_with_channel_creation() {
+        let state = ThpState::new();
+        assert_eq!(session_phase(&state, false), SessionPhase::NeedsChannel);
+    }
+
+    #[test]
+    fn session_phase_moves_to_handshake_after_channel() {
+        let mut state = ThpState::new();
+        state.set_handshake_cache(HandshakeCache {
+            channel: 1,
+            handshake_hash: vec![0xAA],
+            pairing_methods: vec![PairingMethod::CodeEntry],
+        });
+        assert_eq!(session_phase(&state, false), SessionPhase::NeedsHandshake);
+    }
+
+    #[test]
+    fn session_phase_distinguishes_pairing_code_vs_confirmation() {
+        let mut state = ThpState::new();
+        state.set_phase(Phase::Pairing);
+        state.set_is_paired(false);
+        assert_eq!(session_phase(&state, false), SessionPhase::NeedsPairingCode);
+
+        state.set_is_paired(true);
+        assert_eq!(
+            session_phase(&state, false),
+            SessionPhase::NeedsConnectionConfirmation
+        );
+    }
+
+    #[test]
+    fn session_phase_reports_ready_after_session_creation() {
+        let mut state = ThpState::new();
+        state.set_phase(Phase::Paired);
+        assert_eq!(session_phase(&state, false), SessionPhase::NeedsSession);
+        assert_eq!(session_phase(&state, true), SessionPhase::Ready);
+    }
+
+    #[test]
+    fn session_phase_transition_sequence_progresses_to_ready() {
+        let mut state = ThpState::new();
+        let mut is_session_ready = false;
+
+        assert_eq!(
+            session_phase(&state, is_session_ready),
+            SessionPhase::NeedsChannel
+        );
+
+        state.set_handshake_cache(HandshakeCache {
+            channel: 7,
+            handshake_hash: vec![0x01, 0x02],
+            pairing_methods: vec![PairingMethod::CodeEntry],
+        });
+        assert_eq!(
+            session_phase(&state, is_session_ready),
+            SessionPhase::NeedsHandshake
+        );
+
+        state.set_phase(Phase::Pairing);
+        state.set_is_paired(false);
+        assert_eq!(
+            session_phase(&state, is_session_ready),
+            SessionPhase::NeedsPairingCode
+        );
+
+        state.set_is_paired(true);
+        assert_eq!(
+            session_phase(&state, is_session_ready),
+            SessionPhase::NeedsConnectionConfirmation
+        );
+
+        state.set_phase(Phase::Paired);
+        assert_eq!(
+            session_phase(&state, is_session_ready),
+            SessionPhase::NeedsSession
+        );
+
+        is_session_ready = true;
+        assert_eq!(session_phase(&state, is_session_ready), SessionPhase::Ready);
+    }
+
+    #[test]
+    fn session_state_flags_follow_phase() {
+        let pairing = session_state(
+            SessionPhase::NeedsPairingCode,
+            Some("Enter code".to_string()),
+        );
+        assert!(pairing.can_pair_only);
+        assert!(pairing.can_connect);
+        assert!(!pairing.can_get_address);
+        assert!(!pairing.can_sign_tx);
+        assert!(pairing.requires_pairing_code);
+        assert_eq!(pairing.prompt_message.as_deref(), Some("Enter code"));
+
+        let ready = session_state(SessionPhase::Ready, None);
+        assert!(!ready.can_pair_only);
+        assert!(!ready.can_connect);
+        assert!(ready.can_get_address);
+        assert!(ready.can_sign_tx);
+        assert!(!ready.requires_pairing_code);
+        assert!(ready.prompt_message.is_none());
+    }
 }

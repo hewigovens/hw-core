@@ -1,17 +1,17 @@
 import Foundation
-import HWCoreKitBindings
+import HWCoreFFI
 
 public struct HWCoreConfig: Sendable {
     public var hostName: String
     public var appName: String
     public var storagePath: String?
-    public var pairingMethods: [HwPairingMethod]
+    public var pairingMethods: [PairingMethod]
 
     public init(
         hostName: String,
         appName: String,
         storagePath: String? = nil,
-        pairingMethods: [HwPairingMethod] = [.codeEntry]
+        pairingMethods: [PairingMethod] = [.codeEntry]
     ) {
         self.hostName = hostName
         self.appName = appName
@@ -37,53 +37,25 @@ public final class WalletDevice: @unchecked Sendable {
 }
 
 public struct WalletEvent: Sendable {
-    public let kind: HwWorkflowEventKind
+    public let kind: WorkflowEventKind
     public let code: String
     public let message: String
 
-    init(raw: HwWorkflowEvent) {
+    init(raw: WorkflowEvent) {
         kind = raw.kind
         code = raw.code
         message = raw.message
     }
 }
 
-public enum SessionHandshakeState: Sendable {
-    case ready
-    case pairingRequired(HwPairingPrompt)
-    case connectionConfirmationRequired(HwPairingPrompt)
-}
+public typealias SessionHandshakeState = HWCoreFFI.SessionHandshakeState
+public typealias AddressResult = HWCoreFFI.AddressResult
+public typealias AccessListEntry = HWCoreFFI.AccessListEntry
+public typealias SignTxRequest = HWCoreFFI.SignTxRequest
+public typealias SignTxResult = HWCoreFFI.SignTxResult
 
-public struct EthereumAddressResult: Sendable {
-    public let address: String
-    public let mac: Data?
-    public let publicKey: String?
-}
-
-public struct EthereumAccessListEntry: Sendable {
-    public let address: String
-    public let storageKeys: [String]
-
-    public init(address: String, storageKeys: [String] = []) {
-        self.address = address
-        self.storageKeys = storageKeys
-    }
-}
-
-public struct EthereumSignRequest: Sendable {
-    public let path: String
-    public let to: String
-    public let value: String
-    public let nonce: String
-    public let gasLimit: String
-    public let chainId: UInt64
-    public let data: String
-    public let maxFeePerGas: String
-    public let maxPriorityFee: String
-    public let accessList: [EthereumAccessListEntry]
-    public let chunkify: Bool
-
-    public init(
+public extension SignTxRequest {
+    static func ethereum(
         path: String = "m/44'/60'/0'/0/0",
         to: String,
         value: String = "0x0",
@@ -93,27 +65,22 @@ public struct EthereumSignRequest: Sendable {
         data: String = "0x",
         maxFeePerGas: String,
         maxPriorityFee: String,
-        accessList: [EthereumAccessListEntry] = [],
+        accessList: [AccessListEntry] = [],
         chunkify: Bool = false
-    ) {
-        self.path = path
-        self.to = to
-        self.value = value
-        self.nonce = nonce
-        self.gasLimit = gasLimit
-        self.chainId = chainId
-        self.data = data
-        self.maxFeePerGas = maxFeePerGas
-        self.maxPriorityFee = maxPriorityFee
-        self.accessList = accessList
-        self.chunkify = chunkify
+    ) -> SignTxRequest {
+        SignTxRequest(
+            chain: .ethereum,
+            path: path,
+            to: to,
+            value: value,
+            nonce: nonce,
+            gasLimit: gasLimit,
+            chainId: chainId,
+            data: data,
+            maxFeePerGas: maxFeePerGas,
+            maxPriorityFee: maxPriorityFee,
+            accessList: accessList,
+            chunkify: chunkify
+        )
     }
-}
-
-public struct EthereumSignResult: Sendable {
-    public let v: UInt32
-    public let r: Data
-    public let s: Data
-    public let txHash: Data?
-    public let recoveredAddress: String?
 }

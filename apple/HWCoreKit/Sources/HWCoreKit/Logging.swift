@@ -24,3 +24,12 @@ public struct WalletLogEntry: Sendable {
         self.metadata = metadata
     }
 }
+
+func redacted(_ value: String) -> String {
+    guard value.count > 10 else {
+        return "***"
+    }
+    let prefix = value.prefix(6)
+    let suffix = value.suffix(4)
+    return "\(prefix)...\(suffix)"
+}

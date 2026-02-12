@@ -1,18 +1,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use ble_transport::BleManager;
-use hw_wallet::ble::{
-    backend_from_session, connect_trezor_device, create_channel_with_retry,
-    create_session_with_retry, handshake_with_retry, scan_profile_until_match, trezor_profile,
-    workflow_with_storage, CREATE_CHANNEL_ATTEMPTS, CREATE_SESSION_ATTEMPTS, HANDSHAKE_ATTEMPTS,
-    RETRY_DELAY,
-};
 use hw_wallet::WalletError;
+use hw_wallet::ble::{
+    CREATE_SESSION_ATTEMPTS, RETRY_DELAY, SessionPhase, advance_to_paired, backend_from_session,
+    connect_trezor_device, create_session_with_retry, scan_profile_until_match, trezor_profile,
+    workflow_with_storage,
+};
 use tokio::time::timeout;
 use tracing::{debug, info};
-use trezor_connect::thp::{FileStorage, HostConfig, PairingMethod as ThpPairingMethod, Phase};
+use trezor_connect::thp::{FileStorage, HostConfig, PairingMethod as ThpPairingMethod};
 
 use crate::cli::{PairArgs, PairingMethod};
 use crate::commands::common::select_device;
@@ -118,73 +117,35 @@ pub async fn run(args: PairArgs) -> Result<()> {
         .context("workflow setup failed")?;
     debug!("workflow initialized with persisted host state");
 
-    println!(
-        "Creating THP channel (may take up to ~{}s with retries)...",
-        args.thp_timeout_secs * 3
-    );
-    let channel_attempt =
-        create_channel_with_retry(&mut workflow, CREATE_CHANNEL_ATTEMPTS, RETRY_DELAY)
-            .await
-            .context("create-channel failed")?;
-    if channel_attempt > 1 {
-        info!(
-            "create-channel succeeded on retry attempt {}",
-            channel_attempt
-        );
-    }
-    info!("THP channel created");
-    println!("Performing THP handshake...");
     let try_to_unlock = args.interactive;
-    let handshake_attempt = handshake_with_retry(
-        &mut workflow,
-        try_to_unlock,
-        HANDSHAKE_ATTEMPTS,
-        RETRY_DELAY,
-    )
-    .await
-    .context("handshake failed")?;
-    if handshake_attempt > 1 {
-        info!("handshake succeeded on retry attempt {}", handshake_attempt);
+    println!("Running pair workflow...");
+    let mut step = advance_to_paired(&mut workflow, try_to_unlock)
+        .await
+        .context("failed to establish authenticated pairing state")?;
+    if step == SessionPhase::NeedsPairingCode {
+        println!(
+            "Sending pairing request with host/app labels: '{}' / '{}'.",
+            workflow.host_config().host_name,
+            workflow.host_config().app_name
+        );
+        let controller = CliPairingController;
+        workflow
+            .pairing(Some(&controller))
+            .await
+            .context("pairing failed")?;
+        println!("Pairing complete.");
+        info!("pairing interaction flow completed");
+        step = advance_to_paired(&mut workflow, try_to_unlock)
+            .await
+            .context("failed to finalize paired state after code entry")?;
     }
-    info!(
-        "handshake complete: phase={:?}, paired={}",
-        workflow.state().phase(),
-        workflow.state().is_paired()
-    );
 
-    match workflow.state().phase() {
-        Phase::Pairing => {
-            if workflow.state().is_paired() {
-                println!("Confirming THP connection...");
-                workflow
-                    .pairing(None)
-                    .await
-                    .context("connection confirmation failed")?;
-                println!("Connection confirmed.");
-                info!("paired handshake connection flow completed");
-            } else {
-                println!(
-                    "Sending pairing request with host/app labels: '{}' / '{}'.",
-                    workflow.host_config().host_name,
-                    workflow.host_config().app_name
-                );
-                let controller = CliPairingController;
-                workflow
-                    .pairing(Some(&controller))
-                    .await
-                    .context("pairing failed")?;
-                println!("Pairing complete.");
-                info!("pairing interaction flow completed");
-            }
-        }
-        Phase::Paired => {
-            println!("Device already paired (or auto-paired).");
-            info!(
-                "device already paired or autopaired; pairing-request (host/app label update) was not sent in this run"
-            );
+    match step {
+        SessionPhase::NeedsSession => {
+            println!("Pairing state is ready.");
         }
         other => {
-            bail!("unexpected workflow phase after handshake: {:?}", other);
+            bail!("pair workflow ended in unexpected state: {:?}", other);
         }
     }
 

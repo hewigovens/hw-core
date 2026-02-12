@@ -3,38 +3,38 @@ use std::time::Duration;
 use ble_transport::{BleBackend as TransportBackend, BleLink, BleSession, DeviceInfo};
 use hex;
 use prost::Message;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use tokio::time;
 use tracing::{debug, trace};
 
+use crate::thp::ThpTransport;
 use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
 use crate::thp::crypto::curve25519::{
-    derive_public_from_private, get_curve25519_key_pair, Curve25519KeyPair,
+    Curve25519KeyPair, derive_public_from_private, get_curve25519_key_pair,
 };
 use crate::thp::crypto::pairing::{
-    get_cpace_host_keys, get_shared_secret, handle_handshake_init, validate_code_entry_tag,
-    validate_qr_code_tag, HandshakeInitInput, HandshakeInitResponse,
+    HandshakeInitInput, HandshakeInitResponse, get_cpace_host_keys, get_shared_secret,
+    handle_handshake_init, validate_code_entry_tag, validate_qr_code_tag,
 };
 use crate::thp::crypto::{aes256gcm_decrypt, aes256gcm_encrypt, get_iv_from_nonce};
 use crate::thp::messages;
 use crate::thp::proto::to_pairing_tag_response;
 use crate::thp::proto::{
+    ETH_DATA_CHUNK_SIZE, EncodedMessage, MESSAGE_TYPE_ETHEREUM_TX_REQUEST, ProtoMappingError,
     decode_code_entry_cpace_response, decode_credential_response, decode_get_address_response,
     decode_get_public_key_response, decode_pairing_request_approved, decode_select_method_response,
     decode_tag_response, decode_tx_request, encode_code_entry_challenge, encode_code_entry_tag,
     encode_credential_request, encode_end_request, encode_get_address_request,
     encode_get_public_key_request, encode_nfc_tag, encode_pairing_request, encode_qr_tag,
-    encode_select_method, encode_sign_tx_request, encode_tx_ack, EncodedMessage, ProtoMappingError,
-    ETH_DATA_CHUNK_SIZE, MESSAGE_TYPE_ETHEREUM_TX_REQUEST,
+    encode_select_method, encode_sign_tx_request, encode_tx_ack,
 };
 use crate::thp::types::*;
 use crate::thp::wire::{
-    self, ParsedMessage, ThpWireState, WireError, WireResponse, MAGIC_CONTROL_ENCRYPTED,
-    MAGIC_CREATE_CHANNEL_REQUEST, MAGIC_CREATE_CHANNEL_RESPONSE,
-    MAGIC_HANDSHAKE_COMPLETION_REQUEST, MAGIC_HANDSHAKE_INIT_REQUEST,
+    self, MAGIC_CONTROL_ENCRYPTED, MAGIC_CREATE_CHANNEL_REQUEST, MAGIC_CREATE_CHANNEL_RESPONSE,
+    MAGIC_HANDSHAKE_COMPLETION_REQUEST, MAGIC_HANDSHAKE_INIT_REQUEST, ParsedMessage, ThpWireState,
+    WireError, WireResponse,
 };
-use crate::thp::ThpTransport;
 use sha2::{Digest, Sha256};
 
 const MESSAGE_TYPE_SUCCESS: u16 = 2;
@@ -395,7 +395,7 @@ impl BleBackend {
                 WireResponse::Error(code) => {
                     return Err(BackendError::Device(format!(
                         "device returned error code {code}"
-                    )))
+                    )));
                 }
                 other => {
                     debug!(
@@ -537,13 +537,13 @@ impl ThpBackend for BleBackend {
             WireResponse::Error(code) => {
                 return Err(BackendError::Device(format!(
                     "device returned error code {code}"
-                )))
+                )));
             }
             other => {
                 return Err(BackendError::Transport(format!(
                     "unexpected response to create_channel: {:?}",
                     other
-                )))
+                )));
             }
         };
 
@@ -602,13 +602,13 @@ impl ThpBackend for BleBackend {
             WireResponse::Error(code) => {
                 return Err(BackendError::Device(format!(
                     "device returned error code {code}"
-                )))
+                )));
             }
             other => {
                 return Err(BackendError::Transport(format!(
                     "unexpected response to handshake init: {:?}",
                     other
-                )))
+                )));
             }
         };
 
@@ -712,13 +712,13 @@ impl ThpBackend for BleBackend {
             WireResponse::Error(code) => {
                 return Err(BackendError::Device(format!(
                     "device returned error code {code}"
-                )))
+                )));
             }
             other => {
                 return Err(BackendError::Transport(format!(
                     "unexpected response to handshake completion: {:?}",
                     other
-                )))
+                )));
             }
         };
 
@@ -729,7 +729,7 @@ impl ThpBackend for BleBackend {
             other => {
                 return Err(BackendError::Transport(format!(
                     "unknown handshake completion state {other}"
-                )))
+                )));
             }
         };
 

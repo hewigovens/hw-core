@@ -1,15 +1,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use ble_transport::BleManager;
+use hw_wallet::WalletError;
 use hw_wallet::bip32::parse_bip32_path;
 use hw_wallet::ble::{
-    backend_from_session, connect_trezor_device, prepare_ready_workflow, scan_profile_until_match,
-    trezor_profile, workflow_with_storage, ReadyWorkflowOptions,
+    SessionBootstrapOptions, SessionPhase, advance_to_ready, backend_from_session,
+    connect_trezor_device, scan_profile_until_match, trezor_profile, workflow_with_storage,
 };
 use hw_wallet::eth::{build_sign_tx_request, parse_tx_json, verify_sign_tx_response};
-use hw_wallet::WalletError;
 use tokio::time::timeout;
 use tracing::{debug, info};
 use trezor_connect::thp::{
@@ -20,6 +20,7 @@ use trezor_connect::thp::{
 use crate::cli::{SignArgs, SignCommand, SignEthArgs};
 use crate::commands::common::select_device;
 use crate::config::{default_host_name, default_storage_path};
+use crate::pairing::CliPairingController;
 
 pub async fn run(args: SignArgs) -> Result<()> {
     match args.command {
@@ -111,18 +112,31 @@ async fn run_eth(args: SignEthArgs) -> Result<()> {
     debug!("sign workflow initialized with persisted host state");
 
     println!("Preparing authenticated wallet session...");
-    prepare_ready_workflow(
-        &mut workflow,
-        &ReadyWorkflowOptions {
-            thp_timeout: Duration::from_secs(args.thp_timeout_secs),
-            try_to_unlock: false,
-            passphrase: None,
-            on_device: false,
-            derive_cardano: false,
-        },
-    )
-    .await
-    .context("failed to prepare authenticated wallet session")?;
+    let mut session_ready = false;
+    let options = SessionBootstrapOptions {
+        thp_timeout: Duration::from_secs(args.thp_timeout_secs),
+        try_to_unlock: true,
+        passphrase: None,
+        on_device: false,
+        derive_cardano: false,
+    };
+    loop {
+        let step = advance_to_ready(&mut workflow, &mut session_ready, &options)
+            .await
+            .context("failed to prepare authenticated wallet session")?;
+        match step {
+            SessionPhase::Ready => break,
+            SessionPhase::NeedsPairingCode => {
+                println!("Pairing required. Complete code-entry pairing on this terminal.");
+                let controller = CliPairingController;
+                workflow
+                    .pairing(Some(&controller))
+                    .await
+                    .context("pairing failed during sign workflow")?;
+            }
+            other => bail!("sign workflow reached unexpected step: {:?}", other),
+        }
+    }
 
     println!("Requesting ETH transaction signature from device...");
     let response = sign_tx_with_workflow(&mut workflow, request.clone()).await?;
@@ -152,7 +166,7 @@ mod tests {
     use super::*;
 
     use crate::commands::test_support::{
-        canned_eth_sign_response, default_test_host_config, MockBackend,
+        MockBackend, canned_eth_sign_response, default_test_host_config,
     };
     use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
 
@@ -163,11 +177,13 @@ mod tests {
         let config = default_test_host_config();
         let mut workflow = ThpWorkflow::new(backend, config);
 
-        prepare_ready_workflow(
+        let mut session_ready = false;
+        let step = advance_to_ready(
             &mut workflow,
-            &ReadyWorkflowOptions {
+            &mut session_ready,
+            &SessionBootstrapOptions {
                 thp_timeout: Duration::from_secs(60),
-                try_to_unlock: false,
+                try_to_unlock: true,
                 passphrase: None,
                 on_device: false,
                 derive_cardano: false,
@@ -175,6 +191,7 @@ mod tests {
         )
         .await
         .unwrap();
+        assert_eq!(step, SessionPhase::Ready);
         let request = SignTxRequest::ethereum(vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0], 1)
             .with_nonce(vec![0])
             .with_gas_limit(vec![0x52, 0x08])

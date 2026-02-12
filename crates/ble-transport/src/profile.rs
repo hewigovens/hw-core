@@ -70,11 +70,3 @@ impl BleError {
         }
     }
 }
-
-pub struct KnownProfiles;
-
-impl KnownProfiles {
-    pub fn trezor_safe7() -> Option<BleProfile> {
-        BleProfile::trezor_safe7()
-    }
-}
