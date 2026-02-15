@@ -9,6 +9,7 @@ final class ContentViewModel: ObservableObject {
     @Published var status = "Idle"
     @Published var devices: [WalletDevice] = []
     @Published var selectedDeviceIndex = 0
+    @Published var selectedChain: Chain = .ethereum
     @Published var phaseSummary = "No session"
     @Published var pairingPromptMessage = ""
     @Published var pairingCodeInput = ""
@@ -190,10 +191,13 @@ final class ContentViewModel: ObservableObject {
                 return
             }
 
-            let result = try await session.getAddress(includePublicKey: true)
+            let result = try await session.getAddress(
+                chain: selectedChain,
+                includePublicKey: true
+            )
             address = result.address
             status = "Address received"
-            appendLog("address: \(result.address)")
+            appendLog("address (\(chainLabel(selectedChain))): \(result.address)")
         }
     }
 
@@ -207,19 +211,11 @@ final class ContentViewModel: ObservableObject {
                 status = "Connect first"
                 return
             }
-
-            let request = SignTxRequest.ethereum(
-                to: "0x000000000000000000000000000000000000dead",
-                gasLimit: "0x5208",
-                chainId: 1,
-                maxFeePerGas: "0x3b9aca00",
-                maxPriorityFee: "0x59682f00"
-            )
-
+            let request = sampleSignRequest(chain: selectedChain)
             let result = try await session.signTx(request)
-            signatureSummary = "v=\(result.v) r=0x\(result.r.map { String(format: "%02x", $0) }.joined()) s=0x\(result.s.map { String(format: "%02x", $0) }.joined())"
+            signatureSummary = describeSignResult(result, chain: selectedChain)
             status = "Transaction signed"
-            appendLog("sign result: \(signatureSummary)")
+            appendLog("sign (\(chainLabel(selectedChain))) result: \(signatureSummary)")
             if let recovered = result.recoveredAddress {
                 appendLog("recovered: \(recovered)")
             }
@@ -323,6 +319,79 @@ final class ContentViewModel: ObservableObject {
         case .ready:
             return "Ready"
         }
+    }
+
+    func chainLabel(_ chain: Chain) -> String {
+        switch chain {
+        case .ethereum:
+            return "ETH"
+        case .bitcoin:
+            return "BTC"
+        case .solana:
+            return "SOL"
+        }
+    }
+
+    private func sampleSignRequest(chain: Chain) -> SignTxRequest {
+        switch chain {
+        case .ethereum:
+            return SignTxRequest.ethereum(
+                to: "0x000000000000000000000000000000000000dead",
+                gasLimit: "0x5208",
+                chainId: 1,
+                maxFeePerGas: "0x3b9aca00",
+                maxPriorityFee: "0x59682f00"
+            )
+        case .bitcoin:
+            return SignTxRequest.bitcoin(txJson: sampleBitcoinTxJson())
+        case .solana:
+            return SignTxRequest.solana(serializedTxHex: sampleSolanaTxHex())
+        }
+    }
+
+    private func describeSignResult(_ result: SignTxResult, chain: Chain) -> String {
+        switch chain {
+        case .ethereum:
+            return "v=\(result.v) r=0x\(hex(result.r)) s=0x\(hex(result.s))"
+        case .bitcoin, .solana:
+            return "signature=0x\(hex(result.r))"
+        }
+    }
+
+    private func hex(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func sampleSolanaTxHex() -> String {
+        // Placeholder bytes for sample wiring; wallet clients should pass a real serialized tx.
+        "010203"
+    }
+
+    private func sampleBitcoinTxJson() -> String {
+        // Wallet layer should preload complete input/output metadata for production signing flows.
+        """
+        {
+          "version": 2,
+          "lock_time": 0,
+          "inputs": [
+            {
+              "path": "m/84'/0'/0'/0/0",
+              "prev_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+              "prev_index": 0,
+              "amount": "1000",
+              "sequence": 4294967295,
+              "script_type": "spendwitness"
+            }
+          ],
+          "outputs": [
+            {
+              "address": "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+              "amount": "900",
+              "script_type": "paytoaddress"
+            }
+          ]
+        }
+        """
     }
 
     private func disconnectSession() async {

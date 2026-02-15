@@ -39,6 +39,14 @@ pub type Chain = RawChain;
 pub enum Chain {
     Ethereum,
     Bitcoin,
+    Solana,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct ChainConfig {
+    pub code: String,
+    pub slip44: u32,
+    pub default_path: String,
 }
 
 pub type KnownCredential = RawKnownCredential;
@@ -243,4 +251,37 @@ pub struct SignTxResult {
 #[uniffi::export]
 pub fn host_config_new(host_name: String, app_name: String) -> HostConfig {
     RawHostConfig::new(host_name, app_name).into()
+}
+
+#[uniffi::export]
+pub fn chain_config(chain: Chain) -> ChainConfig {
+    let raw = chain.config();
+    ChainConfig {
+        code: raw.code.to_string(),
+        slip44: raw.slip44,
+        default_path: raw.default_path.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Chain, chain_config};
+
+    #[test]
+    fn chain_config_exposes_known_defaults() {
+        let eth = chain_config(Chain::Ethereum);
+        assert_eq!(eth.code, "eth");
+        assert_eq!(eth.slip44, 60);
+        assert_eq!(eth.default_path, "m/44'/60'/0'/0/0");
+
+        let btc = chain_config(Chain::Bitcoin);
+        assert_eq!(btc.code, "btc");
+        assert_eq!(btc.slip44, 0);
+        assert_eq!(btc.default_path, "m/84'/0'/0'/0/0");
+
+        let sol = chain_config(Chain::Solana);
+        assert_eq!(sol.code, "sol");
+        assert_eq!(sol.slip44, 501);
+        assert_eq!(sol.default_path, "m/44'/501'/0'/0'");
+    }
 }

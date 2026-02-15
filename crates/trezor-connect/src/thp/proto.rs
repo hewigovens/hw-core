@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 
+use bs58::encode as base58_encode;
 use hex::{FromHex, ToHex};
 use hw_chain::Chain;
 use prost::Message;
@@ -7,9 +8,10 @@ use thiserror::Error;
 
 use super::messages;
 use super::types::{
-    CodeEntryChallengeResponse, CredentialRequest, CredentialResponse, GetAddressRequest,
-    GetAddressResponse, PairingMethod, PairingRequest, PairingRequestApproved, PairingTagResponse,
-    SelectMethodRequest, SelectMethodResponse, SignTxRequest, ThpProperties,
+    BtcInputScriptType, BtcOutputScriptType, CodeEntryChallengeResponse, CredentialRequest,
+    CredentialResponse, GetAddressRequest, GetAddressResponse, PairingMethod, PairingRequest,
+    PairingRequestApproved, PairingTagResponse, SelectMethodRequest, SelectMethodResponse,
+    SignTxRequest, ThpProperties,
 };
 
 #[derive(Debug, Error)]
@@ -37,6 +39,19 @@ const MESSAGE_TYPE_ETHEREUM_GET_ADDRESS: u16 = 56;
 const MESSAGE_TYPE_ETHEREUM_ADDRESS: u16 = 57;
 const MESSAGE_TYPE_ETHEREUM_GET_PUBLIC_KEY: u16 = 450;
 const MESSAGE_TYPE_ETHEREUM_PUBLIC_KEY: u16 = 451;
+const MESSAGE_TYPE_BITCOIN_GET_ADDRESS: u16 = 29;
+const MESSAGE_TYPE_BITCOIN_ADDRESS: u16 = 30;
+const MESSAGE_TYPE_BITCOIN_GET_PUBLIC_KEY: u16 = 11;
+const MESSAGE_TYPE_BITCOIN_PUBLIC_KEY: u16 = 12;
+pub const MESSAGE_TYPE_BITCOIN_SIGN_TX: u16 = 15;
+pub const MESSAGE_TYPE_BITCOIN_TX_REQUEST: u16 = 21;
+pub const MESSAGE_TYPE_BITCOIN_TX_ACK: u16 = 22;
+const MESSAGE_TYPE_SOLANA_GET_PUBLIC_KEY: u16 = 900;
+const MESSAGE_TYPE_SOLANA_PUBLIC_KEY: u16 = 901;
+const MESSAGE_TYPE_SOLANA_GET_ADDRESS: u16 = 902;
+const MESSAGE_TYPE_SOLANA_ADDRESS: u16 = 903;
+pub const MESSAGE_TYPE_SOLANA_SIGN_TX: u16 = 904;
+pub const MESSAGE_TYPE_SOLANA_TX_SIGNATURE: u16 = 905;
 pub const MESSAGE_TYPE_ETHEREUM_SIGN_TX_EIP1559: u16 = 452;
 pub const MESSAGE_TYPE_ETHEREUM_TX_REQUEST: u16 = 59;
 pub const MESSAGE_TYPE_ETHEREUM_TX_ACK: u16 = 60;
@@ -56,6 +71,44 @@ struct EthereumGetAddress {
 }
 
 #[derive(Clone, PartialEq, Message)]
+struct BitcoinGetAddress {
+    #[prost(uint32, repeated, packed = "false", tag = "1")]
+    path: Vec<u32>,
+    #[prost(string, optional, tag = "2")]
+    coin_name: Option<String>,
+    #[prost(bool, optional, tag = "3")]
+    show_display: Option<bool>,
+    #[prost(bool, optional, tag = "7")]
+    chunkify: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinAddress {
+    #[prost(string, required, tag = "1")]
+    address: String,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    mac: Option<Vec<u8>>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct SolanaGetAddress {
+    #[prost(uint32, repeated, packed = "false", tag = "1")]
+    path: Vec<u32>,
+    #[prost(bool, optional, tag = "2")]
+    show_display: Option<bool>,
+    #[prost(bool, optional, tag = "3")]
+    chunkify: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct SolanaAddress {
+    #[prost(string, required, tag = "1")]
+    address: String,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    mac: Option<Vec<u8>>,
+}
+
+#[derive(Clone, PartialEq, Message)]
 struct EthereumAddress {
     #[prost(bytes = "vec", optional, tag = "1")]
     old_address: Option<Vec<u8>>,
@@ -66,11 +119,239 @@ struct EthereumAddress {
 }
 
 #[derive(Clone, PartialEq, Message)]
+struct BitcoinGetPublicKey {
+    #[prost(uint32, repeated, packed = "false", tag = "1")]
+    path: Vec<u32>,
+    #[prost(bool, optional, tag = "3")]
+    show_display: Option<bool>,
+    #[prost(string, optional, tag = "4")]
+    coin_name: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinPublicKey {
+    #[prost(string, required, tag = "2")]
+    xpub: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
 struct EthereumGetPublicKey {
     #[prost(uint32, repeated, packed = "false", tag = "1")]
     path: Vec<u32>,
     #[prost(bool, optional, tag = "2")]
     show_display: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct SolanaGetPublicKey {
+    #[prost(uint32, repeated, packed = "false", tag = "1")]
+    path: Vec<u32>,
+    #[prost(bool, optional, tag = "2")]
+    show_display: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct SolanaPublicKey {
+    #[prost(bytes = "vec", required, tag = "1")]
+    public_key: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct SolanaSignTx {
+    #[prost(uint32, repeated, packed = "false", tag = "1")]
+    path: Vec<u32>,
+    #[prost(bytes = "vec", required, tag = "2")]
+    serialized_tx: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct SolanaTxSignature {
+    #[prost(bytes = "vec", required, tag = "1")]
+    signature: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinSignTx {
+    #[prost(uint32, required, tag = "1")]
+    outputs_count: u32,
+    #[prost(uint32, required, tag = "2")]
+    inputs_count: u32,
+    #[prost(string, optional, tag = "3")]
+    coin_name: Option<String>,
+    #[prost(uint32, optional, tag = "4")]
+    version: Option<u32>,
+    #[prost(uint32, optional, tag = "5")]
+    lock_time: Option<u32>,
+    #[prost(bool, optional, tag = "13")]
+    serialize: Option<bool>,
+    #[prost(bool, optional, tag = "15")]
+    chunkify: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinTxRequest {
+    #[prost(enumeration = "BitcoinTxRequestTypeProto", optional, tag = "1")]
+    request_type: Option<i32>,
+    #[prost(message, optional, tag = "2")]
+    details: Option<BitcoinTxRequestDetails>,
+    #[prost(message, optional, tag = "3")]
+    serialized: Option<BitcoinTxRequestSerialized>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
+#[repr(i32)]
+enum BitcoinTxRequestTypeProto {
+    Input = 0,
+    Output = 1,
+    Meta = 2,
+    Finished = 3,
+    ExtraData = 4,
+    OrigInput = 5,
+    OrigOutput = 6,
+    PaymentReq = 7,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BitcoinTxRequestType {
+    TxInput,
+    TxOutput,
+    TxMeta,
+    TxFinished,
+    TxExtraData,
+    TxOrigInput,
+    TxOrigOutput,
+    TxPaymentReq,
+}
+
+impl TryFrom<i32> for BitcoinTxRequestType {
+    type Error = ProtoMappingError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match BitcoinTxRequestTypeProto::try_from(value) {
+            Ok(BitcoinTxRequestTypeProto::Input) => Ok(Self::TxInput),
+            Ok(BitcoinTxRequestTypeProto::Output) => Ok(Self::TxOutput),
+            Ok(BitcoinTxRequestTypeProto::Meta) => Ok(Self::TxMeta),
+            Ok(BitcoinTxRequestTypeProto::Finished) => Ok(Self::TxFinished),
+            Ok(BitcoinTxRequestTypeProto::ExtraData) => Ok(Self::TxExtraData),
+            Ok(BitcoinTxRequestTypeProto::OrigInput) => Ok(Self::TxOrigInput),
+            Ok(BitcoinTxRequestTypeProto::OrigOutput) => Ok(Self::TxOrigOutput),
+            Ok(BitcoinTxRequestTypeProto::PaymentReq) => Ok(Self::TxPaymentReq),
+            Err(_) => Err(ProtoMappingError::InvalidEnum(value)),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinTxRequestDetails {
+    #[prost(uint32, optional, tag = "1")]
+    request_index: Option<u32>,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    tx_hash: Option<Vec<u8>>,
+    #[prost(uint32, optional, tag = "3")]
+    extra_data_len: Option<u32>,
+    #[prost(uint32, optional, tag = "4")]
+    extra_data_offset: Option<u32>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinTxRequestSerialized {
+    #[prost(uint32, optional, tag = "1")]
+    signature_index: Option<u32>,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    signature: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    serialized_tx: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecodedBitcoinTxRequest {
+    pub request_type: Option<BitcoinTxRequestType>,
+    pub request_index: Option<u32>,
+    pub tx_hash: Option<Vec<u8>>,
+    pub extra_data_len: Option<u32>,
+    pub extra_data_offset: Option<u32>,
+    pub signature_index: Option<u32>,
+    pub signature: Option<Vec<u8>>,
+    pub serialized_tx: Option<Vec<u8>>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinTxAck {
+    #[prost(message, optional, tag = "1")]
+    tx: Option<BitcoinTxAckTransaction>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinTxAckTransaction {
+    #[prost(uint32, optional, tag = "1")]
+    version: Option<u32>,
+    #[prost(message, repeated, tag = "2")]
+    inputs: Vec<BitcoinTxInput>,
+    #[prost(uint32, optional, tag = "4")]
+    lock_time: Option<u32>,
+    #[prost(message, repeated, tag = "5")]
+    outputs: Vec<BitcoinTxOutput>,
+    #[prost(uint32, optional, tag = "6")]
+    inputs_cnt: Option<u32>,
+    #[prost(uint32, optional, tag = "7")]
+    outputs_cnt: Option<u32>,
+    #[prost(bytes = "vec", optional, tag = "8")]
+    extra_data: Option<Vec<u8>>,
+    #[prost(uint32, optional, tag = "9")]
+    extra_data_len: Option<u32>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinTxInput {
+    #[prost(uint32, repeated, packed = "false", tag = "1")]
+    address_n: Vec<u32>,
+    #[prost(bytes = "vec", required, tag = "2")]
+    prev_hash: Vec<u8>,
+    #[prost(uint32, required, tag = "3")]
+    prev_index: u32,
+    #[prost(uint32, optional, tag = "5")]
+    sequence: Option<u32>,
+    #[prost(enumeration = "BitcoinInputScriptTypeProto", optional, tag = "6")]
+    script_type: Option<i32>,
+    #[prost(uint64, optional, tag = "8")]
+    amount: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
+#[repr(i32)]
+enum BitcoinInputScriptTypeProto {
+    SpendAddress = 0,
+    SpendMultisig = 1,
+    External = 2,
+    SpendWitness = 3,
+    SpendP2ShWitness = 4,
+    SpendTaproot = 5,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinTxOutput {
+    #[prost(string, optional, tag = "1")]
+    address: Option<String>,
+    #[prost(uint32, repeated, packed = "false", tag = "2")]
+    address_n: Vec<u32>,
+    #[prost(uint64, required, tag = "3")]
+    amount: u64,
+    #[prost(enumeration = "BitcoinOutputScriptTypeProto", optional, tag = "4")]
+    script_type: Option<i32>,
+    #[prost(bytes = "vec", optional, tag = "6")]
+    op_return_data: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
+#[repr(i32)]
+enum BitcoinOutputScriptTypeProto {
+    PayToAddress = 0,
+    PayToScriptHash = 1,
+    PayToMultisig = 2,
+    PayToOpReturn = 3,
+    PayToWitness = 4,
+    PayToP2ShWitness = 5,
+    PayToTaproot = 6,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -359,7 +640,33 @@ pub fn encode_get_address_request(
                 payload,
             })
         }
-        Chain::Bitcoin => Err(ProtoMappingError::UnsupportedChain(Chain::Bitcoin)),
+        Chain::Bitcoin => {
+            let message = BitcoinGetAddress {
+                path: request.path.clone(),
+                coin_name: Some("Bitcoin".to_string()),
+                show_display: Some(request.show_display),
+                chunkify: Some(request.chunkify),
+            };
+            let mut payload = Vec::new();
+            message.encode(&mut payload)?;
+            Ok(EncodedMessage {
+                message_type: MESSAGE_TYPE_BITCOIN_GET_ADDRESS,
+                payload,
+            })
+        }
+        Chain::Solana => {
+            let message = SolanaGetAddress {
+                path: request.path.clone(),
+                show_display: Some(request.show_display),
+                chunkify: Some(request.chunkify),
+            };
+            let mut payload = Vec::new();
+            message.encode(&mut payload)?;
+            Ok(EncodedMessage {
+                message_type: MESSAGE_TYPE_SOLANA_GET_ADDRESS,
+                payload,
+            })
+        }
     }
 }
 
@@ -391,7 +698,30 @@ pub fn decode_get_address_response(
                 public_key: None,
             })
         }
-        Chain::Bitcoin => Err(ProtoMappingError::UnsupportedChain(Chain::Bitcoin)),
+        Chain::Bitcoin => {
+            if message_type != MESSAGE_TYPE_BITCOIN_ADDRESS {
+                return Err(ProtoMappingError::UnexpectedMessage(message_type));
+            }
+            let message = BitcoinAddress::decode(payload)?;
+            Ok(GetAddressResponse {
+                chain,
+                address: message.address,
+                mac: message.mac,
+                public_key: None,
+            })
+        }
+        Chain::Solana => {
+            if message_type != MESSAGE_TYPE_SOLANA_ADDRESS {
+                return Err(ProtoMappingError::UnexpectedMessage(message_type));
+            }
+            let message = SolanaAddress::decode(payload)?;
+            Ok(GetAddressResponse {
+                chain,
+                address: message.address,
+                mac: message.mac,
+                public_key: None,
+            })
+        }
     }
 }
 
@@ -413,7 +743,31 @@ pub fn encode_get_public_key_request(
                 payload,
             })
         }
-        Chain::Bitcoin => Err(ProtoMappingError::UnsupportedChain(Chain::Bitcoin)),
+        Chain::Bitcoin => {
+            let message = BitcoinGetPublicKey {
+                path: path.to_vec(),
+                show_display: Some(show_display),
+                coin_name: Some("Bitcoin".to_string()),
+            };
+            let mut payload = Vec::new();
+            message.encode(&mut payload)?;
+            Ok(EncodedMessage {
+                message_type: MESSAGE_TYPE_BITCOIN_GET_PUBLIC_KEY,
+                payload,
+            })
+        }
+        Chain::Solana => {
+            let message = SolanaGetPublicKey {
+                path: path.to_vec(),
+                show_display: Some(show_display),
+            };
+            let mut payload = Vec::new();
+            message.encode(&mut payload)?;
+            Ok(EncodedMessage {
+                message_type: MESSAGE_TYPE_SOLANA_GET_PUBLIC_KEY,
+                payload,
+            })
+        }
     }
 }
 
@@ -432,55 +786,281 @@ pub fn decode_get_public_key_response(
                 .xpub
                 .ok_or(ProtoMappingError::UnexpectedMessage(message_type))
         }
-        Chain::Bitcoin => Err(ProtoMappingError::UnsupportedChain(Chain::Bitcoin)),
+        Chain::Bitcoin => {
+            if message_type != MESSAGE_TYPE_BITCOIN_PUBLIC_KEY {
+                return Err(ProtoMappingError::UnexpectedMessage(message_type));
+            }
+            let message = BitcoinPublicKey::decode(payload)?;
+            Ok(message.xpub)
+        }
+        Chain::Solana => {
+            if message_type != MESSAGE_TYPE_SOLANA_PUBLIC_KEY {
+                return Err(ProtoMappingError::UnexpectedMessage(message_type));
+            }
+            let message = SolanaPublicKey::decode(payload)?;
+            Ok(base58_encode(message.public_key).into_string())
+        }
+    }
+}
+
+fn bitcoin_input_script_type_to_proto(script_type: BtcInputScriptType) -> i32 {
+    match script_type {
+        BtcInputScriptType::SpendAddress => BitcoinInputScriptTypeProto::SpendAddress as i32,
+        BtcInputScriptType::SpendMultisig => BitcoinInputScriptTypeProto::SpendMultisig as i32,
+        BtcInputScriptType::External => BitcoinInputScriptTypeProto::External as i32,
+        BtcInputScriptType::SpendWitness => BitcoinInputScriptTypeProto::SpendWitness as i32,
+        BtcInputScriptType::SpendP2shWitness => {
+            BitcoinInputScriptTypeProto::SpendP2ShWitness as i32
+        }
+        BtcInputScriptType::SpendTaproot => BitcoinInputScriptTypeProto::SpendTaproot as i32,
+    }
+}
+
+fn bitcoin_output_script_type_to_proto(script_type: BtcOutputScriptType) -> i32 {
+    match script_type {
+        BtcOutputScriptType::PayToAddress => BitcoinOutputScriptTypeProto::PayToAddress as i32,
+        BtcOutputScriptType::PayToScriptHash => {
+            BitcoinOutputScriptTypeProto::PayToScriptHash as i32
+        }
+        BtcOutputScriptType::PayToMultisig => BitcoinOutputScriptTypeProto::PayToMultisig as i32,
+        BtcOutputScriptType::PayToOpReturn => BitcoinOutputScriptTypeProto::PayToOpReturn as i32,
+        BtcOutputScriptType::PayToWitness => BitcoinOutputScriptTypeProto::PayToWitness as i32,
+        BtcOutputScriptType::PayToP2shWitness => {
+            BitcoinOutputScriptTypeProto::PayToP2ShWitness as i32
+        }
+        BtcOutputScriptType::PayToTaproot => BitcoinOutputScriptTypeProto::PayToTaproot as i32,
     }
 }
 
 pub fn encode_sign_tx_request(
     request: &SignTxRequest,
 ) -> Result<(EncodedMessage, usize), ProtoMappingError> {
-    let initial_chunk_len = request.data.len().min(ETH_DATA_CHUNK_SIZE);
-    let data_initial_chunk = if request.data.is_empty() {
-        None
-    } else {
-        Some(request.data[..initial_chunk_len].to_vec())
-    };
+    match request.chain {
+        Chain::Ethereum => {
+            let initial_chunk_len = request.data.len().min(ETH_DATA_CHUNK_SIZE);
+            let data_initial_chunk = if request.data.is_empty() {
+                None
+            } else {
+                Some(request.data[..initial_chunk_len].to_vec())
+            };
 
-    let message = EthereumSignTxEip1559 {
-        path: request.path.clone(),
-        nonce: Some(request.nonce.clone()),
-        max_gas_fee: Some(request.max_fee_per_gas.clone()),
-        max_priority_fee: Some(request.max_priority_fee.clone()),
-        gas_limit: Some(request.gas_limit.clone()),
-        to: if request.to.is_empty() {
-            None
-        } else {
-            Some(request.to.clone())
-        },
-        value: Some(request.value.clone()),
-        data_initial_chunk,
-        data_length: Some(request.data.len() as u32),
-        chain_id: request.chain_id,
-        access_list: request
-            .access_list
-            .iter()
-            .map(|entry| EthereumAccessList {
-                address: entry.address.clone(),
-                storage_keys: entry.storage_keys.clone(),
-            })
-            .collect(),
-        chunkify: Some(request.chunkify),
-    };
+            let message = EthereumSignTxEip1559 {
+                path: request.path.clone(),
+                nonce: Some(request.nonce.clone()),
+                max_gas_fee: Some(request.max_fee_per_gas.clone()),
+                max_priority_fee: Some(request.max_priority_fee.clone()),
+                gas_limit: Some(request.gas_limit.clone()),
+                to: if request.to.is_empty() {
+                    None
+                } else {
+                    Some(request.to.clone())
+                },
+                value: Some(request.value.clone()),
+                data_initial_chunk,
+                data_length: Some(request.data.len() as u32),
+                chain_id: request.chain_id,
+                access_list: request
+                    .access_list
+                    .iter()
+                    .map(|entry| EthereumAccessList {
+                        address: entry.address.clone(),
+                        storage_keys: entry.storage_keys.clone(),
+                    })
+                    .collect(),
+                chunkify: Some(request.chunkify),
+            };
 
+            let mut payload = Vec::new();
+            message.encode(&mut payload)?;
+            Ok((
+                EncodedMessage {
+                    message_type: MESSAGE_TYPE_ETHEREUM_SIGN_TX_EIP1559,
+                    payload,
+                },
+                initial_chunk_len,
+            ))
+        }
+        Chain::Bitcoin => {
+            let btc = request
+                .btc
+                .as_ref()
+                .ok_or(ProtoMappingError::UnsupportedChain(Chain::Bitcoin))?;
+            let message = BitcoinSignTx {
+                outputs_count: btc.outputs.len() as u32,
+                inputs_count: btc.inputs.len() as u32,
+                coin_name: Some("Bitcoin".to_string()),
+                version: Some(btc.version),
+                lock_time: Some(btc.lock_time),
+                serialize: Some(true),
+                chunkify: Some(btc.chunkify),
+            };
+            let mut payload = Vec::new();
+            message.encode(&mut payload)?;
+            Ok((
+                EncodedMessage {
+                    message_type: MESSAGE_TYPE_BITCOIN_SIGN_TX,
+                    payload,
+                },
+                0,
+            ))
+        }
+        Chain::Solana => {
+            let message = SolanaSignTx {
+                path: request.path.clone(),
+                serialized_tx: request.data.clone(),
+            };
+            let mut payload = Vec::new();
+            message.encode(&mut payload)?;
+            Ok((
+                EncodedMessage {
+                    message_type: MESSAGE_TYPE_SOLANA_SIGN_TX,
+                    payload,
+                },
+                0,
+            ))
+        }
+    }
+}
+
+pub fn decode_bitcoin_tx_request(
+    message_type: u16,
+    payload: &[u8],
+) -> Result<DecodedBitcoinTxRequest, ProtoMappingError> {
+    if message_type != MESSAGE_TYPE_BITCOIN_TX_REQUEST {
+        return Err(ProtoMappingError::UnexpectedMessage(message_type));
+    }
+    let request = BitcoinTxRequest::decode(payload)?;
+    let request_type = request
+        .request_type
+        .map(BitcoinTxRequestType::try_from)
+        .transpose()?;
+    Ok(DecodedBitcoinTxRequest {
+        request_type,
+        request_index: request
+            .details
+            .as_ref()
+            .and_then(|details| details.request_index),
+        tx_hash: request
+            .details
+            .as_ref()
+            .and_then(|details| details.tx_hash.clone()),
+        extra_data_len: request
+            .details
+            .as_ref()
+            .and_then(|details| details.extra_data_len),
+        extra_data_offset: request
+            .details
+            .as_ref()
+            .and_then(|details| details.extra_data_offset),
+        signature_index: request
+            .serialized
+            .as_ref()
+            .and_then(|serialized| serialized.signature_index),
+        signature: request
+            .serialized
+            .as_ref()
+            .and_then(|serialized| serialized.signature.clone()),
+        serialized_tx: request
+            .serialized
+            .as_ref()
+            .and_then(|serialized| serialized.serialized_tx.clone()),
+    })
+}
+
+pub fn encode_bitcoin_tx_ack_meta(
+    version: u32,
+    lock_time: u32,
+    inputs_count: usize,
+    outputs_count: usize,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    let message = BitcoinTxAck {
+        tx: Some(BitcoinTxAckTransaction {
+            version: Some(version),
+            inputs: Vec::new(),
+            lock_time: Some(lock_time),
+            outputs: Vec::new(),
+            inputs_cnt: Some(inputs_count as u32),
+            outputs_cnt: Some(outputs_count as u32),
+            extra_data: None,
+            extra_data_len: None,
+        }),
+    };
     let mut payload = Vec::new();
     message.encode(&mut payload)?;
-    Ok((
-        EncodedMessage {
-            message_type: MESSAGE_TYPE_ETHEREUM_SIGN_TX_EIP1559,
-            payload,
-        },
-        initial_chunk_len,
-    ))
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_BITCOIN_TX_ACK,
+        payload,
+    })
+}
+
+pub fn encode_bitcoin_tx_ack_input(
+    input: &super::types::BtcSignInput,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    let message = BitcoinTxAck {
+        tx: Some(BitcoinTxAckTransaction {
+            version: None,
+            inputs: vec![BitcoinTxInput {
+                address_n: input.path.clone(),
+                prev_hash: input.prev_hash.clone(),
+                prev_index: input.prev_index,
+                sequence: Some(input.sequence),
+                script_type: Some(bitcoin_input_script_type_to_proto(input.script_type)),
+                amount: Some(input.amount),
+            }],
+            lock_time: None,
+            outputs: Vec::new(),
+            inputs_cnt: None,
+            outputs_cnt: None,
+            extra_data: None,
+            extra_data_len: None,
+        }),
+    };
+    let mut payload = Vec::new();
+    message.encode(&mut payload)?;
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_BITCOIN_TX_ACK,
+        payload,
+    })
+}
+
+pub fn encode_bitcoin_tx_ack_output(
+    output: &super::types::BtcSignOutput,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    let message = BitcoinTxAck {
+        tx: Some(BitcoinTxAckTransaction {
+            version: None,
+            inputs: Vec::new(),
+            lock_time: None,
+            outputs: vec![BitcoinTxOutput {
+                address: output.address.clone(),
+                address_n: output.path.clone(),
+                amount: output.amount,
+                script_type: Some(bitcoin_output_script_type_to_proto(output.script_type)),
+                op_return_data: output.op_return_data.clone(),
+            }],
+            inputs_cnt: None,
+            outputs_cnt: None,
+            extra_data: None,
+            extra_data_len: None,
+        }),
+    };
+    let mut payload = Vec::new();
+    message.encode(&mut payload)?;
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_BITCOIN_TX_ACK,
+        payload,
+    })
+}
+
+pub fn decode_solana_tx_signature(
+    message_type: u16,
+    payload: &[u8],
+) -> Result<Vec<u8>, ProtoMappingError> {
+    if message_type != MESSAGE_TYPE_SOLANA_TX_SIGNATURE {
+        return Err(ProtoMappingError::UnexpectedMessage(message_type));
+    }
+    let message = SolanaTxSignature::decode(payload)?;
+    Ok(message.signature)
 }
 
 pub fn decode_tx_request(
@@ -519,6 +1099,36 @@ mod tests {
         assert_eq!(encoded.message_type, MESSAGE_TYPE_ETHEREUM_GET_ADDRESS);
 
         let decoded = EthereumGetAddress::decode(encoded.payload.as_slice()).unwrap();
+        assert_eq!(decoded.path, request.path);
+        assert_eq!(decoded.show_display, Some(true));
+        assert_eq!(decoded.chunkify, Some(true));
+    }
+
+    #[test]
+    fn encodes_bitcoin_get_address_request() {
+        let request = GetAddressRequest::bitcoin(vec![0x8000_002c, 0x8000_0000, 0x8000_0000, 0, 0])
+            .with_show_display(true)
+            .with_chunkify(true);
+        let encoded = encode_get_address_request(&request).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_BITCOIN_GET_ADDRESS);
+
+        let decoded = BitcoinGetAddress::decode(encoded.payload.as_slice()).unwrap();
+        assert_eq!(decoded.path, request.path);
+        assert_eq!(decoded.coin_name.as_deref(), Some("Bitcoin"));
+        assert_eq!(decoded.show_display, Some(true));
+        assert_eq!(decoded.chunkify, Some(true));
+    }
+
+    #[test]
+    fn encodes_solana_get_address_request() {
+        let request =
+            GetAddressRequest::solana(vec![0x8000_002c, 0x8000_01f5, 0x8000_0000, 0x8000_0000])
+                .with_show_display(true)
+                .with_chunkify(true);
+        let encoded = encode_get_address_request(&request).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_SOLANA_GET_ADDRESS);
+
+        let decoded = SolanaGetAddress::decode(encoded.payload.as_slice()).unwrap();
         assert_eq!(decoded.path, request.path);
         assert_eq!(decoded.show_display, Some(true));
         assert_eq!(decoded.chunkify, Some(true));
@@ -576,6 +1186,71 @@ mod tests {
     }
 
     #[test]
+    fn decodes_bitcoin_address_response() {
+        let message = BitcoinAddress {
+            address: "bc1qtest".into(),
+            mac: Some(vec![0xAA, 0xBB]),
+        };
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+
+        let response =
+            decode_get_address_response(Chain::Bitcoin, MESSAGE_TYPE_BITCOIN_ADDRESS, &payload)
+                .unwrap();
+        assert_eq!(response.address, "bc1qtest");
+        assert_eq!(response.mac, Some(vec![0xAA, 0xBB]));
+        assert!(response.public_key.is_none());
+    }
+
+    #[test]
+    fn decodes_solana_address_response() {
+        let message = SolanaAddress {
+            address: "So1anaAddress".into(),
+            mac: Some(vec![0x11, 0x22]),
+        };
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+
+        let response =
+            decode_get_address_response(Chain::Solana, MESSAGE_TYPE_SOLANA_ADDRESS, &payload)
+                .unwrap();
+        assert_eq!(response.address, "So1anaAddress");
+        assert_eq!(response.mac, Some(vec![0x11, 0x22]));
+        assert!(response.public_key.is_none());
+    }
+
+    #[test]
+    fn decodes_bitcoin_public_key_response() {
+        let message = BitcoinPublicKey {
+            xpub: "xpub6CUGRU".into(),
+        };
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+
+        let public_key = decode_get_public_key_response(
+            Chain::Bitcoin,
+            MESSAGE_TYPE_BITCOIN_PUBLIC_KEY,
+            &payload,
+        )
+        .unwrap();
+        assert_eq!(public_key, "xpub6CUGRU");
+    }
+
+    #[test]
+    fn decodes_solana_public_key_response_as_base58() {
+        let message = SolanaPublicKey {
+            public_key: vec![1, 2, 3, 4, 5],
+        };
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+
+        let public_key =
+            decode_get_public_key_response(Chain::Solana, MESSAGE_TYPE_SOLANA_PUBLIC_KEY, &payload)
+                .unwrap();
+        assert_eq!(public_key, "7bWpTW");
+    }
+
+    #[test]
     fn encodes_code_entry_challenge() {
         let challenge = vec![0x42; 32];
         let encoded = encode_code_entry_challenge(&challenge).unwrap();
@@ -627,6 +1302,93 @@ mod tests {
         let payment_req_probe =
             EthereumSignTxEip1559PaymentReqProbe::decode(encoded.payload.as_slice()).unwrap();
         assert!(payment_req_probe.payment_req.is_none());
+    }
+
+    #[test]
+    fn encodes_bitcoin_sign_tx_request() {
+        let request = SignTxRequest::bitcoin(super::super::types::BtcSignTx {
+            version: 2,
+            lock_time: 0,
+            inputs: vec![super::super::types::BtcSignInput {
+                path: vec![0x8000_002c, 0x8000_0000, 0x8000_0000, 0, 0],
+                prev_hash: vec![0x11; 32],
+                prev_index: 1,
+                amount: 1234,
+                sequence: 0xffff_fffd,
+                script_type: super::super::types::BtcInputScriptType::SpendWitness,
+            }],
+            outputs: vec![super::super::types::BtcSignOutput {
+                address: Some("bc1qtest".to_string()),
+                path: Vec::new(),
+                amount: 1000,
+                script_type: super::super::types::BtcOutputScriptType::PayToAddress,
+                op_return_data: None,
+            }],
+            chunkify: false,
+        });
+        let (encoded, offset) = encode_sign_tx_request(&request).unwrap();
+        assert_eq!(offset, 0);
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_BITCOIN_SIGN_TX);
+
+        let decoded = BitcoinSignTx::decode(encoded.payload.as_slice()).unwrap();
+        assert_eq!(decoded.inputs_count, 1);
+        assert_eq!(decoded.outputs_count, 1);
+        assert_eq!(decoded.version, Some(2));
+    }
+
+    #[test]
+    fn encodes_solana_sign_tx_request() {
+        let request = SignTxRequest::solana(
+            vec![0x8000_002c, 0x8000_01f5, 0x8000_0000, 0x8000_0000],
+            vec![0xAA, 0xBB, 0xCC],
+        );
+        let (encoded, offset) = encode_sign_tx_request(&request).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_SOLANA_SIGN_TX);
+        assert_eq!(offset, 0);
+
+        let decoded = SolanaSignTx::decode(encoded.payload.as_slice()).unwrap();
+        assert_eq!(decoded.path, request.path);
+        assert_eq!(decoded.serialized_tx, vec![0xAA, 0xBB, 0xCC]);
+    }
+
+    #[test]
+    fn decodes_solana_tx_signature_response() {
+        let message = SolanaTxSignature {
+            signature: vec![0x11; 64],
+        };
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+
+        let signature =
+            decode_solana_tx_signature(MESSAGE_TYPE_SOLANA_TX_SIGNATURE, &payload).unwrap();
+        assert_eq!(signature.len(), 64);
+        assert_eq!(signature[0], 0x11);
+    }
+
+    #[test]
+    fn decodes_bitcoin_tx_request() {
+        let request = BitcoinTxRequest {
+            request_type: Some(BitcoinTxRequestTypeProto::Input as i32),
+            details: Some(BitcoinTxRequestDetails {
+                request_index: Some(0),
+                tx_hash: None,
+                extra_data_len: None,
+                extra_data_offset: None,
+            }),
+            serialized: Some(BitcoinTxRequestSerialized {
+                signature_index: Some(0),
+                signature: Some(vec![0xAA; 64]),
+                serialized_tx: Some(vec![0xBB, 0xCC]),
+            }),
+        };
+        let mut payload = Vec::new();
+        request.encode(&mut payload).unwrap();
+
+        let decoded = decode_bitcoin_tx_request(MESSAGE_TYPE_BITCOIN_TX_REQUEST, &payload).unwrap();
+        assert_eq!(decoded.request_type, Some(BitcoinTxRequestType::TxInput));
+        assert_eq!(decoded.request_index, Some(0));
+        assert_eq!(decoded.signature_index, Some(0));
+        assert_eq!(decoded.signature.unwrap().len(), 64);
     }
 
     #[test]

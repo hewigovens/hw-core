@@ -30,6 +30,7 @@ num-traits = "0.2"
 hex = { workspace = true }
 serde_json = { workspace = true }
 ble-transport = { workspace = true, optional = true }
+bs58 = { workspace = true }
 thp-core = { workspace = true }
 thp-proto = { workspace = true }
 hw-chain = { workspace = true }

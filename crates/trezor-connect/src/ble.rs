@@ -8,6 +8,7 @@ use rand::rngs::StdRng;
 use tokio::time;
 use tracing::{debug, trace};
 
+use crate::thp::Chain;
 use crate::thp::ThpTransport;
 use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
 use crate::thp::crypto::curve25519::{
@@ -21,10 +22,13 @@ use crate::thp::crypto::{aes256gcm_decrypt, aes256gcm_encrypt, get_iv_from_nonce
 use crate::thp::messages;
 use crate::thp::proto::to_pairing_tag_response;
 use crate::thp::proto::{
-    ETH_DATA_CHUNK_SIZE, EncodedMessage, MESSAGE_TYPE_ETHEREUM_TX_REQUEST, ProtoMappingError,
-    decode_code_entry_cpace_response, decode_credential_response, decode_get_address_response,
-    decode_get_public_key_response, decode_pairing_request_approved, decode_select_method_response,
-    decode_tag_response, decode_tx_request, encode_code_entry_challenge, encode_code_entry_tag,
+    BitcoinTxRequestType, ETH_DATA_CHUNK_SIZE, EncodedMessage, MESSAGE_TYPE_BITCOIN_TX_REQUEST,
+    MESSAGE_TYPE_ETHEREUM_TX_REQUEST, MESSAGE_TYPE_SOLANA_TX_SIGNATURE, ProtoMappingError,
+    decode_bitcoin_tx_request, decode_code_entry_cpace_response, decode_credential_response,
+    decode_get_address_response, decode_get_public_key_response, decode_pairing_request_approved,
+    decode_select_method_response, decode_solana_tx_signature, decode_tag_response,
+    decode_tx_request, encode_bitcoin_tx_ack_input, encode_bitcoin_tx_ack_meta,
+    encode_bitcoin_tx_ack_output, encode_code_entry_challenge, encode_code_entry_tag,
     encode_credential_request, encode_end_request, encode_get_address_request,
     encode_get_public_key_request, encode_nfc_tag, encode_pairing_request, encode_qr_tag,
     encode_select_method, encode_sign_tx_request, encode_tx_ack,
@@ -1087,93 +1091,304 @@ impl ThpBackend for BleBackend {
 
     async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse> {
         let chain = request.chain;
-        let full_data = request.data.clone();
         let (encoded, initial_chunk_len) =
             encode_sign_tx_request(&request).map_err(Self::transport_error)?;
         self.send_encrypted_request(encoded).await?;
-        let mut data_offset = initial_chunk_len;
+        match chain {
+            Chain::Ethereum => {
+                let full_data = request.data.clone();
+                let mut data_offset = initial_chunk_len;
 
-        loop {
-            let parsed = self.read_next().await?;
-            if self.should_ack(&parsed.header) {
-                self.send_ack(&parsed.header).await?;
-            }
+                loop {
+                    let parsed = self.read_next().await?;
+                    if self.should_ack(&parsed.header) {
+                        self.send_ack(&parsed.header).await?;
+                    }
 
-            let (message_type, payload) = match parsed.response {
-                WireResponse::Protobuf { payload } => {
-                    let result = self.decrypt_device_message(&payload)?;
-                    self.state.on_receive(parsed.header.magic);
-                    result
-                }
-                WireResponse::Error(code) => {
-                    return Err(BackendError::Device(format!(
-                        "device returned error code {code}"
-                    )));
-                }
-                other => {
-                    return Err(BackendError::Transport(format!(
-                        "unexpected response type {:?}",
-                        other
-                    )));
-                }
-            };
+                    let (message_type, payload) = match parsed.response {
+                        WireResponse::Protobuf { payload } => {
+                            let result = self.decrypt_device_message(&payload)?;
+                            self.state.on_receive(parsed.header.magic);
+                            result
+                        }
+                        WireResponse::Error(code) => {
+                            return Err(BackendError::Device(format!(
+                                "device returned error code {code}"
+                            )));
+                        }
+                        other => {
+                            return Err(BackendError::Transport(format!(
+                                "unexpected response type {:?}",
+                                other
+                            )));
+                        }
+                    };
 
-            debug!(
-                "BLE THP sign_tx RX message_type={} ({}) payload_len={}",
-                message_type,
-                thp_message_name(message_type),
-                payload.len()
-            );
+                    debug!(
+                        "BLE THP sign_tx RX message_type={} ({}) payload_len={}",
+                        message_type,
+                        thp_message_name(message_type),
+                        payload.len()
+                    );
 
-            if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
-                debug!("BLE THP sign_tx: ButtonRequest; sending ButtonAck");
-                self.send_button_ack().await?;
-                continue;
-            }
+                    if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
+                        debug!("BLE THP sign_tx: ButtonRequest; sending ButtonAck");
+                        self.send_button_ack().await?;
+                        continue;
+                    }
 
-            if message_type == MESSAGE_TYPE_FAILURE {
-                return Err(BackendError::Device(decode_failure_reason(&payload)));
-            }
+                    if message_type == MESSAGE_TYPE_FAILURE {
+                        return Err(BackendError::Device(decode_failure_reason(&payload)));
+                    }
 
-            if message_type != MESSAGE_TYPE_ETHEREUM_TX_REQUEST {
-                return Err(BackendError::Transport(format!(
-                    "unexpected message type {} during sign_tx",
-                    message_type
-                )));
-            }
+                    if message_type != MESSAGE_TYPE_ETHEREUM_TX_REQUEST {
+                        return Err(BackendError::Transport(format!(
+                            "unexpected message type {} during Ethereum sign_tx",
+                            message_type
+                        )));
+                    }
 
-            let tx_request =
-                decode_tx_request(message_type, &payload).map_err(Self::transport_error)?;
-            if let (Some(v), Some(r), Some(s)) = (
-                tx_request.signature_v,
-                tx_request.signature_r,
-                tx_request.signature_s,
-            ) {
-                self.state.set_expected_responses(&[]);
-                return Ok(SignTxResponse { chain, v, r, s });
-            }
+                    let tx_request =
+                        decode_tx_request(message_type, &payload).map_err(Self::transport_error)?;
+                    if let (Some(v), Some(r), Some(s)) = (
+                        tx_request.signature_v,
+                        tx_request.signature_r,
+                        tx_request.signature_s,
+                    ) {
+                        self.state.set_expected_responses(&[]);
+                        return Ok(SignTxResponse { chain, v, r, s });
+                    }
 
-            if let Some(requested_len) = tx_request.data_length {
-                let requested_len = requested_len as usize;
-                if requested_len > 0 && data_offset >= full_data.len() {
+                    if let Some(requested_len) = tx_request.data_length {
+                        let requested_len = requested_len as usize;
+                        if requested_len > 0 && data_offset >= full_data.len() {
+                            return Err(BackendError::Transport(
+                                "device requested additional tx data beyond payload length".into(),
+                            ));
+                        }
+
+                        let chunk_len = requested_len.min(ETH_DATA_CHUNK_SIZE);
+                        let end = (data_offset + chunk_len).min(full_data.len());
+                        let chunk = &full_data[data_offset..end];
+                        data_offset = end;
+
+                        let encoded_ack = encode_tx_ack(chunk).map_err(Self::transport_error)?;
+                        self.send_encrypted_request(encoded_ack).await?;
+                        continue;
+                    }
+
                     return Err(BackendError::Transport(
-                        "device requested additional tx data beyond payload length".into(),
+                        "EthereumTxRequest has neither signature nor data_length".into(),
                     ));
                 }
-
-                let chunk_len = requested_len.min(ETH_DATA_CHUNK_SIZE);
-                let end = (data_offset + chunk_len).min(full_data.len());
-                let chunk = &full_data[data_offset..end];
-                data_offset = end;
-
-                let encoded_ack = encode_tx_ack(chunk).map_err(Self::transport_error)?;
-                self.send_encrypted_request(encoded_ack).await?;
-                continue;
             }
+            Chain::Solana => loop {
+                let parsed = self.read_next().await?;
+                if self.should_ack(&parsed.header) {
+                    self.send_ack(&parsed.header).await?;
+                }
 
-            return Err(BackendError::Transport(
-                "EthereumTxRequest has neither signature nor data_length".into(),
-            ));
+                let (message_type, payload) = match parsed.response {
+                    WireResponse::Protobuf { payload } => {
+                        let result = self.decrypt_device_message(&payload)?;
+                        self.state.on_receive(parsed.header.magic);
+                        result
+                    }
+                    WireResponse::Error(code) => {
+                        return Err(BackendError::Device(format!(
+                            "device returned error code {code}"
+                        )));
+                    }
+                    other => {
+                        return Err(BackendError::Transport(format!(
+                            "unexpected response type {:?}",
+                            other
+                        )));
+                    }
+                };
+
+                debug!(
+                    "BLE THP sign_tx RX message_type={} ({}) payload_len={}",
+                    message_type,
+                    thp_message_name(message_type),
+                    payload.len()
+                );
+
+                if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
+                    debug!("BLE THP sign_tx: ButtonRequest; sending ButtonAck");
+                    self.send_button_ack().await?;
+                    continue;
+                }
+
+                if message_type == MESSAGE_TYPE_FAILURE {
+                    return Err(BackendError::Device(decode_failure_reason(&payload)));
+                }
+
+                if message_type != MESSAGE_TYPE_SOLANA_TX_SIGNATURE {
+                    return Err(BackendError::Transport(format!(
+                        "unexpected message type {} during Solana sign_tx",
+                        message_type
+                    )));
+                }
+
+                let signature = decode_solana_tx_signature(message_type, &payload)
+                    .map_err(Self::transport_error)?;
+                self.state.set_expected_responses(&[]);
+                return Ok(SignTxResponse {
+                    chain,
+                    v: 0,
+                    r: signature,
+                    s: Vec::new(),
+                });
+            },
+            Chain::Bitcoin => {
+                let btc = request.btc.clone().ok_or_else(|| {
+                    BackendError::Transport("missing Bitcoin signing payload".into())
+                })?;
+                let mut latest_signature: Option<Vec<u8>> = None;
+
+                loop {
+                    let parsed = self.read_next().await?;
+                    if self.should_ack(&parsed.header) {
+                        self.send_ack(&parsed.header).await?;
+                    }
+
+                    let (message_type, payload) = match parsed.response {
+                        WireResponse::Protobuf { payload } => {
+                            let result = self.decrypt_device_message(&payload)?;
+                            self.state.on_receive(parsed.header.magic);
+                            result
+                        }
+                        WireResponse::Error(code) => {
+                            return Err(BackendError::Device(format!(
+                                "device returned error code {code}"
+                            )));
+                        }
+                        other => {
+                            return Err(BackendError::Transport(format!(
+                                "unexpected response type {:?}",
+                                other
+                            )));
+                        }
+                    };
+
+                    debug!(
+                        "BLE THP sign_tx RX message_type={} ({}) payload_len={}",
+                        message_type,
+                        thp_message_name(message_type),
+                        payload.len()
+                    );
+
+                    if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
+                        debug!("BLE THP sign_tx: ButtonRequest; sending ButtonAck");
+                        self.send_button_ack().await?;
+                        continue;
+                    }
+
+                    if message_type == MESSAGE_TYPE_FAILURE {
+                        return Err(BackendError::Device(decode_failure_reason(&payload)));
+                    }
+
+                    if message_type != MESSAGE_TYPE_BITCOIN_TX_REQUEST {
+                        return Err(BackendError::Transport(format!(
+                            "unexpected message type {} during Bitcoin sign_tx",
+                            message_type
+                        )));
+                    }
+
+                    let tx_request = decode_bitcoin_tx_request(message_type, &payload)
+                        .map_err(Self::transport_error)?;
+                    if let Some(signature) = tx_request.signature {
+                        latest_signature = Some(signature);
+                    }
+
+                    match tx_request.request_type {
+                        Some(BitcoinTxRequestType::TxInput) => {
+                            if tx_request.tx_hash.is_some() {
+                                return Err(BackendError::Transport(
+                                    "previous-transaction input requests are not implemented yet"
+                                        .into(),
+                                ));
+                            }
+                            let index = tx_request.request_index.ok_or_else(|| {
+                                BackendError::Transport(
+                                    "TxInput request missing request_index".into(),
+                                )
+                            })? as usize;
+                            let input = btc.inputs.get(index).ok_or_else(|| {
+                                BackendError::Transport(format!(
+                                    "TxInput request index {} out of bounds (inputs={})",
+                                    index,
+                                    btc.inputs.len()
+                                ))
+                            })?;
+                            let ack = encode_bitcoin_tx_ack_input(input)
+                                .map_err(Self::transport_error)?;
+                            self.send_encrypted_request(ack).await?;
+                        }
+                        Some(BitcoinTxRequestType::TxOutput) => {
+                            if tx_request.tx_hash.is_some() {
+                                return Err(BackendError::Transport(
+                                    "previous-transaction output requests are not implemented yet"
+                                        .into(),
+                                ));
+                            }
+                            let index = tx_request.request_index.ok_or_else(|| {
+                                BackendError::Transport(
+                                    "TxOutput request missing request_index".into(),
+                                )
+                            })? as usize;
+                            let output = btc.outputs.get(index).ok_or_else(|| {
+                                BackendError::Transport(format!(
+                                    "TxOutput request index {} out of bounds (outputs={})",
+                                    index,
+                                    btc.outputs.len()
+                                ))
+                            })?;
+                            let ack = encode_bitcoin_tx_ack_output(output)
+                                .map_err(Self::transport_error)?;
+                            self.send_encrypted_request(ack).await?;
+                        }
+                        Some(BitcoinTxRequestType::TxMeta) => {
+                            if tx_request.tx_hash.is_some() {
+                                return Err(BackendError::Transport(
+                                    "previous-transaction metadata requests are not implemented yet"
+                                        .into(),
+                                ));
+                            }
+                            let ack = encode_bitcoin_tx_ack_meta(
+                                btc.version,
+                                btc.lock_time,
+                                btc.inputs.len(),
+                                btc.outputs.len(),
+                            )
+                            .map_err(Self::transport_error)?;
+                            self.send_encrypted_request(ack).await?;
+                        }
+                        Some(BitcoinTxRequestType::TxFinished) => {
+                            self.state.set_expected_responses(&[]);
+                            return Ok(SignTxResponse {
+                                chain,
+                                v: 0,
+                                r: latest_signature.unwrap_or_default(),
+                                s: Vec::new(),
+                            });
+                        }
+                        Some(BitcoinTxRequestType::TxExtraData)
+                        | Some(BitcoinTxRequestType::TxOrigInput)
+                        | Some(BitcoinTxRequestType::TxOrigOutput)
+                        | Some(BitcoinTxRequestType::TxPaymentReq) => {
+                            return Err(BackendError::Transport(
+                                "advanced Bitcoin tx request type is not implemented yet".into(),
+                            ));
+                        }
+                        None => {
+                            // Some responses carry only serialized/signature progress.
+                            continue;
+                        }
+                    }
+                }
+            }
         }
     }
 

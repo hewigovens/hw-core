@@ -6,12 +6,16 @@ use std::time::Duration;
 use ble_transport::{BleManager, BleProfile, BleSession, DeviceInfo, DiscoveredDevice};
 use hw_wallet::bip32::parse_bip32_path;
 use hw_wallet::ble::{
-    SessionBootstrapOptions, SessionPhase as WalletSessionPhase, advance_to_paired,
-    advance_to_ready, backend_from_session, connect_and_prepare_workflow, connect_trezor_device,
+    SessionBootstrapOptions, SessionPhase as WalletSessionPhase, advance_session_bootstrap,
+    advance_to_paired, backend_from_session, connect_and_bootstrap_session, connect_trezor_device,
     scan_trezor, session_phase, session_state as build_session_state, workflow as new_workflow,
     workflow_with_storage,
 };
+use hw_wallet::btc::{
+    build_sign_tx_request as build_btc_sign_tx_request, parse_tx_json as parse_btc_tx_json,
+};
 use hw_wallet::eth::{TxAccessListInput, TxInput, build_sign_tx_request, verify_sign_tx_response};
+use hw_wallet::hex::decode as decode_hex;
 use parking_lot::Mutex;
 use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tokio::time::timeout;
@@ -220,35 +224,45 @@ where
 fn map_sign_tx_request(
     request: SignTxRequest,
 ) -> Result<trezor_connect::thp::SignTxRequest, HWCoreError> {
-    if request.chain != crate::types::Chain::Ethereum {
-        return Err(HWCoreError::Validation(
-            "sign_tx currently supports only Ethereum".to_string(),
-        ));
+    match request.chain {
+        crate::types::Chain::Ethereum => {
+            let path = parse_bip32_path(&request.path).map_err(HWCoreError::from)?;
+            let tx = TxInput {
+                to: request.to,
+                value: request.value,
+                nonce: request.nonce,
+                gas_limit: request.gas_limit,
+                chain_id: request.chain_id,
+                data: request.data,
+                max_fee_per_gas: request.max_fee_per_gas,
+                max_priority_fee: request.max_priority_fee,
+                access_list: request
+                    .access_list
+                    .into_iter()
+                    .map(|entry: AccessListEntry| TxAccessListInput {
+                        address: entry.address,
+                        storage_keys: entry.storage_keys,
+                    })
+                    .collect(),
+            };
+
+            let mut sign_request = build_sign_tx_request(path, tx).map_err(HWCoreError::from)?;
+            sign_request.chunkify = request.chunkify;
+            Ok(sign_request)
+        }
+        crate::types::Chain::Solana => {
+            let path = parse_bip32_path(&request.path).map_err(HWCoreError::from)?;
+            let serialized_tx = decode_hex(&request.data).map_err(HWCoreError::from)?;
+            Ok(trezor_connect::thp::SignTxRequest::solana(
+                path,
+                serialized_tx,
+            ))
+        }
+        crate::types::Chain::Bitcoin => {
+            let tx = parse_btc_tx_json(&request.data).map_err(HWCoreError::from)?;
+            build_btc_sign_tx_request(tx).map_err(HWCoreError::from)
+        }
     }
-
-    let path = parse_bip32_path(&request.path).map_err(HWCoreError::from)?;
-    let tx = TxInput {
-        to: request.to,
-        value: request.value,
-        nonce: request.nonce,
-        gas_limit: request.gas_limit,
-        chain_id: request.chain_id,
-        data: request.data,
-        max_fee_per_gas: request.max_fee_per_gas,
-        max_priority_fee: request.max_priority_fee,
-        access_list: request
-            .access_list
-            .into_iter()
-            .map(|entry: AccessListEntry| TxAccessListInput {
-                address: entry.address,
-                storage_keys: entry.storage_keys,
-            })
-            .collect(),
-    };
-
-    let mut sign_request = build_sign_tx_request(path, tx).map_err(HWCoreError::from)?;
-    sign_request.chunkify = request.chunkify;
-    Ok(sign_request)
 }
 
 async fn sign_tx_for_workflow<B>(
@@ -363,7 +377,7 @@ impl BleDiscoveredDevice {
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
         let device = self.take_device()?;
         let storage = storage_path.map(storage_from_path).transpose()?;
-        let workflow = connect_and_prepare_workflow(
+        let workflow = connect_and_bootstrap_session(
             device,
             self.profile,
             config.into(),
@@ -516,7 +530,8 @@ mod tests {
     use std::collections::VecDeque;
 
     use super::{
-        get_address_for_workflow, pairing_confirm_connection_for_workflow, pairing_start_for_state,
+        get_address_for_workflow, map_get_address_request, map_sign_tx_request,
+        pairing_confirm_connection_for_workflow, pairing_start_for_state,
         pairing_submit_code_for_workflow, sign_tx_for_workflow,
     };
     use trezor_connect::thp::backend::{BackendError, BackendResult, ThpBackend};
@@ -709,10 +724,16 @@ mod tests {
             &mut self,
             request: trezor_connect::thp::GetAddressRequest,
         ) -> BackendResult<GetAddressResponse> {
+            let chain = request.chain;
+            let address = match chain {
+                Chain::Ethereum => "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE",
+                Chain::Bitcoin => "bc1qexample000000000000000000000000000000",
+                Chain::Solana => "So11111111111111111111111111111111111111112",
+            };
             self.last_get_address_request = Some(request);
             Ok(GetAddressResponse {
-                chain: Chain::Ethereum,
-                address: "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE".into(),
+                chain,
+                address: address.into(),
                 mac: Some(vec![0xAA; 32]),
                 public_key: Some("xpub-test".into()),
             })
@@ -857,6 +878,68 @@ mod tests {
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0]
         );
     }
+
+    #[test]
+    fn get_address_request_maps_solana_chain() {
+        let mapped = map_get_address_request(GetAddressRequest {
+            chain: Chain::Solana,
+            path: "m/44'/501'/0'/0'".into(),
+            show_on_device: false,
+            include_public_key: true,
+            chunkify: true,
+        })
+        .expect("map request");
+        assert_eq!(mapped.chain, Chain::Solana);
+        assert_eq!(
+            mapped.path,
+            vec![0x8000_002c, 0x8000_01f5, 0x8000_0000, 0x8000_0000]
+        );
+        assert!(!mapped.show_display);
+        assert!(mapped.include_public_key);
+        assert!(mapped.chunkify);
+    }
+
+    #[test]
+    fn sign_tx_request_maps_solana_chain() {
+        let mapped = map_sign_tx_request(FfiSignTxRequest {
+            chain: Chain::Solana,
+            path: "m/44'/501'/0'/0'".into(),
+            to: String::new(),
+            value: "0x0".into(),
+            nonce: "0x0".into(),
+            gas_limit: "0x0".into(),
+            chain_id: 0,
+            data: "0x010203".into(),
+            max_fee_per_gas: "0x0".into(),
+            max_priority_fee: "0x0".into(),
+            access_list: Vec::new(),
+            chunkify: false,
+        })
+        .expect("solana request should map");
+        assert_eq!(mapped.chain, Chain::Solana);
+        assert_eq!(mapped.data, vec![0x01, 0x02, 0x03]);
+    }
+
+    #[test]
+    fn sign_tx_request_maps_bitcoin_chain() {
+        let mapped = map_sign_tx_request(FfiSignTxRequest {
+            chain: Chain::Bitcoin,
+            path: String::new(),
+            to: String::new(),
+            value: "0x0".into(),
+            nonce: "0x0".into(),
+            gas_limit: "0x0".into(),
+            chain_id: 0,
+            data: "{\"inputs\":[{\"path\":\"m/84'/0'/0'/0/0\",\"prev_hash\":\"0x1111111111111111111111111111111111111111111111111111111111111111\",\"prev_index\":0,\"amount\":\"1000\"}],\"outputs\":[{\"address\":\"bc1qexample0000000000000000000000000000000000\",\"amount\":\"900\"}]}".into(),
+            max_fee_per_gas: "0x0".into(),
+            max_priority_fee: "0x0".into(),
+            access_list: Vec::new(),
+            chunkify: false,
+        })
+        .expect("bitcoin request should map");
+        assert_eq!(mapped.chain, Chain::Bitcoin);
+        assert!(mapped.btc.is_some());
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -940,7 +1023,7 @@ impl BleWorkflowHandle {
         };
 
         let mut workflow = self.workflow.lock().await;
-        let result = advance_to_ready(&mut workflow, &mut ready, &options).await;
+        let result = advance_session_bootstrap(&mut workflow, &mut ready, &options).await;
         let mapped = match result {
             Ok(phase) => {
                 let prompt_message = if matches!(phase, WalletSessionPhase::NeedsPairingCode) {

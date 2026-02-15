@@ -244,6 +244,24 @@ pub fn canned_eth_sign_response() -> SignTxResponse {
     }
 }
 
+pub fn canned_sol_sign_response() -> SignTxResponse {
+    SignTxResponse {
+        chain: Chain::Solana,
+        v: 0,
+        r: vec![0xCC; 64],
+        s: Vec::new(),
+    }
+}
+
+pub fn canned_btc_sign_response() -> SignTxResponse {
+    SignTxResponse {
+        chain: Chain::Bitcoin,
+        v: 0,
+        r: vec![0xDD; 64],
+        s: Vec::new(),
+    }
+}
+
 pub fn default_test_host_config() -> HostConfig {
     let mut config = HostConfig::new("test-host", "hw-core/cli");
     config.pairing_methods = vec![PairingMethod::CodeEntry];

@@ -5,30 +5,24 @@ use anyhow::{Context, Result, bail};
 use ble_transport::BleManager;
 use hw_wallet::WalletError;
 use hw_wallet::ble::{
-    SessionBootstrapOptions, SessionPhase, advance_to_ready, backend_from_session,
+    SessionBootstrapOptions, SessionPhase, advance_session_bootstrap, backend_from_session,
     connect_trezor_device, scan_profile_until_match, trezor_profile, workflow_with_storage,
 };
 use hw_wallet::chain::{Chain, ResolvedDerivationPath, resolve_derivation_path};
 use tokio::time::timeout;
 use tracing::{debug, info};
 use trezor_connect::thp::{
-    Chain as ThpChain, FileStorage, GetAddressRequest, HostConfig,
-    PairingMethod as ThpPairingMethod, ThpBackend, ThpWorkflow,
+    FileStorage, GetAddressRequest, HostConfig, PairingMethod as ThpPairingMethod, ThpBackend,
+    ThpWorkflow,
 };
 
-use crate::cli::{AddressArgs, DEFAULT_ETH_BIP32_PATH};
+use crate::cli::AddressArgs;
 use crate::commands::common::select_device;
 use crate::config::{default_host_name, default_storage_path};
 use crate::pairing::CliPairingController;
 
 pub async fn run(args: AddressArgs) -> Result<()> {
     let resolved = ResolvedAddressTarget::from_args(&args)?;
-    if resolved.chain == Chain::Bitcoin {
-        bail!(
-            "BTC address flow is not implemented yet. Try `address --chain eth` or `address --path {}`.",
-            DEFAULT_ETH_BIP32_PATH
-        );
-    }
     info!(
         "address command started: chain={:?} path='{}' scan_timeout_secs={} thp_timeout_secs={} show_on_device={} include_public_key={} chunkify={}",
         resolved.chain,
@@ -118,7 +112,7 @@ pub async fn run(args: AddressArgs) -> Result<()> {
         derive_cardano: false,
     };
     loop {
-        let step = advance_to_ready(&mut workflow, &mut session_ready, &options)
+        let step = advance_session_bootstrap(&mut workflow, &mut session_ready, &options)
             .await
             .context("failed to prepare authenticated wallet session")?;
         match step {
@@ -138,6 +132,7 @@ pub async fn run(args: AddressArgs) -> Result<()> {
     println!("Requesting {:?} address from device...", resolved.chain);
     let response = get_address_with_workflow(
         &mut workflow,
+        resolved.chain,
         resolved.path_indices.clone(),
         args.show_on_device,
         args.include_public_key,
@@ -145,8 +140,12 @@ pub async fn run(args: AddressArgs) -> Result<()> {
     )
     .await?;
 
-    if response.chain != ThpChain::Ethereum {
-        bail!("unexpected response chain");
+    if response.chain != resolved.chain {
+        bail!(
+            "unexpected response chain: expected {:?}, got {:?}",
+            resolved.chain,
+            response.chain
+        );
     }
 
     println!("Address: {}", response.address);
@@ -162,6 +161,7 @@ pub async fn run(args: AddressArgs) -> Result<()> {
 
 async fn get_address_with_workflow<B>(
     workflow: &mut ThpWorkflow<B>,
+    chain: Chain,
     path_indices: Vec<u32>,
     show_on_device: bool,
     include_public_key: bool,
@@ -170,7 +170,7 @@ async fn get_address_with_workflow<B>(
 where
     B: ThpBackend + Send,
 {
-    let request = GetAddressRequest::ethereum(path_indices)
+    let request = build_get_address_request(chain, path_indices)
         .with_show_display(show_on_device)
         .with_chunkify(chunkify)
         .with_include_public_key(include_public_key);
@@ -178,6 +178,14 @@ where
         .get_address(request)
         .await
         .context("get-address failed")
+}
+
+fn build_get_address_request(chain: Chain, path_indices: Vec<u32>) -> GetAddressRequest {
+    match chain {
+        Chain::Ethereum => GetAddressRequest::ethereum(path_indices),
+        Chain::Bitcoin => GetAddressRequest::bitcoin(path_indices),
+        Chain::Solana => GetAddressRequest::solana(path_indices),
+    }
 }
 
 #[derive(Debug)]
@@ -211,7 +219,9 @@ mod tests {
     use crate::commands::test_support::{
         MockBackend, canned_eth_address_response, default_test_host_config,
     };
-    use hw_wallet::chain::DEFAULT_BTC_BIP32_PATH;
+    use hw_wallet::chain::{
+        DEFAULT_BTC_BIP32_PATH, DEFAULT_ETH_BIP32_PATH, DEFAULT_SOL_BIP32_PATH,
+    };
     use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
 
     fn args(chain: Option<Chain>, path: Option<&str>) -> AddressArgs {
@@ -245,6 +255,13 @@ mod tests {
     }
 
     #[test]
+    fn defaults_to_sol_path_when_chain_is_sol() {
+        let resolved = ResolvedAddressTarget::from_args(&args(Some(Chain::Solana), None)).unwrap();
+        assert_eq!(resolved.chain, Chain::Solana);
+        assert_eq!(resolved.path, DEFAULT_SOL_BIP32_PATH);
+    }
+
+    #[test]
     fn infers_chain_from_eth_path() {
         let resolved =
             ResolvedAddressTarget::from_args(&args(None, Some("m/44'/60'/0'/0/0"))).unwrap();
@@ -269,7 +286,7 @@ mod tests {
         let mut workflow = ThpWorkflow::new(backend, config);
 
         let mut session_ready = false;
-        let step = advance_to_ready(
+        let step = advance_session_bootstrap(
             &mut workflow,
             &mut session_ready,
             &SessionBootstrapOptions {
@@ -285,6 +302,7 @@ mod tests {
         assert_eq!(step, SessionPhase::Ready);
         let response = get_address_with_workflow(
             &mut workflow,
+            Chain::Ethereum,
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0],
             true,
             true,

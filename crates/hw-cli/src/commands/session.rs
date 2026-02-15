@@ -1,9 +1,13 @@
 use anyhow::{Context, Result, bail};
 use hw_wallet::bip32::parse_bip32_path;
+use hw_wallet::btc::{
+    build_sign_tx_request as build_btc_sign_tx_request, parse_tx_json as parse_btc_tx_json,
+};
 use hw_wallet::chain::{
-    CHAIN_BTC, CHAIN_ETH, Chain, infer_chain_from_path as infer_chain_from_path_wallet,
+    CHAIN_BTC, CHAIN_ETH, CHAIN_SOL, Chain, infer_chain_from_path as infer_chain_from_path_wallet,
 };
 use hw_wallet::eth::{build_sign_tx_request, parse_tx_json, verify_sign_tx_response};
+use hw_wallet::hex::decode as decode_hex;
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
@@ -13,8 +17,6 @@ use rustyline::validate::Validator;
 use rustyline::{Context as ReadlineContext, Editor, Helper};
 use trezor_connect::thp::{GetAddressRequest, ThpBackend, ThpWorkflow};
 
-use crate::cli::DEFAULT_ETH_BIP32_PATH;
-
 const COMMAND_ADDRESS: &str = "address";
 const COMMAND_SIGN: &str = "sign";
 
@@ -22,6 +24,7 @@ const ROOT_COMMANDS: &[&str] = &["help", COMMAND_ADDRESS, COMMAND_SIGN, "exit", 
 const ADDRESS_TOKENS: &[&str] = &[
     CHAIN_ETH,
     CHAIN_BTC,
+    CHAIN_SOL,
     "--chain",
     "--path",
     "--show-on-device",
@@ -29,8 +32,8 @@ const ADDRESS_TOKENS: &[&str] = &[
     "--include-public-key",
     "--chunkify",
 ];
-const CHAIN_VALUES: &[&str] = &[CHAIN_ETH, CHAIN_BTC];
-const SIGN_TOKENS: &[&str] = &[CHAIN_ETH, "--path", "--tx"];
+const CHAIN_VALUES: &[&str] = &[CHAIN_ETH, CHAIN_BTC, CHAIN_SOL];
+const SIGN_TOKENS: &[&str] = &[CHAIN_ETH, CHAIN_BTC, CHAIN_SOL, "--path", "--tx"];
 
 #[derive(Clone, Default)]
 struct ReplHelper;
@@ -62,7 +65,7 @@ where
 {
     println!("Interactive session started.");
     println!(
-        "Commands: help | address [--chain <eth|btc>] [--path <bip32>] [--hide-on-device] [--include-public-key] [--chunkify] | sign eth --path <bip32> --tx <json|@file> | exit"
+        "Commands: help | address [--chain <eth|btc|sol>] [--path <bip32>] [--hide-on-device] [--include-public-key] [--chunkify] | sign <eth|btc|sol> --path <bip32> --tx <json|@file|0x...> | exit"
     );
 
     let mut editor = build_editor()?;
@@ -82,9 +85,9 @@ where
                 }
                 if line.eq_ignore_ascii_case("help") {
                     println!(
-                        "address [--chain <eth|btc>] [--path <bip32>] [--hide-on-device] [--include-public-key] [--chunkify]"
+                        "address [--chain <eth|btc|sol>] [--path <bip32>] [--hide-on-device] [--include-public-key] [--chunkify]"
                     );
-                    println!("sign eth --path <bip32> --tx <json|@file>");
+                    println!("sign <eth|btc|sol> --path <bip32> --tx <json|@file|0x...>");
                     println!("exit");
                     continue;
                 }
@@ -144,7 +147,8 @@ fn completion_candidates(line: &str, pos: usize) -> Vec<&'static str> {
 
     if words[0] == COMMAND_SIGN {
         if words.last().copied() == Some("--path") && trailing_whitespace {
-            return vec![DEFAULT_ETH_BIP32_PATH];
+            let chain = detect_selected_chain(&words).unwrap_or(Chain::Ethereum);
+            return vec![default_path_for_chain(chain)];
         }
         if words.len() >= 2 && words[words.len() - 2] == "--path" && !trailing_whitespace {
             return Vec::new();
@@ -222,6 +226,7 @@ where
         match parts[i] {
             CHAIN_ETH => chain = Some(Chain::Ethereum),
             CHAIN_BTC => chain = Some(Chain::Bitcoin),
+            CHAIN_SOL => chain = Some(Chain::Solana),
             "--chain" => {
                 i += 1;
                 let value = parts
@@ -271,16 +276,9 @@ where
         }
     };
 
-    if chain == Chain::Bitcoin {
-        bail!(
-            "BTC address flow is not implemented yet. Use --chain eth or --path {}.",
-            DEFAULT_ETH_BIP32_PATH
-        );
-    }
-
     let path_indices = parse_bip32_path(path)?;
 
-    let request = GetAddressRequest::ethereum(path_indices)
+    let request = build_get_address_request(chain, path_indices)
         .with_show_display(show_on_device)
         .with_include_public_key(include_public_key)
         .with_chunkify(chunkify);
@@ -304,9 +302,12 @@ async fn handle_sign<B>(workflow: &mut ThpWorkflow<B>, parts: &[&str]) -> Result
 where
     B: ThpBackend + Send,
 {
-    if parts.get(1).copied() != Some(CHAIN_ETH) {
-        bail!("only 'sign eth' is supported");
-    }
+    let sign_chain = match parts.get(1).copied() {
+        Some(CHAIN_ETH) => Chain::Ethereum,
+        Some(CHAIN_BTC) => Chain::Bitcoin,
+        Some(CHAIN_SOL) => Chain::Solana,
+        _ => bail!("only 'sign eth', 'sign btc', and 'sign sol' are supported"),
+    };
 
     let mut path: Option<&str> = None;
     let mut tx_json: Option<String> = None;
@@ -334,7 +335,6 @@ where
         i += 1;
     }
 
-    let path = path.ok_or_else(|| anyhow::anyhow!("--path is required"))?;
     let tx_json = tx_json.ok_or_else(|| anyhow::anyhow!("--tx is required"))?;
     let tx_json = if let Some(tx_path) = tx_json.strip_prefix('@') {
         std::fs::read_to_string(tx_path).with_context(|| format!("reading tx file: {tx_path}"))?
@@ -342,21 +342,41 @@ where
         tx_json
     };
 
-    let path_indices = parse_bip32_path(path)?;
-    let tx = parse_tx_json(&tx_json).context("failed to parse tx JSON")?;
-    let request =
-        build_sign_tx_request(path_indices, tx).context("failed to build sign request")?;
-    let response = workflow
-        .sign_tx(request.clone())
-        .await
-        .context("sign-tx failed")?;
+    match sign_chain {
+        Chain::Ethereum => {
+            let path = path.ok_or_else(|| anyhow::anyhow!("--path is required"))?;
+            let path_indices = parse_bip32_path(path)?;
+            let tx = parse_tx_json(&tx_json).context("failed to parse tx JSON")?;
+            let request =
+                build_sign_tx_request(path_indices, tx).context("failed to build sign request")?;
+            let response = workflow
+                .sign_tx(request.clone())
+                .await
+                .context("sign-tx failed")?;
 
-    println!("v: {}", response.v);
-    println!("r: 0x{}", hex::encode(&response.r));
-    println!("s: 0x{}", hex::encode(&response.s));
-    if let Ok(verification) = verify_sign_tx_response(&request, &response) {
-        println!("tx_hash: 0x{}", hex::encode(verification.tx_hash));
-        println!("recovered_address: {}", verification.recovered_address);
+            println!("v: {}", response.v);
+            println!("r: 0x{}", hex::encode(&response.r));
+            println!("s: 0x{}", hex::encode(&response.s));
+            if let Ok(verification) = verify_sign_tx_response(&request, &response) {
+                println!("tx_hash: 0x{}", hex::encode(verification.tx_hash));
+                println!("recovered_address: {}", verification.recovered_address);
+            }
+        }
+        Chain::Bitcoin => {
+            let tx = parse_btc_tx_json(&tx_json).context("failed to parse btc tx JSON")?;
+            let request =
+                build_btc_sign_tx_request(tx).context("failed to build BTC sign request")?;
+            let response = workflow.sign_tx(request).await.context("sign-tx failed")?;
+            println!("signature: 0x{}", hex::encode(&response.r));
+        }
+        Chain::Solana => {
+            let path = path.ok_or_else(|| anyhow::anyhow!("--path is required"))?;
+            let path_indices = parse_bip32_path(path)?;
+            let serialized_tx = decode_hex(&tx_json).context("failed to decode Solana tx bytes")?;
+            let request = trezor_connect::thp::SignTxRequest::solana(path_indices, serialized_tx);
+            let response = workflow.sign_tx(request).await.context("sign-tx failed")?;
+            println!("signature: 0x{}", hex::encode(&response.r));
+        }
     }
     Ok(())
 }
@@ -380,6 +400,7 @@ fn detect_selected_chain(words: &[&str]) -> Option<Chain> {
         match words[i] {
             CHAIN_ETH => chain = Some(Chain::Ethereum),
             CHAIN_BTC => chain = Some(Chain::Bitcoin),
+            CHAIN_SOL => chain = Some(Chain::Solana),
             "--chain" => {
                 if let Some(value) = words.get(i + 1).copied() {
                     chain = parse_chain(value).ok();
@@ -393,14 +414,22 @@ fn detect_selected_chain(words: &[&str]) -> Option<Chain> {
     chain
 }
 
+fn build_get_address_request(chain: Chain, path: Vec<u32>) -> GetAddressRequest {
+    match chain {
+        Chain::Ethereum => GetAddressRequest::ethereum(path),
+        Chain::Bitcoin => GetAddressRequest::bitcoin(path),
+        Chain::Solana => GetAddressRequest::solana(path),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::commands::test_support::{
-        MockBackend, canned_eth_address_response, canned_eth_sign_response,
-        default_test_host_config,
+        MockBackend, canned_btc_sign_response, canned_eth_address_response,
+        canned_eth_sign_response, canned_sol_sign_response, default_test_host_config,
     };
-    use hw_wallet::chain::DEFAULT_BTC_BIP32_PATH;
+    use hw_wallet::chain::{DEFAULT_BTC_BIP32_PATH, DEFAULT_SOL_BIP32_PATH};
     use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
 
     fn replacements(line: &str, pos: usize) -> Vec<String> {
@@ -419,6 +448,7 @@ mod tests {
         let suggestions = replacements("address ", "address ".len());
         assert!(suggestions.contains(&"--chain".to_string()));
         assert!(suggestions.contains(&"eth".to_string()));
+        assert!(suggestions.contains(&"sol".to_string()));
     }
 
     #[test]
@@ -430,7 +460,10 @@ mod tests {
     #[test]
     fn path_completion_suggests_default_eth_path() {
         let suggestions = replacements("address --path ", "address --path ".len());
-        assert_eq!(suggestions, vec![DEFAULT_ETH_BIP32_PATH.to_string()]);
+        assert_eq!(
+            suggestions,
+            vec![hw_wallet::chain::DEFAULT_ETH_BIP32_PATH.to_string()]
+        );
     }
 
     #[test]
@@ -443,10 +476,33 @@ mod tests {
     }
 
     #[test]
+    fn path_completion_suggests_default_sol_path_when_chain_selected() {
+        let suggestions = replacements(
+            "address --chain sol --path ",
+            "address --chain sol --path ".len(),
+        );
+        assert_eq!(suggestions, vec![DEFAULT_SOL_BIP32_PATH.to_string()]);
+    }
+
+    #[test]
     fn sign_completion_suggests_flags() {
         let suggestions = replacements("sign --", "sign --".len());
         assert!(suggestions.contains(&"--path".to_string()));
         assert!(suggestions.contains(&"--tx".to_string()));
+    }
+
+    #[test]
+    fn sign_completion_suggests_chain_values() {
+        let suggestions = replacements("sign ", "sign ".len());
+        assert!(suggestions.contains(&"eth".to_string()));
+        assert!(suggestions.contains(&"btc".to_string()));
+        assert!(suggestions.contains(&"sol".to_string()));
+    }
+
+    #[test]
+    fn sign_path_completion_suggests_default_sol_path() {
+        let suggestions = replacements("sign sol --path ", "sign sol --path ".len());
+        assert_eq!(suggestions, vec![DEFAULT_SOL_BIP32_PATH.to_string()]);
     }
 
     #[tokio::test]
@@ -482,6 +538,56 @@ mod tests {
         assert_eq!(
             backend.last_sign_tx_request.as_ref().unwrap().chain,
             ThpChain::Ethereum
+        );
+    }
+
+    #[tokio::test]
+    async fn interactive_sign_sol_uses_solana_chain() {
+        let config = default_test_host_config();
+        let backend = MockBackend::autopaired(b"session-sol-test")
+            .with_sign_tx_response(canned_sol_sign_response());
+        let mut workflow = ThpWorkflow::new(backend, config);
+
+        workflow.create_channel().await.unwrap();
+        workflow.handshake(false).await.unwrap();
+
+        handle_line(
+            &mut workflow,
+            "sign sol --path m/44'/501'/0'/0' --tx 0x010203",
+        )
+        .await
+        .unwrap();
+
+        let backend = workflow.backend_mut();
+        assert_eq!(backend.counters.sign_tx_calls, 1);
+        assert_eq!(
+            backend.last_sign_tx_request.as_ref().unwrap().chain,
+            ThpChain::Solana
+        );
+    }
+
+    #[tokio::test]
+    async fn interactive_sign_btc_uses_bitcoin_chain() {
+        let config = default_test_host_config();
+        let backend = MockBackend::autopaired(b"session-btc-test")
+            .with_sign_tx_response(canned_btc_sign_response());
+        let mut workflow = ThpWorkflow::new(backend, config);
+
+        workflow.create_channel().await.unwrap();
+        workflow.handshake(false).await.unwrap();
+
+        handle_line(
+            &mut workflow,
+            "sign btc --tx {\"inputs\":[{\"path\":\"m/84'/0'/0'/0/0\",\"prev_hash\":\"0x1111111111111111111111111111111111111111111111111111111111111111\",\"prev_index\":0,\"amount\":\"1000\"}],\"outputs\":[{\"address\":\"bc1qexample0000000000000000000000000000000000\",\"amount\":\"900\"}]}",
+        )
+        .await
+        .unwrap();
+
+        let backend = workflow.backend_mut();
+        assert_eq!(backend.counters.sign_tx_calls, 1);
+        assert_eq!(
+            backend.last_sign_tx_request.as_ref().unwrap().chain,
+            ThpChain::Bitcoin
         );
     }
 }

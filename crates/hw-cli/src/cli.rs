@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use hw_wallet::chain::Chain;
 
-pub const DEFAULT_ETH_BIP32_PATH: &str = hw_wallet::chain::DEFAULT_ETH_BIP32_PATH;
-
 #[derive(Parser, Debug)]
 #[command(name = "hw-cli")]
 #[command(about = "Interactive Trezor Safe 7 CLI over BLE")]
@@ -58,7 +56,7 @@ pub struct PairArgs {
 
 #[derive(Args, Debug)]
 pub struct AddressArgs {
-    #[arg(long, value_name = "eth|btc", value_parser = parse_chain_arg)]
+    #[arg(long, value_name = "eth|btc|sol", value_parser = parse_chain_arg)]
     pub chain: Option<Chain>,
     #[arg(long)]
     pub path: Option<String>,
@@ -91,10 +89,50 @@ pub struct SignArgs {
 #[derive(Subcommand, Debug)]
 pub enum SignCommand {
     Eth(SignEthArgs),
+    Btc(SignBtcArgs),
+    Sol(SignSolArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct SignEthArgs {
+    #[arg(long)]
+    pub path: String,
+    #[arg(long)]
+    pub tx: String,
+    #[arg(long, alias = "duration-secs", default_value_t = 60)]
+    pub timeout_secs: u64,
+    #[arg(long, default_value_t = 60)]
+    pub thp_timeout_secs: u64,
+    #[arg(long)]
+    pub device_id: Option<String>,
+    #[arg(long)]
+    pub storage_path: Option<PathBuf>,
+    #[arg(long)]
+    pub host_name: Option<String>,
+    #[arg(long, default_value = "hw-core/cli")]
+    pub app_name: String,
+}
+
+#[derive(Args, Debug)]
+pub struct SignBtcArgs {
+    #[arg(long)]
+    pub tx: String,
+    #[arg(long, alias = "duration-secs", default_value_t = 60)]
+    pub timeout_secs: u64,
+    #[arg(long, default_value_t = 60)]
+    pub thp_timeout_secs: u64,
+    #[arg(long)]
+    pub device_id: Option<String>,
+    #[arg(long)]
+    pub storage_path: Option<PathBuf>,
+    #[arg(long)]
+    pub host_name: Option<String>,
+    #[arg(long, default_value = "hw-core/cli")]
+    pub app_name: String,
+}
+
+#[derive(Args, Debug)]
+pub struct SignSolArgs {
     #[arg(long)]
     pub path: String,
     #[arg(long)]
@@ -202,8 +240,17 @@ mod tests {
     }
 
     #[test]
+    fn address_accepts_solana_chain_value() {
+        let cli = Cli::parse_from(["hw-cli", "address", "--chain", "sol"]);
+        let Command::Address(args) = cli.command else {
+            panic!("expected address command");
+        };
+        assert_eq!(args.chain, Some(Chain::Solana));
+    }
+
+    #[test]
     fn address_rejects_unsupported_chain_value() {
-        let result = Cli::try_parse_from(["hw-cli", "address", "--chain", "sol"]);
+        let result = Cli::try_parse_from(["hw-cli", "address", "--chain", "doge"]);
         assert!(result.is_err());
     }
 
@@ -221,7 +268,53 @@ mod tests {
         let Command::Sign(args) = cli.command else {
             panic!("expected sign command");
         };
-        let SignCommand::Eth(args) = args.command;
+        let SignCommand::Eth(args) = args.command else {
+            panic!("expected sign eth command");
+        };
+
+        assert_eq!(args.timeout_secs, 60);
+        assert_eq!(args.thp_timeout_secs, 60);
+        assert_eq!(args.app_name, "hw-core/cli");
+    }
+
+    #[test]
+    fn sign_sol_defaults() {
+        let cli = Cli::parse_from([
+            "hw-cli",
+            "sign",
+            "sol",
+            "--path",
+            "m/44'/501'/0'/0'",
+            "--tx",
+            "0x010203",
+        ]);
+        let Command::Sign(args) = cli.command else {
+            panic!("expected sign command");
+        };
+        let SignCommand::Sol(args) = args.command else {
+            panic!("expected sign sol command");
+        };
+
+        assert_eq!(args.timeout_secs, 60);
+        assert_eq!(args.thp_timeout_secs, 60);
+        assert_eq!(args.app_name, "hw-core/cli");
+    }
+
+    #[test]
+    fn sign_btc_defaults() {
+        let cli = Cli::parse_from([
+            "hw-cli",
+            "sign",
+            "btc",
+            "--tx",
+            "{\"inputs\":[],\"outputs\":[]}",
+        ]);
+        let Command::Sign(args) = cli.command else {
+            panic!("expected sign command");
+        };
+        let SignCommand::Btc(args) = args.command else {
+            panic!("expected sign btc command");
+        };
 
         assert_eq!(args.timeout_secs, 60);
         assert_eq!(args.thp_timeout_secs, 60);
