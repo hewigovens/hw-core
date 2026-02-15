@@ -49,6 +49,8 @@ public struct WalletEvent: Sendable {
 }
 
 public typealias SessionHandshakeState = HWCoreFFI.SessionHandshakeState
+public typealias Chain = HWCoreFFI.Chain
+public typealias ChainConfig = HWCoreFFI.ChainConfig
 public typealias AddressResult = HWCoreFFI.AddressResult
 public typealias AccessListEntry = HWCoreFFI.AccessListEntry
 public typealias SignTxRequest = HWCoreFFI.SignTxRequest
@@ -81,6 +83,46 @@ public extension SignTxRequest {
             maxPriorityFee: maxPriorityFee,
             accessList: accessList,
             chunkify: chunkify
+        )
+    }
+
+    static func solana(
+        path: String = chainConfig(chain: .solana).defaultPath,
+        serializedTxHex: String,
+        chunkify: Bool = false
+    ) -> SignTxRequest {
+        SignTxRequest(
+            chain: .solana,
+            path: path,
+            to: "",
+            value: "0x0",
+            nonce: "0x0",
+            gasLimit: "0x0",
+            chainId: 0,
+            data: serializedTxHex,
+            maxFeePerGas: "0x0",
+            maxPriorityFee: "0x0",
+            accessList: [],
+            chunkify: chunkify
+        )
+    }
+
+    static func bitcoin(
+        txJson: String
+    ) -> SignTxRequest {
+        SignTxRequest(
+            chain: .bitcoin,
+            path: "",
+            to: "",
+            value: "0x0",
+            nonce: "0x0",
+            gasLimit: "0x0",
+            chainId: 0,
+            data: txJson,
+            maxFeePerGas: "0x0",
+            maxPriorityFee: "0x0",
+            accessList: [],
+            chunkify: false
         )
     }
 }

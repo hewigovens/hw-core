@@ -132,18 +132,19 @@ public final class WalletSession: @unchecked Sendable {
 
     public func getAddress(
         chain: Chain = .ethereum,
-        path: String = "m/44'/60'/0'/0/0",
+        path: String? = nil,
         showOnDevice: Bool = false,
         includePublicKey: Bool = false,
         chunkify: Bool = false,
         timeout: TimeInterval? = nil
     ) async throws -> AddressResult {
         do {
+            let resolvedPath = path ?? chainConfig(chain: chain).defaultPath
             return try await withTimeout(seconds: timeout, operation: "getAddress") {
                 try await self.workflow.getAddress(
                     request: GetAddressRequest(
                         chain: chain,
-                        path: path,
+                        path: resolvedPath,
                         showOnDevice: showOnDevice,
                         includePublicKey: includePublicKey,
                         chunkify: chunkify

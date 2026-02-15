@@ -17,6 +17,7 @@ pub use storage::{FileStorage, HostSnapshot, StorageError, ThpStorage};
 pub use thp_proto::hw::trezor::messages::thp as messages;
 pub use transport::{ThpTransport, TransportError};
 pub use types::{
+    BtcInputScriptType, BtcOutputScriptType, BtcSignInput, BtcSignOutput, BtcSignTx,
     CreateSessionRequest, EthAccessListEntry, GetAddressRequest, GetAddressResponse, HostConfig,
     PairingController, PairingDecision, PairingMethod, SignTxRequest, SignTxResponse,
 };

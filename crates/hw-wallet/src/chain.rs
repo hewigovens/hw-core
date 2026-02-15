@@ -1,12 +1,13 @@
 use crate::WalletResult;
 use crate::bip32::parse_bip32_path;
 pub use hw_chain::{
-    CHAIN_BTC, CHAIN_ETH, Chain, ChainConfig, DEFAULT_BITCOIN_BIP32_PATH,
-    DEFAULT_ETHEREUM_BIP32_PATH,
+    CHAIN_BTC, CHAIN_ETH, CHAIN_SOL, Chain, ChainConfig, DEFAULT_BITCOIN_BIP32_PATH,
+    DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
 };
 
 pub const DEFAULT_ETH_BIP32_PATH: &str = DEFAULT_ETHEREUM_BIP32_PATH;
 pub const DEFAULT_BTC_BIP32_PATH: &str = DEFAULT_BITCOIN_BIP32_PATH;
+pub const DEFAULT_SOL_BIP32_PATH: &str = DEFAULT_SOLANA_BIP32_PATH;
 
 const HARDENED_MASK: u32 = 0x8000_0000;
 
@@ -72,15 +73,19 @@ mod tests {
         );
         assert_eq!(Chain::Bitcoin.config().slip44, 0);
         assert_eq!(Chain::Bitcoin.config().default_path, DEFAULT_BTC_BIP32_PATH);
+        assert_eq!(Chain::Solana.config().slip44, 501);
+        assert_eq!(Chain::Solana.config().default_path, DEFAULT_SOL_BIP32_PATH);
     }
 
     #[test]
     fn infer_chain_from_coin_type() {
         let eth = vec![0x8000_002c, 0x8000_003c];
         let btc = vec![0x8000_002c, 0x8000_0000];
+        let sol = vec![0x8000_002c, 0x8000_01f5];
 
         assert_eq!(infer_chain_from_path(&eth), Some(Chain::Ethereum));
         assert_eq!(infer_chain_from_path(&btc), Some(Chain::Bitcoin));
+        assert_eq!(infer_chain_from_path(&sol), Some(Chain::Solana));
     }
 
     #[test]

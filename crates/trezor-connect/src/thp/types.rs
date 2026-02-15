@@ -187,6 +187,28 @@ impl GetAddressRequest {
         }
     }
 
+    pub fn bitcoin(path: Vec<u32>) -> Self {
+        Self {
+            chain: Chain::Bitcoin,
+            path,
+            show_display: false,
+            chunkify: false,
+            encoded_network: None,
+            include_public_key: false,
+        }
+    }
+
+    pub fn solana(path: Vec<u32>) -> Self {
+        Self {
+            chain: Chain::Solana,
+            path,
+            show_display: false,
+            chunkify: false,
+            encoded_network: None,
+            include_public_key: false,
+        }
+    }
+
     pub fn with_show_display(mut self, value: bool) -> Self {
         self.show_display = value;
         self
@@ -256,6 +278,55 @@ pub struct EthAccessListEntry {
     pub storage_keys: Vec<Vec<u8>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BtcInputScriptType {
+    SpendAddress,
+    SpendMultisig,
+    External,
+    SpendWitness,
+    SpendP2shWitness,
+    SpendTaproot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BtcOutputScriptType {
+    PayToAddress,
+    PayToScriptHash,
+    PayToMultisig,
+    PayToOpReturn,
+    PayToWitness,
+    PayToP2shWitness,
+    PayToTaproot,
+}
+
+#[derive(Debug, Clone)]
+pub struct BtcSignInput {
+    pub path: Vec<u32>,
+    pub prev_hash: Vec<u8>,
+    pub prev_index: u32,
+    pub amount: u64,
+    pub sequence: u32,
+    pub script_type: BtcInputScriptType,
+}
+
+#[derive(Debug, Clone)]
+pub struct BtcSignOutput {
+    pub address: Option<String>,
+    pub path: Vec<u32>,
+    pub amount: u64,
+    pub script_type: BtcOutputScriptType,
+    pub op_return_data: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BtcSignTx {
+    pub version: u32,
+    pub lock_time: u32,
+    pub inputs: Vec<BtcSignInput>,
+    pub outputs: Vec<BtcSignOutput>,
+    pub chunkify: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct SignTxRequest {
     pub chain: Chain,
@@ -270,6 +341,7 @@ pub struct SignTxRequest {
     pub chain_id: u64,
     pub access_list: Vec<EthAccessListEntry>,
     pub chunkify: bool,
+    pub btc: Option<BtcSignTx>,
 }
 
 impl SignTxRequest {
@@ -287,6 +359,7 @@ impl SignTxRequest {
             chain_id,
             access_list: Vec::new(),
             chunkify: false,
+            btc: None,
         }
     }
 
@@ -333,6 +406,42 @@ impl SignTxRequest {
     pub fn with_chunkify(mut self, chunkify: bool) -> Self {
         self.chunkify = chunkify;
         self
+    }
+
+    pub fn bitcoin(tx: BtcSignTx) -> Self {
+        Self {
+            chain: Chain::Bitcoin,
+            path: Vec::new(),
+            nonce: vec![0],
+            max_fee_per_gas: vec![0],
+            max_priority_fee: vec![0],
+            gas_limit: vec![0],
+            to: String::new(),
+            value: vec![0],
+            data: Vec::new(),
+            chain_id: 0,
+            access_list: Vec::new(),
+            chunkify: tx.chunkify,
+            btc: Some(tx),
+        }
+    }
+
+    pub fn solana(path: Vec<u32>, serialized_tx: Vec<u8>) -> Self {
+        Self {
+            chain: Chain::Solana,
+            path,
+            nonce: vec![0],
+            max_fee_per_gas: vec![0],
+            max_priority_fee: vec![0],
+            gas_limit: vec![0],
+            to: String::new(),
+            value: vec![0],
+            data: serialized_tx,
+            chain_id: 0,
+            access_list: Vec::new(),
+            chunkify: false,
+            btc: None,
+        }
     }
 }
 

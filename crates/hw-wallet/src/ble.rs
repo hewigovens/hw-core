@@ -154,7 +154,7 @@ impl Default for SessionBootstrapOptions {
     }
 }
 
-pub async fn connect_and_prepare_workflow(
+pub async fn connect_and_bootstrap_session(
     device: DiscoveredDevice,
     profile: BleProfile,
     config: HostConfig,
@@ -170,11 +170,11 @@ pub async fn connect_and_prepare_workflow(
         workflow(backend, config)
     };
 
-    prepare_ready_workflow(&mut workflow, &options).await?;
+    prepare_session_bootstrap(&mut workflow, &options).await?;
     Ok(workflow)
 }
 
-pub async fn prepare_ready_workflow<B>(
+pub async fn prepare_session_bootstrap<B>(
     workflow: &mut ThpWorkflow<B>,
     options: &SessionBootstrapOptions,
 ) -> WalletResult<()>
@@ -182,7 +182,7 @@ where
     B: ThpBackend + Send,
 {
     let mut session_ready = false;
-    match advance_to_ready(workflow, &mut session_ready, options).await? {
+    match advance_session_bootstrap(workflow, &mut session_ready, options).await? {
         SessionPhase::Ready => Ok(()),
         SessionPhase::NeedsPairingCode => Err(WalletError::Workflow(
             ThpWorkflowError::PairingInteractionRequired,
@@ -234,7 +234,7 @@ where
     }
 }
 
-pub async fn advance_to_ready<B>(
+pub async fn advance_session_bootstrap<B>(
     workflow: &mut ThpWorkflow<B>,
     session_ready: &mut bool,
     options: &SessionBootstrapOptions,

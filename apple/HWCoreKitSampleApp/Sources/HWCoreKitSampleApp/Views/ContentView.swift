@@ -1,4 +1,5 @@
 import SwiftUI
+import HWCoreKit
 
 struct ContentView: View {
     @StateObject var viewModel = ContentViewModel()
@@ -60,6 +61,16 @@ struct ContentView: View {
                 .accessibilityLabel("Disconnect")
                 .accessibilityIdentifier("action.disconnect")
             }
+
+            Picker("Chain", selection: $viewModel.selectedChain) {
+                Text("ETH").tag(Chain.ethereum)
+                Text("BTC").tag(Chain.bitcoin)
+                Text("SOL").tag(Chain.solana)
+            }
+            .pickerStyle(.segmented)
+            .disabled(viewModel.isBusy)
+            .accessibilityLabel("Chain")
+            .accessibilityIdentifier("picker.chain")
 
             if !viewModel.devices.isEmpty {
                 Picker("Device", selection: $viewModel.selectedDeviceIndex) {
