@@ -1,0 +1,58 @@
+name: HWCoreKitSampleAppMac
+options:
+  minimumXcodeGenVersion: 2.44.0
+  xcodeVersion: "16.0"
+packages:
+  HWCoreKit:
+    path: ../HWCoreKit
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+targets:
+  HWCoreKitSampleAppMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources/HWCoreKitSampleApp
+        excludes:
+          - App/LaunchScreen.storyboard
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.hwcorekit.samplemacapp
+        PRODUCT_NAME: HWCoreKitSampleApp
+        INFOPLIST_KEY_LSUIElement: NO
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: HWCoreKitSampleApp uses Bluetooth to discover and communicate with your hardware wallet.
+        INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription: HWCoreKitSampleApp uses Bluetooth to connect to hardware wallet peripherals.
+    dependencies:
+      - package: HWCoreKit
+        product: HWCoreKit
+
+  HWCoreKitSampleAppMacUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: UITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.hwcorekit.samplemacapp.uitests
+        TEST_TARGET_NAME: HWCoreKitSampleAppMac
+    dependencies:
+      - target: HWCoreKitSampleAppMac
+
+schemes:
+  HWCoreKitSampleAppMac:
+    build:
+      targets:
+        HWCoreKitSampleAppMac: all
+        HWCoreKitSampleAppMacUITests: [test]
+    test:
+      targets:
+        - name: HWCoreKitSampleAppMacUITests

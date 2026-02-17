@@ -1,0 +1,29 @@
+name: HWCoreKitSampleAppiOS
+options:
+  minimumXcodeGenVersion: 2.44.0
+  xcodeVersion: "16.0"
+packages:
+  HWCoreKit:
+    path: ../HWCoreKit
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+targets:
+  HWCoreKitSampleAppiOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Sources/HWCoreKitSampleApp
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0"
+        INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
+        PRODUCT_BUNDLE_IDENTIFIER: com.hwcorekit.sampleiosapp
+        PRODUCT_NAME: HWCoreKitSampleAppiOS
+        TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - package: HWCoreKit
+        product: HWCoreKit

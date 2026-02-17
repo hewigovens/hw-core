@@ -1,6 +1,6 @@
 # HWCoreKitSampleApp
 
-A minimal macOS SwiftUI sample app that exercises the `HWCoreKit` API.
+A minimal SwiftUI sample app (macOS + iOS) that exercises the `HWCoreKit` API.
 
 ## What It Demonstrates
 - Creating an `HWCoreKit` instance
@@ -12,12 +12,18 @@ A minimal macOS SwiftUI sample app that exercises the `HWCoreKit` API.
 - Ethereum transaction signing
 - Event stream consumption (`session.events()`)
 
-## Run
+## Run (macOS)
 From repository root:
 
 ```bash
 just bindings
 swift run --package-path apple/HWCoreKitSampleApp
+```
+
+Shortcut:
+
+```bash
+just run-mac
 ```
 
 On first run, macOS should prompt for Bluetooth access.
@@ -29,3 +35,39 @@ If dynamic library loading fails at runtime, set:
 ```bash
 export DYLD_LIBRARY_PATH="$(pwd)/target/debug"
 ```
+
+## Run (iOS)
+1. From repository root, generate bindings and iOS-simulator Rust FFI:
+   ```bash
+   just build-ios
+   ```
+2. Open `apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj` in Xcode.
+3. Select the `HWCoreKitSampleAppiOS` scheme and an iOS simulator destination.
+4. Build and run.
+
+Shortcut:
+
+```bash
+just run-ios
+```
+
+Note:
+- The SwiftUI view and view model are shared between macOS and iOS.
+- iOS simulator links `target/ios-sim/debug/libhw_ffi.dylib`.
+
+## macOS UI Tests
+Run the macOS UI smoke test target:
+
+```bash
+just test-mac-ui
+```
+
+This generates `apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj` from `project-mac.yml` and runs a basic XCUITest that validates launch + key workflow controls.
+
+If you only want to validate build wiring (without executing the UI runner), use:
+
+```bash
+just build-mac-ui
+```
+
+Note: macOS UI tests require Automation accessibility permissions. If test execution fails with `Timed out while enabling automation mode`, grant Terminal/Codex + `HWCoreKitSampleAppMacUITests-Runner` in System Settings > Privacy & Security > Accessibility, then rerun `just test-mac-ui`.

@@ -33,9 +33,46 @@ bindings:
     cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
     ./apple/HWCoreKit/Scripts/sync-bindings.sh
 
-hwcorekit-sample:
+sample:
     just bindings
     swift run --package-path apple/HWCoreKitSampleApp
+
+run-mac:
+    just sample
+
+build-ios:
+    just bindings
+    ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
+    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build
+
+run-ios:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just bindings
+    ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
+    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+    SIM_DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')"
+    if [[ -z "$SIM_DEVICE_ID" ]]; then
+      echo "No available iPhone simulator found." >&2
+      exit 1
+    fi
+    xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
+    open -a Simulator --args -CurrentDeviceUDID "$SIM_DEVICE_ID"
+    xcrun simctl bootstatus "$SIM_DEVICE_ID" -b
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$SIM_DEVICE_ID" -derivedDataPath target/DerivedData/HWCoreKitSampleAppiOS build
+    xcrun simctl install "$SIM_DEVICE_ID" target/DerivedData/HWCoreKitSampleAppiOS/Build/Products/Debug-iphonesimulator/HWCoreKitSampleAppiOS.app
+    xcrun simctl launch "$SIM_DEVICE_ID" com.hwcorekit.sampleiosapp
+    open -a Simulator
+
+test-mac-ui:
+    just build-mac-ui
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' test-without-building
+
+build-mac-ui:
+    just bindings
+    xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' build-for-testing
 
 scan-demo:
     cargo run -p ble-transport --features trezor-safe7,backend-btleplug --example scan_trezor
