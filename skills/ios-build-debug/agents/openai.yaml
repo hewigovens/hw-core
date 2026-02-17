@@ -1,0 +1,4 @@
+interface:
+  display_name: "iOS Build Debug"
+  short_description: "Build, launch, log, and review iOS/macOS sample apps"
+  default_prompt: "Build and run the Apple sample app, capture logs and screenshot artifacts, and report whether the UI matches expected behavior with concrete findings."

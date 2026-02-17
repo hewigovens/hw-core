@@ -4,6 +4,7 @@ import PackageDescription
 let package = Package(
     name: "HWCoreKitSampleApp",
     platforms: [
+        .iOS(.v16),
         .macOS(.v14),
     ],
     dependencies: [
@@ -25,7 +26,17 @@ let package = Package(
                     "__info_plist",
                     "-Xlinker",
                     "Support/Info.plist",
-                ]),
+                ], .when(platforms: [.macOS])),
+                .unsafeFlags([
+                    "-Xlinker",
+                    "-sectcreate",
+                    "-Xlinker",
+                    "__TEXT",
+                    "-Xlinker",
+                    "__info_plist",
+                    "-Xlinker",
+                    "Support/Info-iOS.plist",
+                ], .when(platforms: [.iOS])),
             ]
         ),
     ]

@@ -56,6 +56,12 @@ public typealias AccessListEntry = HWCoreFFI.AccessListEntry
 public typealias SignTxRequest = HWCoreFFI.SignTxRequest
 public typealias SignTxResult = HWCoreFFI.SignTxResult
 
+public extension Chain {
+    var defaultPath: String {
+        HWCoreFFI.chainConfig(chain: self).defaultPath
+    }
+}
+
 public extension SignTxRequest {
     static func ethereum(
         path: String = "m/44'/60'/0'/0/0",
@@ -87,7 +93,7 @@ public extension SignTxRequest {
     }
 
     static func solana(
-        path: String = chainConfig(chain: .solana).defaultPath,
+        path: String = Chain.solana.defaultPath,
         serializedTxHex: String,
         chunkify: Bool = false
     ) -> SignTxRequest {

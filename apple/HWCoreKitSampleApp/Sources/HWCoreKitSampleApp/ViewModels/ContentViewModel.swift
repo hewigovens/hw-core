@@ -3,6 +3,12 @@ import HWCoreKit
 import SwiftUI
 import struct HWCoreFFI.SessionState
 import enum HWCoreFFI.SessionPhase
+#if canImport(AppKit)
+import AppKit
+#endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 final class ContentViewModel: ObservableObject {
@@ -18,6 +24,24 @@ final class ContentViewModel: ObservableObject {
     @Published var address = ""
     @Published var signatureSummary = ""
     @Published var logs: [String] = []
+    @Published var addressPathInput: String
+    @Published var showAddressOnDevice = false
+    @Published var includeAddressPublicKey = true
+    @Published var addressChunkify = false
+    @Published var ethSignPathInput: String
+    @Published var ethTo = "0x000000000000000000000000000000000000dead"
+    @Published var ethValue = "0x0"
+    @Published var ethNonce = "0x0"
+    @Published var ethGasLimit = "0x5208"
+    @Published var ethChainId = "1"
+    @Published var ethData = "0x"
+    @Published var ethMaxFeePerGas = "0x3b9aca00"
+    @Published var ethMaxPriorityFee = "0x59682f00"
+    @Published var ethChunkify = false
+    @Published var solSignPathInput: String
+    @Published var solSerializedTxHex: String
+    @Published var solChunkify = false
+    @Published var btcTxJsonInput: String
 
     private var coreKit: HWCoreKit?
     private var session: WalletSession?
@@ -34,6 +58,46 @@ final class ContentViewModel: ObservableObject {
     private struct StorageSnapshotSummary {
         let hasStaticKey: Bool
         let knownCredentialCount: Int
+    }
+
+    private struct InputValidationError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    private static let defaultSolanaTxHex = "010203"
+    private static let defaultBitcoinTxJson = """
+    {
+      "version": 2,
+      "lock_time": 0,
+      "inputs": [
+        {
+          "path": "m/84'/0'/0'/0/0",
+          "prev_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "prev_index": 0,
+          "amount": "1000",
+          "sequence": 4294967295,
+          "script_type": "spendwitness"
+        }
+      ],
+      "outputs": [
+        {
+          "address": "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+          "amount": "900",
+          "script_type": "paytoaddress"
+        }
+      ]
+    }
+    """
+
+    init() {
+        let ethPath = Chain.ethereum.defaultPath
+        let solPath = Chain.solana.defaultPath
+        addressPathInput = ethPath
+        ethSignPathInput = ethPath
+        solSignPathInput = solPath
+        solSerializedTxHex = Self.defaultSolanaTxHex
+        btcTxJsonInput = Self.defaultBitcoinTxJson
     }
 
     deinit {
@@ -86,7 +150,7 @@ final class ContentViewModel: ObservableObject {
             }
             coreKit = try await HWCoreKit.create(
                 config: HWCoreConfig(
-                    hostName: Host.current().localizedName ?? "macOS",
+                    hostName: defaultHostName(),
                     appName: "hw-core/cli",
                     storagePath: path
                 )
@@ -193,7 +257,10 @@ final class ContentViewModel: ObservableObject {
 
             let result = try await session.getAddress(
                 chain: selectedChain,
-                includePublicKey: true
+                path: resolvedPath(addressPathInput, chain: selectedChain),
+                showOnDevice: showAddressOnDevice,
+                includePublicKey: includeAddressPublicKey,
+                chunkify: addressChunkify
             )
             address = result.address
             status = "Address received"
@@ -211,7 +278,8 @@ final class ContentViewModel: ObservableObject {
                 status = "Connect first"
                 return
             }
-            let request = sampleSignRequest(chain: selectedChain)
+            let request = try buildSignRequest(chain: selectedChain)
+            appendLog("sign preview: \(signPreview)")
             let result = try await session.signTx(request)
             signatureSummary = describeSignResult(result, chain: selectedChain)
             status = "Transaction signed"
@@ -220,6 +288,62 @@ final class ContentViewModel: ObservableObject {
                 appendLog("recovered: \(recovered)")
             }
         }
+    }
+
+    func selectedChainDidChange() {
+        addressPathInput = defaultPath(for: selectedChain)
+        status = "Selected chain: \(chainLabel(selectedChain))"
+    }
+
+    var signPreview: String {
+        switch selectedChain {
+        case .ethereum:
+            return "ETH path=\(resolvedPath(ethSignPathInput, chain: .ethereum)) to=\(ethTo) value=\(ethValue) nonce=\(ethNonce) gas_limit=\(ethGasLimit) chain_id=\(ethChainId)"
+        case .solana:
+            return "SOL path=\(resolvedPath(solSignPathInput, chain: .solana)) tx_hex_bytes=\(sanitizedHex(solSerializedTxHex).count / 2)"
+        case .bitcoin:
+            if let summary = summarizeBitcoinTxJson(btcTxJsonInput) {
+                return "BTC \(summary)"
+            }
+            return "BTC invalid tx JSON"
+        }
+    }
+
+    func copyAddressToClipboard() {
+        copyToClipboard(address, emptyMessage: "No address to copy", successLabel: "address")
+    }
+
+    func copySignatureToClipboard() {
+        copyToClipboard(signatureSummary, emptyMessage: "No signature to copy", successLabel: "signature")
+    }
+
+    func copyLogsToClipboard() {
+        copyToClipboard(logs.joined(separator: "\n"), emptyMessage: "No logs to copy", successLabel: "logs")
+    }
+
+    func exportSignatureToFile() {
+        guard !signatureSummary.isEmpty else {
+            status = "No signature to export"
+            return
+        }
+        #if canImport(AppKit)
+        let panel = NSSavePanel()
+        panel.title = "Export Signature"
+        panel.nameFieldStringValue = "signature-\(chainLabel(selectedChain).lowercased()).txt"
+        panel.allowedContentTypes = [.plainText]
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try signatureSummary.write(to: url, atomically: true, encoding: .utf8)
+                status = "Signature exported"
+                appendLog("signature exported: \(url.path)")
+            } catch {
+                status = "Export failed"
+                appendLog("export failed: \(error.localizedDescription)")
+            }
+        }
+        #else
+        status = "Export unsupported on this platform"
+        #endif
     }
 
     func disconnect() async {
@@ -332,20 +456,55 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    private func sampleSignRequest(chain: Chain) -> SignTxRequest {
+    private func buildSignRequest(chain: Chain) throws -> SignTxRequest {
         switch chain {
         case .ethereum:
+            let chainId = try parseU64(ethChainId, fieldName: "ETH chain id")
+            guard !ethTo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw InputValidationError(message: "ETH to address is required")
+            }
+            guard !ethGasLimit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw InputValidationError(message: "ETH gas limit is required")
+            }
+            guard !ethMaxFeePerGas.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw InputValidationError(message: "ETH max fee per gas is required")
+            }
+            guard !ethMaxPriorityFee.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw InputValidationError(message: "ETH max priority fee is required")
+            }
             return SignTxRequest.ethereum(
-                to: "0x000000000000000000000000000000000000dead",
-                gasLimit: "0x5208",
-                chainId: 1,
-                maxFeePerGas: "0x3b9aca00",
-                maxPriorityFee: "0x59682f00"
+                path: resolvedPath(ethSignPathInput, chain: .ethereum),
+                to: ethTo.trimmingCharacters(in: .whitespacesAndNewlines),
+                value: defaultIfEmpty(ethValue, fallback: "0x0"),
+                nonce: defaultIfEmpty(ethNonce, fallback: "0x0"),
+                gasLimit: ethGasLimit.trimmingCharacters(in: .whitespacesAndNewlines),
+                chainId: chainId,
+                data: defaultIfEmpty(ethData, fallback: "0x"),
+                maxFeePerGas: ethMaxFeePerGas.trimmingCharacters(in: .whitespacesAndNewlines),
+                maxPriorityFee: ethMaxPriorityFee.trimmingCharacters(in: .whitespacesAndNewlines),
+                chunkify: ethChunkify
+            )
+        case .solana:
+            let txHex = sanitizedHex(solSerializedTxHex)
+            guard !txHex.isEmpty else {
+                throw InputValidationError(message: "Solana serialized tx hex is required")
+            }
+            return SignTxRequest.solana(
+                path: resolvedPath(solSignPathInput, chain: .solana),
+                serializedTxHex: txHex,
+                chunkify: solChunkify
             )
         case .bitcoin:
-            return SignTxRequest.bitcoin(txJson: sampleBitcoinTxJson())
-        case .solana:
-            return SignTxRequest.solana(serializedTxHex: sampleSolanaTxHex())
+            let txJson = btcTxJsonInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !txJson.isEmpty else {
+                throw InputValidationError(message: "BTC tx JSON is required")
+            }
+            guard let data = txJson.data(using: .utf8),
+                  (try? JSONSerialization.jsonObject(with: data)) != nil
+            else {
+                throw InputValidationError(message: "BTC tx JSON is invalid")
+            }
+            return SignTxRequest.bitcoin(txJson: txJson)
         }
     }
 
@@ -362,36 +521,71 @@ final class ContentViewModel: ObservableObject {
         data.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func sampleSolanaTxHex() -> String {
-        // Placeholder bytes for sample wiring; wallet clients should pass a real serialized tx.
-        "010203"
+    private func defaultPath(for chain: Chain) -> String {
+        chain.defaultPath
     }
 
-    private func sampleBitcoinTxJson() -> String {
-        // Wallet layer should preload complete input/output metadata for production signing flows.
-        """
-        {
-          "version": 2,
-          "lock_time": 0,
-          "inputs": [
-            {
-              "path": "m/84'/0'/0'/0/0",
-              "prev_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
-              "prev_index": 0,
-              "amount": "1000",
-              "sequence": 4294967295,
-              "script_type": "spendwitness"
-            }
-          ],
-          "outputs": [
-            {
-              "address": "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
-              "amount": "900",
-              "script_type": "paytoaddress"
-            }
-          ]
+    private func resolvedPath(_ input: String, chain: Chain) -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? defaultPath(for: chain) : trimmed
+    }
+
+    private func sanitizedHex(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("0x") || trimmed.hasPrefix("0X") {
+            return String(trimmed.dropFirst(2))
         }
-        """
+        return trimmed
+    }
+
+    private func defaultIfEmpty(_ value: String, fallback: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    private func parseU64(_ value: String, fieldName: String) throws -> UInt64 {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw InputValidationError(message: "\(fieldName) is required")
+        }
+        if trimmed.hasPrefix("0x") || trimmed.hasPrefix("0X") {
+            guard let parsed = UInt64(trimmed.dropFirst(2), radix: 16) else {
+                throw InputValidationError(message: "\(fieldName) must be a valid integer")
+            }
+            return parsed
+        }
+        guard let parsed = UInt64(trimmed) else {
+            throw InputValidationError(message: "\(fieldName) must be a valid integer")
+        }
+        return parsed
+    }
+
+    private func summarizeBitcoinTxJson(_ json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any]
+        else {
+            return nil
+        }
+        let inputs = (dictionary["inputs"] as? [Any])?.count ?? 0
+        let outputs = (dictionary["outputs"] as? [Any])?.count ?? 0
+        return "inputs=\(inputs) outputs=\(outputs)"
+    }
+
+    private func copyToClipboard(_ value: String, emptyMessage: String, successLabel: String) {
+        guard !value.isEmpty else {
+            status = emptyMessage
+            return
+        }
+        #if canImport(AppKit)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(value, forType: .string)
+        status = "\(successLabel.capitalized) copied"
+        appendLog("\(successLabel) copied")
+        #else
+        status = "Clipboard unsupported on this platform"
+        #endif
     }
 
     private func disconnectSession() async {
@@ -424,8 +618,26 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func defaultStoragePath() -> String {
+        #if os(iOS)
+        let fileManager = FileManager.default
+        let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let directory = baseURL.appendingPathComponent("hw-core", isDirectory: true)
+        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("thp-host.json").path
+        #else
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return "\(home)/.hw-core/thp-host.json"
+        #endif
+    }
+
+    private func defaultHostName() -> String {
+        #if os(iOS)
+        UIDevice.current.name
+        #else
+        Host.current().localizedName ?? "macOS"
+        #endif
     }
 
     private func loadStorageSnapshotSummary(path: String) -> StorageSnapshotSummary? {

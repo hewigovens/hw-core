@@ -1,122 +1,98 @@
-# iOS App Plan (hw-ffi + hw-wallet)
+# iOS/macOS App Plan (hw-ffi + hw-wallet)
 
 ## Goal
-Ship a production-ready iOS app that can:
+Ship a production-ready mobile/desktop app that can:
 - Discover Trezor Safe 7 over BLE
 - Pair/connect reliably
-- Fetch Ethereum address/public key
-- Sign Ethereum transactions
+- Fetch addresses/public keys for ETH/BTC/SOL
+- Sign transactions for ETH/BTC/SOL
 
 ## Scope
 ### V1 (in scope)
 - BLE scan/connect/session lifecycle
 - THP channel + handshake + paired-connection confirmation
 - Pairing (code entry)
-- ETH address and ETH sign flows
-- Persistent host state on iOS (same behavior as CLI)
-- Basic UX states (loading, prompt, success, error, retry)
+- Address and signing flows for ETH/BTC/SOL
+- Persistent host state (same behavior as CLI)
+- UX states for loading/prompt/success/error/retry
 
 ### Out of scope (later)
-- BTC flows
 - NFC/QR pairing methods
 - Background sync/daemon behavior
 - Portfolio/account features
 
-## Target Architecture
-1. Rust core:
-   - `hw-wallet`: workflow orchestration, chain/path/sign helpers
-   - `trezor-connect`: THP protocol + BLE backend
-2. FFI boundary:
-   - `hw-ffi` exposes stable async API via UniFFI
-3. iOS app (Swift):
-   - `HWCoreKit` wrapper around generated UniFFI Swift bindings
-   - Feature modules: `Pairing`, `Address`, `Signing`
-   - UI state machine driven by FFI events/results
-
-## Current FFI Status
+## Current Status (2026-02-16)
 Implemented:
-- Scan/connect
-- Create channel
-- Handshake
-- Create session
-- State/config inspection
+- Rust + FFI workflow surface:
+  - `pairing_start`, `pairing_submit_code`, `pairing_confirm_connection`
+  - `get_address` with `path/show_on_device/include_public_key/chunkify`
+  - `sign_tx` for ETH/BTC/SOL through typed `SignTxRequest`
+  - file-backed storage path control
+  - structured `HwCoreError` categories mapped to Swift
+- `HWCoreKit` async wrapper with timeout/cancellation and event stream support
+- Sample app stateful workflow UI:
+  - scan, pair-only, connect-ready, disconnect
+  - pairing alert loop
+  - chain picker (ETH/BTC/SOL)
+  - editable address path + toggles
+  - typed sign inputs by chain + preview
+  - signature/address/log copy actions (+ signature export)
 
-Missing for iOS V1:
-- Pairing interaction API (code-entry prompt/submit)
-- Address API
-- Sign API
-- File-backed host-state storage control
-- Retry policy controls and richer error taxonomy for UI
+Known limitation:
+- Advanced BTC signing request types (`TxExtraData`, `TxOrigInput`, `TxOrigOutput`, `TxPaymentReq`, and prev-tx lookup by `tx_hash`) are intentionally not implemented in `trezor-connect` yet. Wallet layer must preload/provide required tx context before calling signing APIs.
 
 ## Milestones
 ## M1: Expand Rust FFI Surface
-- [x] Add `pairing_start/pairing_submit_code/pairing_confirm_connection` methods
-- [x] Add `get_address` method (+ options: show on device, include public key, chunkify)
-- [x] Add `sign_eth_tx` method (typed input model, no raw JSON in Swift)
-- [x] Add storage configuration in FFI (`storage_path` or `app_group`-safe path)
-- [x] Add structured FFI errors (`Ble`, `Workflow`, `Device`, `Validation`, `Timeout`)
-- [x] Add FFI integration tests for end-to-end state transitions
+- [x] Pairing interaction APIs (start/submit/confirm)
+- [x] Address API with options
+- [x] Typed signing API (chain-agnostic `SignTxRequest`)
+- [x] Storage configuration support
+- [x] Structured FFI errors
+- [x] Integration tests for end-to-end state transitions
 
-## M2: iOS Core Integration
-- [x] Add generated Swift bindings to iOS workspace
-- [x] Build `HWCoreKit` thin wrapper with async Swift API
-- [x] Add cancellation and timeout wrappers around long-running calls
-- [x] Map Rust errors to user-facing Swift domain errors
-- [x] Add deterministic logging hooks (redacted)
+## M2: Apple Core Integration
+- [x] Generated Swift bindings integrated
+- [x] `HWCoreKit` thin wrapper with async API
+- [x] Timeout/cancellation wrappers
+- [x] Rust-to-Swift error mapping
+- [x] Deterministic logging hooks
 
 ## M3: Pairing + Session UX
-- [ ] Device list and connect screen
-- [ ] Pairing code-entry UI loop
-- [ ] Connection-confirmation path for already-paired devices
-- [ ] Session-ready state and reconnect flow
-- [ ] Retry UX for transient busy/not-ready firmware states
+- [x] Device list and connect screen
+- [x] Pairing code-entry UI loop
+- [x] Connection-confirmation path for already-paired devices
+- [x] Session-ready state and reconnect flow
+- [x] Retry behavior for transient busy/not-ready states in workflow path
 
 ## M4: Address + Sign UX
-- [ ] ETH address screen (default path + editable path)
-- [ ] Optional show-on-device and public key toggles
-- [ ] ETH sign screen (typed fields, validation, preview)
-- [ ] Result screen (signature components + copy/export)
+- [x] Address screen with default + editable path
+- [x] Show-on-device and include-public-key toggles
+- [x] Chain-specific sign forms (ETH/BTC/SOL) with validation and preview
+- [x] Result actions (copy/export) in sample app
 
 ## M5: Hardening + Release Readiness
-- [ ] Persisted host state migration/versioning
-- [ ] Crash-safe recovery after BLE disconnect
-- [ ] Telemetry/error metrics (privacy-safe)
-- [ ] End-to-end manual test matrix (locked/unlocked, paired/unpaired, stale pairing)
+- [x] Real iOS app target (`apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj` with local `HWCoreKit` dependency)
+- [ ] Persisted host state migration/versioning strategy
+- [ ] Crash-safe recovery after BLE disconnect/app lifecycle interruption
+- [ ] Privacy-safe telemetry/error metrics
+- [ ] End-to-end manual matrix (locked/unlocked, paired/unpaired, stale pairing)
 - [ ] TestFlight release checklist
 
-## API Contract Proposal (Swift-facing)
+## API Contract (Swift-facing)
 - `discoverTrezor(timeoutMs) async throws -> [Device]`
-- `connect(deviceId) async throws -> Session`
-- `session.prepareChannelAndHandshake(tryUnlock: Bool) async throws -> HandshakeState`
+- `connect(device) async throws -> WalletSession`
+- `session.sessionState() async throws -> SessionState`
+- `session.pairOnly(tryToUnlock) async throws -> SessionState`
+- `session.connectReady(tryToUnlock) async throws -> SessionState`
 - `session.startPairing() async throws -> PairingPrompt`
-- `session.submitPairingCode(_ code: String) async throws -> PairingProgress`
-- `session.confirmPairedConnection() async throws`
+- `session.submitPairingCode(_ code) async throws -> PairingProgress`
+- `session.confirmPairedConnection() async throws -> PairingProgress`
 - `session.createWalletSession(...) async throws`
-- `session.getEthereumAddress(...) async throws -> AddressResult`
-- `session.signEthereumTx(...) async throws -> SignResult`
+- `session.getAddress(...) async throws -> AddressResult`
+- `session.signTx(...) async throws -> SignTxResult`
 - `session.disconnect() async`
 
-### Async UX Pattern (SwiftUI/macOS)
-- Expose an `AsyncStream<WalletEvent>` from `HWCoreKit` so UI can react to:
-  - pairing prompts
-  - button-request/device-confirm states
-  - progress transitions
-  - recoverable errors/retry hints
-- Keep FFI calls request/response async; keep prompts/progress as event stream.
-- Avoid CLI-style blocking interaction loops in Swift; model flows as async state transitions.
-
-## Risks and Mitigations
-- BLE instability / transient firmware busy:
-  - Keep retry with bounded backoff at FFI layer
-- Pairing state drift between host/device:
-  - Add “reset local credentials” and clear-storage UX path
-- App lifecycle interruptions:
-  - Persist workflow-relevant state and reconnect gracefully
-
-## Task Tracking
-### Immediate next tasks
-- [x] Implement M1 FFI methods for pairing/address/sign
-- [x] Add FFI test for “paired handshake requires connection confirmation”
-- [x] Add iOS wrapper package scaffold (`HWCoreKit`)
-- [x] Add sample app scaffold using `HWCoreKit` API
-- [ ] Wire first happy path: scan -> pair -> address
+## Immediate Next Tasks
+- [ ] Implement advanced BTC `TxRequest` handling in `trezor-connect` for prev-tx and extra-data request types
+- [ ] Add workflow-level reconnect/backoff policy controls tunable from app config
+- [ ] Add automated UI smoke tests for scan/pair/connect/address/sign flows

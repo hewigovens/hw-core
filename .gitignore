@@ -1,6 +1,10 @@
 target/
 .build/
 .swiftpm/
+*.xcuserstate
+xcuserdata/
+apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj/
+apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj/
 
 module.modulemap
 HWCoreFFI.swift
