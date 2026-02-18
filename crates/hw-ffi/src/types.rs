@@ -201,6 +201,16 @@ pub struct SessionState {
     pub prompt_message: Option<String>,
 }
 
+pub type SessionRetryPolicy = hw_wallet::ble::SessionRetryPolicy;
+
+#[uniffi::remote(Record)]
+pub struct SessionRetryPolicy {
+    pub create_channel_attempts: u32,
+    pub handshake_attempts: u32,
+    pub create_session_attempts: u32,
+    pub retry_delay_ms: u64,
+}
+
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct GetAddressRequest {
     pub chain: Chain,
@@ -261,6 +271,11 @@ pub fn chain_config(chain: Chain) -> ChainConfig {
         slip44: raw.slip44,
         default_path: raw.default_path.to_string(),
     }
+}
+
+#[uniffi::export]
+pub fn session_retry_policy_default() -> SessionRetryPolicy {
+    hw_wallet::ble::SessionRetryPolicy::default()
 }
 
 #[cfg(test)]

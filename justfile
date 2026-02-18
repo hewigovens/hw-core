@@ -1,5 +1,6 @@
 set dotenv-load := false
 set positional-arguments := false
+set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 default:
     @just --list
@@ -37,42 +38,76 @@ sample:
     just bindings
     swift run --package-path apple/HWCoreKitSampleApp
 
+install-xcbeautify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v xcbeautify >/dev/null 2>&1; then
+        xcbeautify --version
+        exit 0
+    fi
+    if ! command -v brew >/dev/null 2>&1; then
+        echo "xcbeautify is not installed and Homebrew is unavailable. Install xcbeautify manually." >&2
+        exit 1
+    fi
+    brew install xcbeautify
+
 run-mac:
     just sample
 
 build-ios:
+    just install-xcbeautify
     just bindings
     ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
-    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build | xcbeautify
+
+build-ios-ui:
+    just install-xcbeautify
+    just bindings
+    ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
+    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build-for-testing | xcbeautify
+
+test-ios-ui:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just install-xcbeautify
+    just build-ios-ui
+    SIM_DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')"
+    if [[ -z "$SIM_DEVICE_ID" ]]; then echo "No available iPhone simulator found." >&2; exit 1; fi
+    xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$SIM_DEVICE_ID" test-without-building | xcbeautify
 
 run-ios:
     #!/usr/bin/env bash
     set -euo pipefail
+    just install-xcbeautify
     just bindings
     ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     SIM_DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')"
     if [[ -z "$SIM_DEVICE_ID" ]]; then
-      echo "No available iPhone simulator found." >&2
-      exit 1
+    echo "No available iPhone simulator found." >&2
+    exit 1
     fi
     xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
     open -a Simulator --args -CurrentDeviceUDID "$SIM_DEVICE_ID"
     xcrun simctl bootstatus "$SIM_DEVICE_ID" -b
-    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$SIM_DEVICE_ID" -derivedDataPath target/DerivedData/HWCoreKitSampleAppiOS build
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$SIM_DEVICE_ID" -derivedDataPath target/DerivedData/HWCoreKitSampleAppiOS build | xcbeautify
     xcrun simctl install "$SIM_DEVICE_ID" target/DerivedData/HWCoreKitSampleAppiOS/Build/Products/Debug-iphonesimulator/HWCoreKitSampleAppiOS.app
     xcrun simctl launch "$SIM_DEVICE_ID" com.hwcorekit.sampleiosapp
     open -a Simulator
 
 test-mac-ui:
+    just install-xcbeautify
     just build-mac-ui
-    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' test-without-building
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' test-without-building | xcbeautify
 
 build-mac-ui:
+    just install-xcbeautify
     just bindings
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
-    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' build-for-testing
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' build-for-testing | xcbeautify
 
 scan-demo:
     cargo run -p ble-transport --features trezor-safe7,backend-btleplug --example scan_trezor

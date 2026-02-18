@@ -27,3 +27,29 @@ targets:
     dependencies:
       - package: HWCoreKit
         product: HWCoreKit
+
+  HWCoreKitSampleAppiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: UITests/iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.hwcorekit.sampleiosapp.uitests
+        TEST_TARGET_NAME: HWCoreKitSampleAppiOS
+    dependencies:
+      - target: HWCoreKitSampleAppiOS
+
+schemes:
+  HWCoreKitSampleAppiOS:
+    build:
+      targets:
+        HWCoreKitSampleAppiOS: all
+        HWCoreKitSampleAppiOSUITests: [test]
+    test:
+      targets:
+        - name: HWCoreKitSampleAppiOSUITests

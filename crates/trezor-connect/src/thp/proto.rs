@@ -78,6 +78,8 @@ struct BitcoinGetAddress {
     coin_name: Option<String>,
     #[prost(bool, optional, tag = "3")]
     show_display: Option<bool>,
+    #[prost(enumeration = "BitcoinInputScriptTypeProto", optional, tag = "5")]
+    script_type: Option<i32>,
     #[prost(bool, optional, tag = "7")]
     chunkify: Option<bool>,
 }
@@ -126,6 +128,8 @@ struct BitcoinGetPublicKey {
     show_display: Option<bool>,
     #[prost(string, optional, tag = "4")]
     coin_name: Option<String>,
+    #[prost(enumeration = "BitcoinInputScriptTypeProto", optional, tag = "5")]
+    script_type: Option<i32>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -645,6 +649,7 @@ pub fn encode_get_address_request(
                 path: request.path.clone(),
                 coin_name: Some("Bitcoin".to_string()),
                 show_display: Some(request.show_display),
+                script_type: bitcoin_input_script_type_from_path(&request.path),
                 chunkify: Some(request.chunkify),
             };
             let mut payload = Vec::new();
@@ -748,6 +753,7 @@ pub fn encode_get_public_key_request(
                 path: path.to_vec(),
                 show_display: Some(show_display),
                 coin_name: Some("Bitcoin".to_string()),
+                script_type: bitcoin_input_script_type_from_path(path),
             };
             let mut payload = Vec::new();
             message.encode(&mut payload)?;
@@ -814,6 +820,31 @@ fn bitcoin_input_script_type_to_proto(script_type: BtcInputScriptType) -> i32 {
         }
         BtcInputScriptType::SpendTaproot => BitcoinInputScriptTypeProto::SpendTaproot as i32,
     }
+}
+
+fn unharden(path_index: u32) -> u32 {
+    path_index & !0x8000_0000
+}
+
+fn bitcoin_input_script_type_from_path(path: &[u32]) -> Option<i32> {
+    let purpose = path.first().copied().map(unharden)?;
+    let script_type = match purpose {
+        44 => BitcoinInputScriptTypeProto::SpendAddress,
+        48 => {
+            let script_index = path.get(3).copied().map(unharden)?;
+            match script_index {
+                0 => BitcoinInputScriptTypeProto::SpendMultisig,
+                1 => BitcoinInputScriptTypeProto::SpendP2ShWitness,
+                2 => BitcoinInputScriptTypeProto::SpendWitness,
+                _ => return None,
+            }
+        }
+        49 => BitcoinInputScriptTypeProto::SpendP2ShWitness,
+        84 => BitcoinInputScriptTypeProto::SpendWitness,
+        86 | 10025 => BitcoinInputScriptTypeProto::SpendTaproot,
+        _ => return None,
+    };
+    Some(script_type as i32)
 }
 
 fn bitcoin_output_script_type_to_proto(script_type: BtcOutputScriptType) -> i32 {
@@ -1106,7 +1137,7 @@ mod tests {
 
     #[test]
     fn encodes_bitcoin_get_address_request() {
-        let request = GetAddressRequest::bitcoin(vec![0x8000_002c, 0x8000_0000, 0x8000_0000, 0, 0])
+        let request = GetAddressRequest::bitcoin(vec![0x8000_0054, 0x8000_0000, 0x8000_0000, 0, 0])
             .with_show_display(true)
             .with_chunkify(true);
         let encoded = encode_get_address_request(&request).unwrap();
@@ -1116,7 +1147,27 @@ mod tests {
         assert_eq!(decoded.path, request.path);
         assert_eq!(decoded.coin_name.as_deref(), Some("Bitcoin"));
         assert_eq!(decoded.show_display, Some(true));
+        assert_eq!(
+            decoded.script_type,
+            Some(BitcoinInputScriptTypeProto::SpendWitness as i32)
+        );
         assert_eq!(decoded.chunkify, Some(true));
+    }
+
+    #[test]
+    fn encodes_bitcoin_get_public_key_request_sets_script_type() {
+        let path = vec![0x8000_0054, 0x8000_0000, 0x8000_0000];
+        let encoded = encode_get_public_key_request(Chain::Bitcoin, &path, true).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_BITCOIN_GET_PUBLIC_KEY);
+
+        let decoded = BitcoinGetPublicKey::decode(encoded.payload.as_slice()).unwrap();
+        assert_eq!(decoded.path, path);
+        assert_eq!(decoded.show_display, Some(true));
+        assert_eq!(decoded.coin_name.as_deref(), Some("Bitcoin"));
+        assert_eq!(
+            decoded.script_type,
+            Some(BitcoinInputScriptTypeProto::SpendWitness as i32)
+        );
     }
 
     #[test]

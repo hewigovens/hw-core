@@ -7,9 +7,9 @@ use ble_transport::{BleManager, BleProfile, BleSession, DeviceInfo, DiscoveredDe
 use hw_wallet::bip32::parse_bip32_path;
 use hw_wallet::ble::{
     SessionBootstrapOptions, SessionPhase as WalletSessionPhase, advance_session_bootstrap,
-    advance_to_paired, backend_from_session, connect_and_bootstrap_session, connect_trezor_device,
-    scan_trezor, session_phase, session_state as build_session_state, workflow as new_workflow,
-    workflow_with_storage,
+    advance_to_paired_with_policy, backend_from_session, connect_and_bootstrap_session,
+    connect_trezor_device, scan_trezor, session_phase, session_state as build_session_state,
+    workflow as new_workflow, workflow_with_storage,
 };
 use hw_wallet::btc::{
     build_sign_tx_request as build_btc_sign_tx_request, parse_tx_json as parse_btc_tx_json,
@@ -30,11 +30,26 @@ use trezor_connect::thp::{
 use crate::errors::HWCoreError;
 use crate::types::{
     AccessListEntry, AddressResult, BleDeviceInfo, GetAddressRequest, HandshakeCache, HostConfig,
-    PairingProgress, PairingProgressKind, PairingPrompt, SessionHandshakeState, SessionState,
-    SignTxRequest, SignTxResult, ThpState, WorkflowEvent, WorkflowEventKind,
+    PairingProgress, PairingProgressKind, PairingPrompt, SessionHandshakeState, SessionRetryPolicy,
+    SessionState, SignTxRequest, SignTxResult, ThpState, WorkflowEvent, WorkflowEventKind,
 };
 
 const DEFAULT_THP_TIMEOUT: Duration = Duration::from_secs(60);
+const MIN_SOLANA_SERIALIZED_TX_BYTES: usize = 16;
+
+fn bootstrap_options(
+    try_to_unlock: bool,
+    retry_policy: Option<SessionRetryPolicy>,
+) -> SessionBootstrapOptions {
+    SessionBootstrapOptions {
+        thp_timeout: DEFAULT_THP_TIMEOUT,
+        try_to_unlock,
+        passphrase: None,
+        on_device: false,
+        derive_cardano: false,
+        retry_policy: retry_policy.unwrap_or_default(),
+    }
+}
 
 fn storage_from_path(storage_path: String) -> Result<Arc<dyn ThpStorage>, HWCoreError> {
     let trimmed = storage_path.trim();
@@ -253,6 +268,12 @@ fn map_sign_tx_request(
         crate::types::Chain::Solana => {
             let path = parse_bip32_path(&request.path).map_err(HWCoreError::from)?;
             let serialized_tx = decode_hex(&request.data).map_err(HWCoreError::from)?;
+            if serialized_tx.len() < MIN_SOLANA_SERIALIZED_TX_BYTES {
+                return Err(HWCoreError::Validation(format!(
+                    "solana serialized tx is too short ({} bytes); provide full serialized transaction bytes",
+                    serialized_tx.len()
+                )));
+            }
             Ok(trezor_connect::thp::SignTxRequest::solana(
                 path,
                 serialized_tx,
@@ -364,7 +385,7 @@ impl BleDiscoveredDevice {
         config: HostConfig,
         try_to_unlock: bool,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        self.connect_ready_workflow_with_storage(config, None, try_to_unlock)
+        self.connect_ready_workflow_with_policy(config, None, try_to_unlock, None)
             .await
     }
 
@@ -375,6 +396,18 @@ impl BleDiscoveredDevice {
         storage_path: Option<String>,
         try_to_unlock: bool,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
+        self.connect_ready_workflow_with_policy(config, storage_path, try_to_unlock, None)
+            .await
+    }
+
+    #[uniffi::method]
+    pub async fn connect_ready_workflow_with_policy(
+        &self,
+        config: HostConfig,
+        storage_path: Option<String>,
+        try_to_unlock: bool,
+        retry_policy: Option<SessionRetryPolicy>,
+    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
         let device = self.take_device()?;
         let storage = storage_path.map(storage_from_path).transpose()?;
         let workflow = connect_and_bootstrap_session(
@@ -382,13 +415,7 @@ impl BleDiscoveredDevice {
             self.profile,
             config.into(),
             storage,
-            SessionBootstrapOptions {
-                thp_timeout: DEFAULT_THP_TIMEOUT,
-                try_to_unlock,
-                passphrase: None,
-                on_device: false,
-                derive_cardano: false,
-            },
+            bootstrap_options(try_to_unlock, retry_policy),
         )
         .await
         .map_err(HWCoreError::from)?;
@@ -466,7 +493,7 @@ impl BleSessionHandle {
         config: HostConfig,
         try_to_unlock: bool,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        self.into_ready_workflow_with_storage(config, None, try_to_unlock)
+        self.into_ready_workflow_with_policy(config, None, try_to_unlock, None)
             .await
     }
 
@@ -477,6 +504,18 @@ impl BleSessionHandle {
         storage_path: Option<String>,
         try_to_unlock: bool,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
+        self.into_ready_workflow_with_policy(config, storage_path, try_to_unlock, None)
+            .await
+    }
+
+    #[uniffi::method]
+    pub async fn into_ready_workflow_with_policy(
+        self: Arc<Self>,
+        config: HostConfig,
+        storage_path: Option<String>,
+        try_to_unlock: bool,
+        retry_policy: Option<SessionRetryPolicy>,
+    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
         let session = self.take_session().await?;
         let backend = backend_from_session(session, DEFAULT_THP_TIMEOUT);
         let workflow = if let Some(path) = storage_path {
@@ -486,7 +525,9 @@ impl BleSessionHandle {
             new_workflow(backend, config.into())
         };
         let handle = Arc::new(BleWorkflowHandle::new(workflow));
-        handle.prepare_ready_session(try_to_unlock).await?;
+        handle
+            .prepare_ready_session_with_policy(try_to_unlock, retry_policy)
+            .await?;
         Ok(handle)
     }
 }
@@ -542,11 +583,12 @@ mod tests {
         HandshakeCompletionResponse, HandshakeCompletionState, HandshakeInitOutcome,
         HandshakeInitRequest, KnownCredential, PairingRequest, PairingRequestApproved,
         PairingTagRequest, PairingTagResponse, SelectMethodRequest, SelectMethodResponse,
-        SignTxRequest, SignTxResponse, ThpProperties,
+        SignTxRequest as BackendSignTxRequest, SignTxResponse, ThpProperties,
     };
     use trezor_connect::thp::{Chain, HostConfig, PairingMethod, Phase, ThpWorkflow};
 
-    use crate::types::{GetAddressRequest, SignTxRequest as FfiSignTxRequest};
+    use crate::errors::HWCoreError;
+    use crate::types::{GetAddressRequest, SignTxRequest};
 
     struct MockBackend {
         handshake_hash: Vec<u8>,
@@ -555,7 +597,7 @@ mod tests {
         expected_code: Option<String>,
         select_responses: VecDeque<SelectMethodResponse>,
         last_get_address_request: Option<trezor_connect::thp::GetAddressRequest>,
-        last_sign_tx_request: Option<SignTxRequest>,
+        last_sign_tx_request: Option<BackendSignTxRequest>,
     }
 
     impl MockBackend {
@@ -739,7 +781,10 @@ mod tests {
             })
         }
 
-        async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse> {
+        async fn sign_tx(
+            &mut self,
+            request: BackendSignTxRequest,
+        ) -> BackendResult<SignTxResponse> {
             self.last_sign_tx_request = Some(request);
             Ok(SignTxResponse {
                 chain: Chain::Ethereum,
@@ -841,7 +886,7 @@ mod tests {
 
         let signed = sign_tx_for_workflow(
             &mut workflow,
-            FfiSignTxRequest {
+            SignTxRequest {
                 chain: Chain::Ethereum,
                 path: "m/44'/60'/0'/0/0".into(),
                 to: "0x000000000000000000000000000000000000dead".into(),
@@ -901,7 +946,34 @@ mod tests {
 
     #[test]
     fn sign_tx_request_maps_solana_chain() {
-        let mapped = map_sign_tx_request(FfiSignTxRequest {
+        let mapped = map_sign_tx_request(SignTxRequest {
+            chain: Chain::Solana,
+            path: "m/44'/501'/0'/0'".into(),
+            to: String::new(),
+            value: "0x0".into(),
+            nonce: "0x0".into(),
+            gas_limit: "0x0".into(),
+            chain_id: 0,
+            data: "0x0102030405060708090a0b0c0d0e0f10".into(),
+            max_fee_per_gas: "0x0".into(),
+            max_priority_fee: "0x0".into(),
+            access_list: Vec::new(),
+            chunkify: false,
+        })
+        .expect("solana request should map");
+        assert_eq!(mapped.chain, Chain::Solana);
+        assert_eq!(
+            mapped.data,
+            vec![
+                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+                0x0f, 0x10,
+            ]
+        );
+    }
+
+    #[test]
+    fn sign_tx_request_rejects_too_short_solana_payload() {
+        let err = map_sign_tx_request(SignTxRequest {
             chain: Chain::Solana,
             path: "m/44'/501'/0'/0'".into(),
             to: String::new(),
@@ -915,14 +987,13 @@ mod tests {
             access_list: Vec::new(),
             chunkify: false,
         })
-        .expect("solana request should map");
-        assert_eq!(mapped.chain, Chain::Solana);
-        assert_eq!(mapped.data, vec![0x01, 0x02, 0x03]);
+        .expect_err("short Solana payload should fail");
+        assert!(matches!(err, HWCoreError::Validation(_)));
     }
 
     #[test]
     fn sign_tx_request_maps_bitcoin_chain() {
-        let mapped = map_sign_tx_request(FfiSignTxRequest {
+        let mapped = map_sign_tx_request(SignTxRequest {
             chain: Chain::Bitcoin,
             path: String::new(),
             to: String::new(),
@@ -959,6 +1030,15 @@ impl BleWorkflowHandle {
 
     #[uniffi::method]
     pub async fn pair_only(&self, try_to_unlock: bool) -> Result<SessionState, HWCoreError> {
+        self.pair_only_with_policy(try_to_unlock, None).await
+    }
+
+    #[uniffi::method]
+    pub async fn pair_only_with_policy(
+        &self,
+        try_to_unlock: bool,
+        retry_policy: Option<SessionRetryPolicy>,
+    ) -> Result<SessionState, HWCoreError> {
         self.push_event(WorkflowEvent {
             kind: WorkflowEventKind::Progress,
             code: "PAIR_ONLY_START".to_string(),
@@ -967,7 +1047,8 @@ impl BleWorkflowHandle {
         .await;
 
         let mut workflow = self.workflow.lock().await;
-        let result = advance_to_paired(&mut workflow, try_to_unlock).await;
+        let policy = retry_policy.unwrap_or_default();
+        let result = advance_to_paired_with_policy(&mut workflow, try_to_unlock, &policy).await;
         let mapped = match result {
             Ok(phase) => {
                 let prompt_message = if matches!(phase, WalletSessionPhase::NeedsPairingCode) {
@@ -1006,6 +1087,15 @@ impl BleWorkflowHandle {
 
     #[uniffi::method]
     pub async fn connect_ready(&self, try_to_unlock: bool) -> Result<SessionState, HWCoreError> {
+        self.connect_ready_with_policy(try_to_unlock, None).await
+    }
+
+    #[uniffi::method]
+    pub async fn connect_ready_with_policy(
+        &self,
+        try_to_unlock: bool,
+        retry_policy: Option<SessionRetryPolicy>,
+    ) -> Result<SessionState, HWCoreError> {
         self.push_event(WorkflowEvent {
             kind: WorkflowEventKind::Progress,
             code: "CONNECT_READY_START".to_string(),
@@ -1014,13 +1104,7 @@ impl BleWorkflowHandle {
         .await;
 
         let mut ready = *self.session_ready.lock().await;
-        let options = SessionBootstrapOptions {
-            thp_timeout: DEFAULT_THP_TIMEOUT,
-            try_to_unlock,
-            passphrase: None,
-            on_device: false,
-            derive_cardano: false,
-        };
+        let options = bootstrap_options(try_to_unlock, retry_policy);
 
         let mut workflow = self.workflow.lock().await;
         let result = advance_session_bootstrap(&mut workflow, &mut ready, &options).await;
@@ -1289,7 +1373,20 @@ impl BleWorkflowHandle {
 
     #[uniffi::method]
     pub async fn prepare_ready_session(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
-        match self.connect_ready(try_to_unlock).await? {
+        self.prepare_ready_session_with_policy(try_to_unlock, None)
+            .await
+    }
+
+    #[uniffi::method]
+    pub async fn prepare_ready_session_with_policy(
+        &self,
+        try_to_unlock: bool,
+        retry_policy: Option<SessionRetryPolicy>,
+    ) -> Result<(), HWCoreError> {
+        match self
+            .connect_ready_with_policy(try_to_unlock, retry_policy)
+            .await?
+        {
             SessionState {
                 phase: WalletSessionPhase::Ready,
                 ..

@@ -6,17 +6,20 @@ public struct HWCoreConfig: Sendable {
     public var appName: String
     public var storagePath: String?
     public var pairingMethods: [PairingMethod]
+    public var sessionRetryPolicy: SessionRetryPolicy
 
     public init(
         hostName: String,
         appName: String,
         storagePath: String? = nil,
-        pairingMethods: [PairingMethod] = [.codeEntry]
+        pairingMethods: [PairingMethod] = [.codeEntry],
+        sessionRetryPolicy: SessionRetryPolicy = sessionRetryPolicyDefault()
     ) {
         self.hostName = hostName
         self.appName = appName
         self.storagePath = storagePath
         self.pairingMethods = pairingMethods
+        self.sessionRetryPolicy = sessionRetryPolicy
     }
 }
 
@@ -51,6 +54,7 @@ public struct WalletEvent: Sendable {
 public typealias SessionHandshakeState = HWCoreFFI.SessionHandshakeState
 public typealias Chain = HWCoreFFI.Chain
 public typealias ChainConfig = HWCoreFFI.ChainConfig
+public typealias SessionRetryPolicy = HWCoreFFI.SessionRetryPolicy
 public typealias AddressResult = HWCoreFFI.AddressResult
 public typealias AccessListEntry = HWCoreFFI.AccessListEntry
 public typealias SignTxRequest = HWCoreFFI.SignTxRequest

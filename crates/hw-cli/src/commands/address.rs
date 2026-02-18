@@ -110,6 +110,7 @@ pub async fn run(args: AddressArgs) -> Result<()> {
         passphrase: None,
         on_device: false,
         derive_cardano: false,
+        ..SessionBootstrapOptions::default()
     };
     loop {
         let step = advance_session_bootstrap(&mut workflow, &mut session_ready, &options)
@@ -295,6 +296,7 @@ mod tests {
                 passphrase: None,
                 on_device: false,
                 derive_cardano: false,
+                ..SessionBootstrapOptions::default()
             },
         )
         .await

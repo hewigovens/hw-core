@@ -4,10 +4,16 @@ import HWCoreFFI
 public final class WalletSession: @unchecked Sendable {
     private let workflow: BleWorkflowHandle
     private let logger: WalletLogger?
+    private let retryPolicy: SessionRetryPolicy
 
-    init(workflow: BleWorkflowHandle, logger: WalletLogger?) {
+    init(
+        workflow: BleWorkflowHandle,
+        logger: WalletLogger?,
+        retryPolicy: SessionRetryPolicy
+    ) {
         self.workflow = workflow
         self.logger = logger
+        self.retryPolicy = retryPolicy
     }
 
     public func events(timeoutMs: UInt64 = 500) -> AsyncStream<WalletEvent> {
@@ -47,7 +53,10 @@ public final class WalletSession: @unchecked Sendable {
     ) async throws -> SessionState {
         do {
             return try await withTimeout(seconds: timeout, operation: "pairOnly") {
-                try await self.workflow.pairOnly(tryToUnlock: tryToUnlock)
+                try await self.workflow.pairOnlyWithPolicy(
+                    tryToUnlock: tryToUnlock,
+                    retryPolicy: self.retryPolicy
+                )
             }
         } catch {
             throw mapError(error)
@@ -60,7 +69,10 @@ public final class WalletSession: @unchecked Sendable {
     ) async throws -> SessionState {
         do {
             return try await withTimeout(seconds: timeout, operation: "connectReady") {
-                try await self.workflow.connectReady(tryToUnlock: tryToUnlock)
+                try await self.workflow.connectReadyWithPolicy(
+                    tryToUnlock: tryToUnlock,
+                    retryPolicy: self.retryPolicy
+                )
             }
         } catch {
             throw mapError(error)
@@ -133,7 +145,7 @@ public final class WalletSession: @unchecked Sendable {
     public func getAddress(
         chain: Chain = .ethereum,
         path: String? = nil,
-        showOnDevice: Bool = false,
+        showOnDevice: Bool = true,
         includePublicKey: Bool = false,
         chunkify: Bool = false,
         timeout: TimeInterval? = nil

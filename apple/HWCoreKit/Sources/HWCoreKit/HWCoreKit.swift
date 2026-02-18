@@ -54,7 +54,11 @@ public final class HWCoreKit: @unchecked Sendable {
                 message: "Connected to device",
                 metadata: ["device_id": redacted(device.id)]
             )
-            return WalletSession(workflow: workflow, logger: logger)
+            return WalletSession(
+                workflow: workflow,
+                logger: logger,
+                retryPolicy: config.sessionRetryPolicy
+            )
         } catch {
             throw mapError(error)
         }
