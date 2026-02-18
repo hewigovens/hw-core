@@ -76,6 +76,43 @@ pub const CREATE_SESSION_ATTEMPTS: usize = 3;
 pub const RETRY_DELAY: Duration = Duration::from_millis(800);
 const CREATE_CHANNEL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRetryPolicy {
+    pub create_channel_attempts: u32,
+    pub handshake_attempts: u32,
+    pub create_session_attempts: u32,
+    pub retry_delay_ms: u64,
+}
+
+impl Default for SessionRetryPolicy {
+    fn default() -> Self {
+        Self {
+            create_channel_attempts: CREATE_CHANNEL_ATTEMPTS as u32,
+            handshake_attempts: HANDSHAKE_ATTEMPTS as u32,
+            create_session_attempts: CREATE_SESSION_ATTEMPTS as u32,
+            retry_delay_ms: RETRY_DELAY.as_millis() as u64,
+        }
+    }
+}
+
+impl SessionRetryPolicy {
+    pub fn retry_delay(&self) -> Duration {
+        Duration::from_millis(self.retry_delay_ms.max(1))
+    }
+
+    pub fn create_channel_attempts(&self) -> usize {
+        self.create_channel_attempts.max(1) as usize
+    }
+
+    pub fn handshake_attempts(&self) -> usize {
+        self.handshake_attempts.max(1) as usize
+    }
+
+    pub fn create_session_attempts(&self) -> usize {
+        self.create_session_attempts.max(1) as usize
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SessionPhase {
     NeedsChannel,
@@ -140,6 +177,7 @@ pub struct SessionBootstrapOptions {
     pub passphrase: Option<String>,
     pub on_device: bool,
     pub derive_cardano: bool,
+    pub retry_policy: SessionRetryPolicy,
 }
 
 impl Default for SessionBootstrapOptions {
@@ -150,6 +188,7 @@ impl Default for SessionBootstrapOptions {
             passphrase: None,
             on_device: false,
             derive_cardano: false,
+            retry_policy: SessionRetryPolicy::default(),
         }
     }
 }
@@ -214,14 +253,36 @@ pub async fn advance_to_paired<B>(
 where
     B: ThpBackend + Send,
 {
+    advance_to_paired_with_policy(workflow, try_to_unlock, &SessionRetryPolicy::default()).await
+}
+
+pub async fn advance_to_paired_with_policy<B>(
+    workflow: &mut ThpWorkflow<B>,
+    try_to_unlock: bool,
+    retry_policy: &SessionRetryPolicy,
+) -> WalletResult<SessionPhase>
+where
+    B: ThpBackend + Send,
+{
+    let retry_delay = retry_policy.retry_delay();
     loop {
         match session_phase(workflow.state(), false) {
             SessionPhase::NeedsChannel => {
-                create_channel_with_retry(workflow, CREATE_CHANNEL_ATTEMPTS, RETRY_DELAY).await?;
+                create_channel_with_retry(
+                    workflow,
+                    retry_policy.create_channel_attempts(),
+                    retry_delay,
+                )
+                .await?;
             }
             SessionPhase::NeedsHandshake => {
-                handshake_with_retry(workflow, try_to_unlock, HANDSHAKE_ATTEMPTS, RETRY_DELAY)
-                    .await?;
+                handshake_with_retry(
+                    workflow,
+                    try_to_unlock,
+                    retry_policy.handshake_attempts(),
+                    retry_delay,
+                )
+                .await?;
             }
             SessionPhase::NeedsConnectionConfirmation => {
                 workflow.pairing(None).await.map_err(WalletError::from)?;
@@ -242,17 +303,23 @@ pub async fn advance_session_bootstrap<B>(
 where
     B: ThpBackend + Send,
 {
+    let retry_delay = options.retry_policy.retry_delay();
     loop {
         match session_phase(workflow.state(), *session_ready) {
             SessionPhase::NeedsChannel => {
-                create_channel_with_retry(workflow, CREATE_CHANNEL_ATTEMPTS, RETRY_DELAY).await?;
+                create_channel_with_retry(
+                    workflow,
+                    options.retry_policy.create_channel_attempts(),
+                    retry_delay,
+                )
+                .await?;
             }
             SessionPhase::NeedsHandshake => {
                 handshake_with_retry(
                     workflow,
                     options.try_to_unlock,
-                    HANDSHAKE_ATTEMPTS,
-                    RETRY_DELAY,
+                    options.retry_policy.handshake_attempts(),
+                    retry_delay,
                 )
                 .await?;
             }
@@ -265,8 +332,8 @@ where
                     options.passphrase.clone(),
                     options.on_device,
                     options.derive_cardano,
-                    CREATE_SESSION_ATTEMPTS,
-                    RETRY_DELAY,
+                    options.retry_policy.create_session_attempts(),
+                    retry_delay,
                 )
                 .await?;
                 *session_ready = true;
@@ -586,5 +653,28 @@ mod tests {
         assert!(ready.can_sign_tx);
         assert!(!ready.requires_pairing_code);
         assert!(ready.prompt_message.is_none());
+    }
+
+    #[test]
+    fn retry_policy_defaults_match_bootstrap_constants() {
+        let policy = SessionRetryPolicy::default();
+        assert_eq!(policy.create_channel_attempts(), CREATE_CHANNEL_ATTEMPTS);
+        assert_eq!(policy.handshake_attempts(), HANDSHAKE_ATTEMPTS);
+        assert_eq!(policy.create_session_attempts(), CREATE_SESSION_ATTEMPTS);
+        assert_eq!(policy.retry_delay(), RETRY_DELAY);
+    }
+
+    #[test]
+    fn retry_policy_enforces_minimum_values() {
+        let policy = SessionRetryPolicy {
+            create_channel_attempts: 0,
+            handshake_attempts: 0,
+            create_session_attempts: 0,
+            retry_delay_ms: 0,
+        };
+        assert_eq!(policy.create_channel_attempts(), 1);
+        assert_eq!(policy.handshake_attempts(), 1);
+        assert_eq!(policy.create_session_attempts(), 1);
+        assert_eq!(policy.retry_delay(), Duration::from_millis(1));
     }
 }

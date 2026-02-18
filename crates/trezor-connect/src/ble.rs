@@ -1065,24 +1065,42 @@ impl ThpBackend for BleBackend {
         self.send_encrypted_request(encoded).await?;
 
         let parsed = self.read_next().await?;
-        let mut response = self
+        let response_or_reason: ResponseOrReason<GetAddressResponse> = self
             .parse_encrypted_response(parsed, |message_type, payload| {
-                decode_get_address_response(request.chain, message_type, payload)
+                if message_type == MESSAGE_TYPE_FAILURE {
+                    return Ok(Err(decode_failure_reason(payload)));
+                }
+                let response = decode_get_address_response(request.chain, message_type, payload)?;
+                Ok(Ok(response))
             })
             .await?;
+        let mut response = match response_or_reason {
+            Ok(response) => response,
+            Err(reason) => return Err(BackendError::Device(reason)),
+        };
 
         if request.include_public_key {
-            let encoded =
-                encode_get_public_key_request(request.chain, &request.path, request.show_display)
-                    .map_err(Self::transport_error)?;
+            // Keep public-key retrieval silent. Address confirmation is handled by GetAddress
+            // itself; mirroring Suite behavior avoids extra on-device prompts/failures.
+            let encoded = encode_get_public_key_request(request.chain, &request.path, false)
+                .map_err(Self::transport_error)?;
             self.send_encrypted_request(encoded).await?;
 
             let parsed = self.read_next().await?;
-            let public_key = self
+            let public_key_or_reason: ResponseOrReason<String> = self
                 .parse_encrypted_response(parsed, |message_type, payload| {
-                    decode_get_public_key_response(request.chain, message_type, payload)
+                    if message_type == MESSAGE_TYPE_FAILURE {
+                        return Ok(Err(decode_failure_reason(payload)));
+                    }
+                    let public_key =
+                        decode_get_public_key_response(request.chain, message_type, payload)?;
+                    Ok(Ok(public_key))
                 })
                 .await?;
+            let public_key = match public_key_or_reason {
+                Ok(public_key) => public_key,
+                Err(reason) => return Err(BackendError::Device(reason)),
+            };
             response.public_key = Some(public_key);
         }
 

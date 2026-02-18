@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var viewModel = ContentViewModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         platformContent
@@ -10,6 +11,9 @@ struct ContentView: View {
         }
         .onChange(of: viewModel.selectedChain) { _ in
             viewModel.selectedChainDidChange()
+        }
+        .onChange(of: scenePhase) { newPhase in
+            Task { await viewModel.scenePhaseDidChange(newPhase) }
         }
         .alert("Pairing Code", isPresented: $viewModel.showPairingAlert) {
             TextField("123456", text: $viewModel.pairingCodeInput)

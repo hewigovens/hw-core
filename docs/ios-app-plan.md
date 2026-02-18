@@ -42,11 +42,8 @@ Known limitation:
 - Advanced BTC signing request types (`TxExtraData`, `TxOrigInput`, `TxOrigOutput`, `TxPaymentReq`, and prev-tx lookup by `tx_hash`) are intentionally not implemented in `trezor-connect` yet. Wallet layer must preload/provide required tx context before calling signing APIs.
 
 Still missing (repo audit):
-- [ ] Storage snapshot migration/versioning strategy (`HostSnapshot` has no schema versioning yet)
-- [ ] Crash-safe app lifecycle recovery (foreground/background/interrupted BLE session restore path)
-- [ ] Privacy-safe telemetry/error metrics pipeline
-- [ ] End-to-end iOS manual matrix doc (locked/unlocked, paired/unpaired, stale pairing)
-- [ ] iOS UI smoke tests for scan/pair/connect/address/sign (only macOS launch/control smoke exists)
+- [ ] Implement advanced BTC `TxRequest` handling in `trezor-connect` for prev-tx and extra-data request types
+- [ ] Add message-signing flows (ETH/BTC/SOL where firmware supports) across `trezor-connect` -> `hw-wallet` -> `hw-ffi` -> `HWCoreKit` + sample app UI (plan: `docs/message-sign-plan.md`)
 
 ## Milestones
 ## M1: Expand Rust FFI Surface
@@ -80,10 +77,9 @@ Still missing (repo audit):
 ## M5: Hardening + Release Readiness
 - [x] Real iOS app target (`apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj` with local `HWCoreKit` dependency)
 - [x] macOS UI launch/control smoke test target (`just test-mac-ui`)
-- [ ] Persisted host state migration/versioning strategy
-- [ ] Crash-safe recovery after BLE disconnect/app lifecycle interruption
-- [ ] Privacy-safe telemetry/error metrics
-- [ ] End-to-end manual matrix (locked/unlocked, paired/unpaired, stale pairing)
+- [x] Persisted host state migration/versioning strategy (`HostSnapshot.schema_version`, legacy v0 migration, and forward-version guard in `FileStorage`)
+- [x] Crash-safe recovery after BLE disconnect/app lifecycle interruption (sample app background disconnect + foreground recovery path)
+- [x] End-to-end manual matrix (locked/unlocked, paired/unpaired, stale pairing) in `docs/ios-manual-matrix.md`
 
 ## API Contract (Swift-facing)
 - `discoverTrezor(timeoutMs) async throws -> [Device]`
@@ -101,6 +97,7 @@ Still missing (repo audit):
 
 ## Immediate Next Tasks
 - [ ] Implement advanced BTC `TxRequest` handling in `trezor-connect` for prev-tx and extra-data request types
-- [ ] Expose workflow-level reconnect/backoff policy controls via FFI + `HWCoreConfig`
-- [ ] Add iOS UI smoke tests for scan/pair/connect/address/sign flows
-- [ ] Write iOS manual validation matrix
+- [ ] Add message-signing API surface and UI paths (CLI + FFI + Swift wrapper) per `docs/message-sign-plan.md`
+- [x] Expose workflow-level reconnect/backoff policy controls via FFI + `HWCoreConfig`
+- [x] Add iOS UI smoke tests for scan/pair/connect/address/sign flows (`just test-ios-ui`)
+- [x] Write iOS manual validation matrix (`docs/ios-manual-matrix.md`)

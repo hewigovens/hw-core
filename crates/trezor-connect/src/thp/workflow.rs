@@ -84,6 +84,7 @@ where
             let snapshot = HostSnapshot {
                 static_key: self.config.static_key.clone(),
                 known_credentials: self.config.known_credentials.clone(),
+                ..HostSnapshot::default()
             };
             storage
                 .persist(&snapshot)
@@ -1325,6 +1326,7 @@ mod tests {
                 trezor_static_public_key: Some(vec![0xBB; 32]),
                 autoconnect: true,
             }],
+            ..HostSnapshot::default()
         };
         let storage = Arc::new(InMemoryStorage::new(initial_snapshot.clone()));
         let config = HostConfig {

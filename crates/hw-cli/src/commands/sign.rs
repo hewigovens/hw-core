@@ -121,6 +121,7 @@ async fn run_eth(args: SignEthArgs) -> Result<()> {
         passphrase: None,
         on_device: false,
         derive_cardano: false,
+        ..SessionBootstrapOptions::default()
     };
     loop {
         let step = advance_session_bootstrap(&mut workflow, &mut session_ready, &options)
@@ -242,6 +243,7 @@ async fn run_sol(args: SignSolArgs) -> Result<()> {
         passphrase: None,
         on_device: false,
         derive_cardano: false,
+        ..SessionBootstrapOptions::default()
     };
     loop {
         let step = advance_session_bootstrap(&mut workflow, &mut session_ready, &options)
@@ -352,6 +354,7 @@ async fn run_btc(args: SignBtcArgs) -> Result<()> {
         passphrase: None,
         on_device: false,
         derive_cardano: false,
+        ..SessionBootstrapOptions::default()
     };
     loop {
         let step = advance_session_bootstrap(&mut workflow, &mut session_ready, &options)
@@ -422,6 +425,7 @@ mod tests {
                 passphrase: None,
                 on_device: false,
                 derive_cardano: false,
+                ..SessionBootstrapOptions::default()
             },
         )
         .await
@@ -463,6 +467,7 @@ mod tests {
                 passphrase: None,
                 on_device: false,
                 derive_cardano: false,
+                ..SessionBootstrapOptions::default()
             },
         )
         .await
@@ -505,6 +510,7 @@ mod tests {
                 passphrase: None,
                 on_device: false,
                 derive_cardano: false,
+                ..SessionBootstrapOptions::default()
             },
         )
         .await

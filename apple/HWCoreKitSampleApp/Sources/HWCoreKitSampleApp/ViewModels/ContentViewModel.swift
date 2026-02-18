@@ -25,8 +25,8 @@ final class ContentViewModel: ObservableObject {
     @Published var signatureSummary = ""
     @Published var logs: [String] = []
     @Published var addressPathInput: String
-    @Published var showAddressOnDevice = false
-    @Published var includeAddressPublicKey = true
+    @Published var showAddressOnDevice = true
+    @Published var includeAddressPublicKey = false
     @Published var addressChunkify = false
     @Published var ethSignPathInput: String
     @Published var ethTo = "0x000000000000000000000000000000000000dead"
@@ -49,6 +49,8 @@ final class ContentViewModel: ObservableObject {
     private var eventTask: Task<Void, Never>?
     private var pendingPairingFlow: PendingPairingFlow?
     private var storagePath: String?
+    private var pendingRecoveryDeviceID: String?
+    private var shouldRecoverOnActive = false
 
     private enum PendingPairingFlow {
         case pairOnly
@@ -56,6 +58,7 @@ final class ContentViewModel: ObservableObject {
     }
 
     private struct StorageSnapshotSummary {
+        let schemaVersion: Int
         let hasStaticKey: Bool
         let knownCredentialCount: Int
     }
@@ -65,7 +68,9 @@ final class ContentViewModel: ObservableObject {
         var errorDescription: String? { message }
     }
 
-    private static let defaultSolanaTxHex = "010203"
+    // Deterministic SOL legacy-message fixture signed by address:
+    // FsTN1tNGk2HAYFggctuT5ZtbdKxmVg9WjEDH9DQAyGFb (m/44'/501'/0'/0')
+    private static let defaultSolanaTxHex = "01000103dcf07724e5ed851704cc5e8528f4b08d3ebb6184d327c0ea17b88bb3aaa7c31a11111111111111111111111111111111111111111111111111111111111111110000000000000000000000000000000000000000000000000000000000000000222222222222222222222222222222222222222222222222222222222222222201020200010c020000000100000000000000"
     private static let defaultBitcoinTxJson = """
     {
       "version": 2,
@@ -143,7 +148,7 @@ final class ContentViewModel: ObservableObject {
             appendLog("storage path: \(path)")
             if let snapshot = loadStorageSnapshotSummary(path: path) {
                 appendLog(
-                    "storage snapshot: static_key=\(snapshot.hasStaticKey) known_credentials=\(snapshot.knownCredentialCount)"
+                    "storage snapshot: schema=\(snapshot.schemaVersion) static_key=\(snapshot.hasStaticKey) known_credentials=\(snapshot.knownCredentialCount)"
                 )
             } else {
                 appendLog("storage snapshot: unavailable or unreadable")
@@ -278,7 +283,7 @@ final class ContentViewModel: ObservableObject {
                 status = "Connect first"
                 return
             }
-            let request = try buildSignRequest(chain: selectedChain)
+            let request = try await buildSignRequest(chain: selectedChain, session: session)
             appendLog("sign preview: \(signPreview)")
             let result = try await session.signTx(request)
             signatureSummary = describeSignResult(result, chain: selectedChain)
@@ -352,6 +357,19 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func scenePhaseDidChange(_ phase: ScenePhase) async {
+        switch phase {
+        case .background:
+            await handleBackgroundTransition()
+        case .active:
+            await handleForegroundRecovery()
+        case .inactive:
+            break
+        @unknown default:
+            break
+        }
+    }
+
     private func startEventStream() {
         eventTask?.cancel()
         guard let session else { return }
@@ -360,6 +378,68 @@ final class ContentViewModel: ObservableObject {
             for await event in session.events(timeoutMs: 500) {
                 appendLog("event [\(event.code)] \(event.message)")
             }
+        }
+    }
+
+    private func handleBackgroundTransition() async {
+        guard session != nil else {
+            shouldRecoverOnActive = false
+            pendingRecoveryDeviceID = nil
+            return
+        }
+
+        if hasSelectedDevice {
+            pendingRecoveryDeviceID = devices[selectedDeviceIndex].id
+        }
+        shouldRecoverOnActive = true
+        appendLog("lifecycle: entering background, disconnecting active BLE session")
+        await disconnectSession()
+    }
+
+    private func handleForegroundRecovery() async {
+        guard shouldRecoverOnActive else { return }
+        guard !isBusy else {
+            appendLog("lifecycle: skipped recovery because another operation is in progress")
+            return
+        }
+
+        isBusy = true
+        defer {
+            isBusy = false
+            pendingRecoveryDeviceID = nil
+        }
+        shouldRecoverOnActive = false
+
+        appendLog("lifecycle: app became active, attempting BLE session recovery")
+        do {
+            await bootstrap()
+            guard let coreKit else { return }
+
+            let discovered = try await coreKit.discoverTrezor(timeoutMs: 4_000)
+            devices = discovered
+            if let recoveryID = pendingRecoveryDeviceID,
+               let matchingIndex = discovered.firstIndex(where: { $0.id == recoveryID })
+            {
+                selectedDeviceIndex = matchingIndex
+            } else if !discovered.isEmpty {
+                selectedDeviceIndex = 0
+            }
+
+            if hasSelectedDevice {
+                try await ensureConnectedSession()
+                if let session, sessionState?.canConnect == true {
+                    let state = try await session.connectReady(tryToUnlock: true)
+                    applySessionState(state, trigger: .connectReady)
+                } else {
+                    try await refreshSessionState()
+                }
+                appendLog("lifecycle: recovery complete")
+            } else {
+                status = "No devices found for recovery"
+                appendLog("lifecycle: recovery aborted, no scanned devices")
+            }
+        } catch {
+            handleError(error, prefix: "lifecycleRecovery")
         }
     }
 
@@ -456,7 +536,10 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    private func buildSignRequest(chain: Chain) throws -> SignTxRequest {
+    private func buildSignRequest(
+        chain: Chain,
+        session: WalletSession
+    ) async throws -> SignTxRequest {
         switch chain {
         case .ethereum:
             let chainId = try parseU64(ethChainId, fieldName: "ETH chain id")
@@ -485,12 +568,13 @@ final class ContentViewModel: ObservableObject {
                 chunkify: ethChunkify
             )
         case .solana:
+            let resolvedSolPath = resolvedPath(solSignPathInput, chain: .solana)
             let txHex = sanitizedHex(solSerializedTxHex)
             guard !txHex.isEmpty else {
-                throw InputValidationError(message: "Solana serialized tx hex is required")
+                throw InputValidationError(message: "SOL tx hex is required")
             }
             return SignTxRequest.solana(
-                path: resolvedPath(solSignPathInput, chain: .solana),
+                path: resolvedSolPath,
                 serializedTxHex: txHex,
                 chunkify: solChunkify
             )
@@ -583,6 +667,10 @@ final class ContentViewModel: ObservableObject {
         pasteboard.setString(value, forType: .string)
         status = "\(successLabel.capitalized) copied"
         appendLog("\(successLabel) copied")
+        #elseif canImport(UIKit)
+        UIPasteboard.general.string = value
+        status = "\(successLabel.capitalized) copied"
+        appendLog("\(successLabel) copied")
         #else
         status = "Clipboard unsupported on this platform"
         #endif
@@ -643,7 +731,11 @@ final class ContentViewModel: ObservableObject {
     private func loadStorageSnapshotSummary(path: String) -> StorageSnapshotSummary? {
         let expandedPath = NSString(string: path).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: expandedPath) else {
-            return StorageSnapshotSummary(hasStaticKey: false, knownCredentialCount: 0)
+            return StorageSnapshotSummary(
+                schemaVersion: 0,
+                hasStaticKey: false,
+                knownCredentialCount: 0
+            )
         }
         guard let data = FileManager.default.contents(atPath: expandedPath) else {
             return nil
@@ -653,9 +745,11 @@ final class ContentViewModel: ObservableObject {
         else {
             return nil
         }
+        let schemaVersion = dictionary["schema_version"] as? Int ?? 0
         let hasStaticKey = dictionary["static_key"] is [Any]
         let knownCredentialCount = (dictionary["known_credentials"] as? [Any])?.count ?? 0
         return StorageSnapshotSummary(
+            schemaVersion: schemaVersion,
             hasStaticKey: hasStaticKey,
             knownCredentialCount: knownCredentialCount
         )

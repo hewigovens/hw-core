@@ -8,9 +8,10 @@ A minimal SwiftUI sample app (macOS + iOS) that exercises the `HWCoreKit` API.
 - Workflow-state driven pair/connect transitions from Rust state machine
 - Pair-only flow (`pair --force` equivalent) and connect-ready flow
 - Pairing code entry via SwiftUI alert
-- Ethereum address retrieval
-- Ethereum transaction signing
+- Address retrieval for ETH/BTC/SOL
+- Signing requests for ETH/BTC/SOL (basic BTC request types)
 - Event stream consumption (`session.events()`)
+- App lifecycle recovery path (background disconnect + foreground reconnect attempt)
 
 ## Run (macOS)
 From repository root:
@@ -54,6 +55,21 @@ just run-ios
 Note:
 - The SwiftUI view and view model are shared between macOS and iOS.
 - iOS simulator links `target/ios-sim/debug/libhw_ffi.dylib`.
+
+## iOS UI Tests
+Run iOS UI smoke tests:
+
+```bash
+just test-ios-ui
+```
+
+This generates `apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj` from `project-ios.yml` and runs a simulator smoke suite that validates launch, core controls, and scan interaction stability.
+
+If you only want to validate UI-test build wiring without executing tests:
+
+```bash
+just build-ios-ui
+```
 
 ## macOS UI Tests
 Run the macOS UI smoke test target:
