@@ -2,7 +2,7 @@
 name = "thp-crypto"
 version.workspace = true
 edition.workspace = true
-description = "Cryptographic primitives for the Trezor Host Protocol (Noise XX over BLE/USB)"
+description = "Cryptographic primitives for the Trezor Host Protocol (Noise XX)"
 license.workspace = true
 repository.workspace = true
 

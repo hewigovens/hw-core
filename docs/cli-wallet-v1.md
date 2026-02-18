@@ -24,7 +24,7 @@ In scope:
 
 Out of scope:
 - BTC/Cardano or multi-chain workflow beyond extension hooks
-- USB transport
+- Additional non-BLE transports
 - Full automation-first non-interactive UX
 
 ## Current Baseline (Repo Audit)
