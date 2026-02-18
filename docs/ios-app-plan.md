@@ -21,7 +21,7 @@ Ship a production-ready mobile/desktop app that can:
 - Background sync/daemon behavior
 - Portfolio/account features
 
-## Current Status (2026-02-16)
+## Current Status (2026-02-18)
 Implemented:
 - Rust + FFI workflow surface:
   - `pairing_start`, `pairing_submit_code`, `pairing_confirm_connection`
@@ -40,6 +40,13 @@ Implemented:
 
 Known limitation:
 - Advanced BTC signing request types (`TxExtraData`, `TxOrigInput`, `TxOrigOutput`, `TxPaymentReq`, and prev-tx lookup by `tx_hash`) are intentionally not implemented in `trezor-connect` yet. Wallet layer must preload/provide required tx context before calling signing APIs.
+
+Still missing (repo audit):
+- [ ] Storage snapshot migration/versioning strategy (`HostSnapshot` has no schema versioning yet)
+- [ ] Crash-safe app lifecycle recovery (foreground/background/interrupted BLE session restore path)
+- [ ] Privacy-safe telemetry/error metrics pipeline
+- [ ] End-to-end iOS manual matrix doc (locked/unlocked, paired/unpaired, stale pairing)
+- [ ] iOS UI smoke tests for scan/pair/connect/address/sign (only macOS launch/control smoke exists)
 
 ## Milestones
 ## M1: Expand Rust FFI Surface
@@ -72,11 +79,11 @@ Known limitation:
 
 ## M5: Hardening + Release Readiness
 - [x] Real iOS app target (`apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj` with local `HWCoreKit` dependency)
+- [x] macOS UI launch/control smoke test target (`just test-mac-ui`)
 - [ ] Persisted host state migration/versioning strategy
 - [ ] Crash-safe recovery after BLE disconnect/app lifecycle interruption
 - [ ] Privacy-safe telemetry/error metrics
 - [ ] End-to-end manual matrix (locked/unlocked, paired/unpaired, stale pairing)
-- [ ] TestFlight release checklist
 
 ## API Contract (Swift-facing)
 - `discoverTrezor(timeoutMs) async throws -> [Device]`
@@ -94,5 +101,6 @@ Known limitation:
 
 ## Immediate Next Tasks
 - [ ] Implement advanced BTC `TxRequest` handling in `trezor-connect` for prev-tx and extra-data request types
-- [ ] Add workflow-level reconnect/backoff policy controls tunable from app config
-- [ ] Add automated UI smoke tests for scan/pair/connect/address/sign flows
+- [ ] Expose workflow-level reconnect/backoff policy controls via FFI + `HWCoreConfig`
+- [ ] Add iOS UI smoke tests for scan/pair/connect/address/sign flows
+- [ ] Write iOS manual validation matrix

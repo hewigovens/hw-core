@@ -28,7 +28,6 @@ On Linux, BLE requires: `sudo apt-get install -y libdbus-1-dev pkg-config`
 ## Feature Flags
 
 - `ble` on `trezor-connect`: enables BLE transport (btleplug, Noise handshake, pairing)
-- `usb` on `trezor-connect`: placeholder for future USB/HID transport
 - `backend-btleplug` on `ble-transport`: btleplug backend (default-on)
 - `trezor-safe7` on `ble-transport`: Trezor Safe 7 device profile
 

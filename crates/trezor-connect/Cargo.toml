@@ -12,7 +12,6 @@ ble = [
     "ble-transport/backend-btleplug",
     "ble-transport/trezor-safe7",
 ]
-usb = []
 
 [dependencies]
 anyhow = { workspace = true }

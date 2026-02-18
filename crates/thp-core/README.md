@@ -10,7 +10,7 @@ This crate implements the platform-agnostic session logic for THP, handling:
 ## Key Components
 
 - `ThpSession`: The main entry point for establishing a session. It manages the Noise state and message framing.
-- `Link`: A trait that abstracts the underlying transport (e.g., BLE, USB). Implement this trait to adapt `ThpSession` to your specific transport layer.
+- `Link`: A trait that abstracts the underlying transport (e.g., BLE). Implement this trait to adapt `ThpSession` to your specific transport layer.
 - `TrustStore`: A trait for persisting trusted peer credentials.
 
 ## Usage
