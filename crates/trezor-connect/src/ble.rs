@@ -28,7 +28,9 @@ use crate::thp::proto::{
     decode_get_address_response, decode_get_public_key_response, decode_pairing_request_approved,
     decode_select_method_response, decode_solana_tx_signature, decode_tag_response,
     decode_tx_request, encode_bitcoin_tx_ack_input, encode_bitcoin_tx_ack_meta,
-    encode_bitcoin_tx_ack_output, encode_code_entry_challenge, encode_code_entry_tag,
+    encode_bitcoin_tx_ack_output, encode_bitcoin_tx_ack_prev_extra_data,
+    encode_bitcoin_tx_ack_prev_input, encode_bitcoin_tx_ack_prev_meta,
+    encode_bitcoin_tx_ack_prev_output, encode_code_entry_challenge, encode_code_entry_tag,
     encode_credential_request, encode_end_request, encode_get_address_request,
     encode_get_public_key_request, encode_nfc_tag, encode_pairing_request, encode_qr_tag,
     encode_select_method, encode_sign_tx_request, encode_tx_ack,
@@ -1322,65 +1324,128 @@ impl ThpBackend for BleBackend {
 
                     match tx_request.request_type {
                         Some(BitcoinTxRequestType::TxInput) => {
-                            if tx_request.tx_hash.is_some() {
-                                return Err(BackendError::Transport(
-                                    "previous-transaction input requests are not implemented yet"
-                                        .into(),
-                                ));
-                            }
                             let index = tx_request.request_index.ok_or_else(|| {
                                 BackendError::Transport(
                                     "TxInput request missing request_index".into(),
                                 )
                             })? as usize;
-                            let input = btc.inputs.get(index).ok_or_else(|| {
-                                BackendError::Transport(format!(
-                                    "TxInput request index {} out of bounds (inputs={})",
-                                    index,
-                                    btc.inputs.len()
-                                ))
-                            })?;
-                            let ack = encode_bitcoin_tx_ack_input(input)
-                                .map_err(Self::transport_error)?;
-                            self.send_encrypted_request(ack).await?;
+                            if let Some(hash) = &tx_request.tx_hash {
+                                // Previous-transaction input request.
+                                let ref_tx = btc.ref_txs.iter().find(|r| &r.hash == hash)
+                                    .ok_or_else(|| BackendError::Transport(format!(
+                                        "firmware requested prev-tx input but no RefTx found for hash {}",
+                                        hex::encode(hash)
+                                    )))?;
+                                let input = ref_tx.inputs.get(index).ok_or_else(|| {
+                                    BackendError::Transport(format!(
+                                        "prev-tx TxInput index {} out of bounds (ref_tx inputs={})",
+                                        index,
+                                        ref_tx.inputs.len()
+                                    ))
+                                })?;
+                                let ack = encode_bitcoin_tx_ack_prev_input(input)
+                                    .map_err(Self::transport_error)?;
+                                self.send_encrypted_request(ack).await?;
+                            } else {
+                                // Current signing-transaction input request.
+                                let input = btc.inputs.get(index).ok_or_else(|| {
+                                    BackendError::Transport(format!(
+                                        "TxInput request index {} out of bounds (inputs={})",
+                                        index,
+                                        btc.inputs.len()
+                                    ))
+                                })?;
+                                let ack = encode_bitcoin_tx_ack_input(input)
+                                    .map_err(Self::transport_error)?;
+                                self.send_encrypted_request(ack).await?;
+                            }
                         }
                         Some(BitcoinTxRequestType::TxOutput) => {
-                            if tx_request.tx_hash.is_some() {
-                                return Err(BackendError::Transport(
-                                    "previous-transaction output requests are not implemented yet"
-                                        .into(),
-                                ));
-                            }
                             let index = tx_request.request_index.ok_or_else(|| {
                                 BackendError::Transport(
                                     "TxOutput request missing request_index".into(),
                                 )
                             })? as usize;
-                            let output = btc.outputs.get(index).ok_or_else(|| {
-                                BackendError::Transport(format!(
-                                    "TxOutput request index {} out of bounds (outputs={})",
-                                    index,
-                                    btc.outputs.len()
-                                ))
-                            })?;
-                            let ack = encode_bitcoin_tx_ack_output(output)
-                                .map_err(Self::transport_error)?;
-                            self.send_encrypted_request(ack).await?;
+                            if let Some(hash) = &tx_request.tx_hash {
+                                // Previous-transaction binary output request.
+                                let ref_tx = btc.ref_txs.iter().find(|r| &r.hash == hash)
+                                    .ok_or_else(|| BackendError::Transport(format!(
+                                        "firmware requested prev-tx output but no RefTx found for hash {}",
+                                        hex::encode(hash)
+                                    )))?;
+                                let output = ref_tx.bin_outputs.get(index).ok_or_else(|| {
+                                    BackendError::Transport(format!(
+                                        "prev-tx TxOutput index {} out of bounds (ref_tx bin_outputs={})",
+                                        index,
+                                        ref_tx.bin_outputs.len()
+                                    ))
+                                })?;
+                                let ack = encode_bitcoin_tx_ack_prev_output(output)
+                                    .map_err(Self::transport_error)?;
+                                self.send_encrypted_request(ack).await?;
+                            } else {
+                                // Current signing-transaction output request.
+                                let output = btc.outputs.get(index).ok_or_else(|| {
+                                    BackendError::Transport(format!(
+                                        "TxOutput request index {} out of bounds (outputs={})",
+                                        index,
+                                        btc.outputs.len()
+                                    ))
+                                })?;
+                                let ack = encode_bitcoin_tx_ack_output(output)
+                                    .map_err(Self::transport_error)?;
+                                self.send_encrypted_request(ack).await?;
+                            }
                         }
                         Some(BitcoinTxRequestType::TxMeta) => {
-                            if tx_request.tx_hash.is_some() {
-                                return Err(BackendError::Transport(
-                                    "previous-transaction metadata requests are not implemented yet"
-                                        .into(),
-                                ));
+                            if let Some(hash) = &tx_request.tx_hash {
+                                // Previous-transaction metadata request.
+                                let ref_tx = btc.ref_txs.iter().find(|r| &r.hash == hash)
+                                    .ok_or_else(|| BackendError::Transport(format!(
+                                        "firmware requested prev-tx meta but no RefTx found for hash {}",
+                                        hex::encode(hash)
+                                    )))?;
+                                let ack = encode_bitcoin_tx_ack_prev_meta(ref_tx)
+                                    .map_err(Self::transport_error)?;
+                                self.send_encrypted_request(ack).await?;
+                            } else {
+                                // Current signing-transaction metadata request (rare).
+                                let ack = encode_bitcoin_tx_ack_meta(
+                                    btc.version,
+                                    btc.lock_time,
+                                    btc.inputs.len(),
+                                    btc.outputs.len(),
+                                )
+                                .map_err(Self::transport_error)?;
+                                self.send_encrypted_request(ack).await?;
                             }
-                            let ack = encode_bitcoin_tx_ack_meta(
-                                btc.version,
-                                btc.lock_time,
-                                btc.inputs.len(),
-                                btc.outputs.len(),
-                            )
-                            .map_err(Self::transport_error)?;
+                        }
+                        Some(BitcoinTxRequestType::TxExtraData) => {
+                            let hash = tx_request.tx_hash.as_ref().ok_or_else(|| {
+                                BackendError::Transport(
+                                    "TxExtraData request missing tx_hash".into(),
+                                )
+                            })?;
+                            let offset = tx_request.extra_data_offset.unwrap_or(0) as usize;
+                            let len = tx_request.extra_data_len.ok_or_else(|| {
+                                BackendError::Transport(
+                                    "TxExtraData request missing extra_data_len".into(),
+                                )
+                            })? as usize;
+                            let ref_tx = btc.ref_txs.iter().find(|r| &r.hash == hash)
+                                .ok_or_else(|| BackendError::Transport(format!(
+                                    "firmware requested prev-tx extra_data but no RefTx found for hash {}",
+                                    hex::encode(hash)
+                                )))?;
+                            let extra = ref_tx.extra_data.as_deref().ok_or_else(|| {
+                                BackendError::Transport(
+                                    "firmware requested extra_data but RefTx has none".into(),
+                                )
+                            })?;
+                            let end = (offset + len).min(extra.len());
+                            let chunk = &extra[offset..end];
+                            let ack = encode_bitcoin_tx_ack_prev_extra_data(chunk)
+                                .map_err(Self::transport_error)?;
                             self.send_encrypted_request(ack).await?;
                         }
                         Some(BitcoinTxRequestType::TxFinished) => {
@@ -1392,12 +1457,11 @@ impl ThpBackend for BleBackend {
                                 s: Vec::new(),
                             });
                         }
-                        Some(BitcoinTxRequestType::TxExtraData)
-                        | Some(BitcoinTxRequestType::TxOrigInput)
+                        Some(BitcoinTxRequestType::TxOrigInput)
                         | Some(BitcoinTxRequestType::TxOrigOutput)
                         | Some(BitcoinTxRequestType::TxPaymentReq) => {
                             return Err(BackendError::Transport(
-                                "advanced Bitcoin tx request type is not implemented yet".into(),
+                                "advanced Bitcoin tx request type (OrigInput/OrigOutput/PaymentReq) is not implemented yet".into(),
                             ));
                         }
                         None => {

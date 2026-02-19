@@ -1,0 +1,46 @@
+{
+  "_comment": "Example Bitcoin sign-tx payload with a referenced (previous) transaction.\n  The signing input references output #0 of the previous transaction.\n  The host supplies the full previous tx under 'ref_txs' so the firmware\n  can verify the amount without accessing the blockchain itself.\n  All hash/pubkey fields are hex-encoded; amounts are decimal satoshis.",
+  "version": 2,
+  "lock_time": 0,
+  "inputs": [
+    {
+      "path": "m/84'/0'/0'/0/0",
+      "prev_hash": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "prev_index": 0,
+      "amount": "50000",
+      "sequence": 4294967295,
+      "script_type": "spendwitness"
+    }
+  ],
+  "outputs": [
+    {
+      "address": "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
+      "amount": "49000"
+    }
+  ],
+  "ref_txs": [
+    {
+      "hash": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "version": 1,
+      "lock_time": 0,
+      "inputs": [
+        {
+          "prev_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+          "prev_index": 0,
+          "sequence": 4294967295,
+          "script_sig": ""
+        }
+      ],
+      "bin_outputs": [
+        {
+          "amount": "50000",
+          "script_pubkey": "0014751e76e8199196f454f032d4f736e2d673c2ef"
+        },
+        {
+          "amount": "100000",
+          "script_pubkey": "76a914deadbeefdeadbeefdeadbeefdeadbeefdeadbeef88ac"
+        }
+      ]
+    }
+  ]
+}

@@ -19,6 +19,7 @@ pub use transport::{ThpTransport, TransportError};
 pub use types::{
     BtcInputScriptType, BtcOutputScriptType, BtcSignInput, BtcSignOutput, BtcSignTx,
     CreateSessionRequest, EthAccessListEntry, GetAddressRequest, GetAddressResponse, HostConfig,
-    PairingController, PairingDecision, PairingMethod, SignTxRequest, SignTxResponse,
+    PairingController, PairingDecision, PairingMethod, RefTx, RefTxBinOutput, RefTxInput,
+    SignTxRequest, SignTxResponse,
 };
 pub use workflow::ThpWorkflow;

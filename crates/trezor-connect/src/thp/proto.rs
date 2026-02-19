@@ -291,6 +291,9 @@ struct BitcoinTxAckTransaction {
     version: Option<u32>,
     #[prost(message, repeated, tag = "2")]
     inputs: Vec<BitcoinTxInput>,
+    /// Binary outputs (TxOutputBinType) used for previous-transaction responses.
+    #[prost(message, repeated, tag = "3")]
+    bin_outputs: Vec<BitcoinTxBinOutput>,
     #[prost(uint32, optional, tag = "4")]
     lock_time: Option<u32>,
     #[prost(message, repeated, tag = "5")]
@@ -313,12 +316,24 @@ struct BitcoinTxInput {
     prev_hash: Vec<u8>,
     #[prost(uint32, required, tag = "3")]
     prev_index: u32,
+    /// Raw scriptSig bytes; used only when sending a previous-transaction input.
+    #[prost(bytes = "vec", optional, tag = "4")]
+    script_sig: Option<Vec<u8>>,
     #[prost(uint32, optional, tag = "5")]
     sequence: Option<u32>,
     #[prost(enumeration = "BitcoinInputScriptTypeProto", optional, tag = "6")]
     script_type: Option<i32>,
     #[prost(uint64, optional, tag = "8")]
     amount: Option<u64>,
+}
+
+/// Binary output format used for previous-transaction outputs (`TxOutputBinType` in firmware).
+#[derive(Clone, PartialEq, Message)]
+struct BitcoinTxBinOutput {
+    #[prost(uint64, required, tag = "1")]
+    amount: u64,
+    #[prost(bytes = "vec", required, tag = "2")]
+    script_pubkey: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
@@ -1008,6 +1023,7 @@ pub fn encode_bitcoin_tx_ack_meta(
         tx: Some(BitcoinTxAckTransaction {
             version: Some(version),
             inputs: Vec::new(),
+            bin_outputs: Vec::new(),
             lock_time: Some(lock_time),
             outputs: Vec::new(),
             inputs_cnt: Some(inputs_count as u32),
@@ -1034,10 +1050,12 @@ pub fn encode_bitcoin_tx_ack_input(
                 address_n: input.path.clone(),
                 prev_hash: input.prev_hash.clone(),
                 prev_index: input.prev_index,
+                script_sig: None,
                 sequence: Some(input.sequence),
                 script_type: Some(bitcoin_input_script_type_to_proto(input.script_type)),
                 amount: Some(input.amount),
             }],
+            bin_outputs: Vec::new(),
             lock_time: None,
             outputs: Vec::new(),
             inputs_cnt: None,
@@ -1061,6 +1079,7 @@ pub fn encode_bitcoin_tx_ack_output(
         tx: Some(BitcoinTxAckTransaction {
             version: None,
             inputs: Vec::new(),
+            bin_outputs: Vec::new(),
             lock_time: None,
             outputs: vec![BitcoinTxOutput {
                 address: output.address.clone(),
@@ -1072,6 +1091,135 @@ pub fn encode_bitcoin_tx_ack_output(
             inputs_cnt: None,
             outputs_cnt: None,
             extra_data: None,
+            extra_data_len: None,
+        }),
+    };
+    let mut payload = Vec::new();
+    message.encode(&mut payload)?;
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_BITCOIN_TX_ACK,
+        payload,
+    })
+}
+
+/// Encode a `TxAck` for the **metadata** of a referenced (previous) transaction.
+///
+/// Called when the firmware sends `TXMETA` with `tx_hash` set.
+pub fn encode_bitcoin_tx_ack_prev_meta(
+    ref_tx: &super::types::RefTx,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    let extra_data_len = ref_tx
+        .extra_data
+        .as_ref()
+        .map(|d| d.len() as u32)
+        .filter(|&n| n > 0);
+    let message = BitcoinTxAck {
+        tx: Some(BitcoinTxAckTransaction {
+            version: Some(ref_tx.version),
+            inputs: Vec::new(),
+            bin_outputs: Vec::new(),
+            lock_time: Some(ref_tx.lock_time),
+            outputs: Vec::new(),
+            inputs_cnt: Some(ref_tx.inputs.len() as u32),
+            outputs_cnt: Some(ref_tx.bin_outputs.len() as u32),
+            extra_data: None,
+            extra_data_len,
+        }),
+    };
+    let mut payload = Vec::new();
+    message.encode(&mut payload)?;
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_BITCOIN_TX_ACK,
+        payload,
+    })
+}
+
+/// Encode a `TxAck` for a single input of a referenced (previous) transaction.
+///
+/// Called when the firmware sends `TXINPUT` with `tx_hash` set.
+pub fn encode_bitcoin_tx_ack_prev_input(
+    input: &super::types::RefTxInput,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    let script_sig = if input.script_sig.is_empty() {
+        None
+    } else {
+        Some(input.script_sig.clone())
+    };
+    let message = BitcoinTxAck {
+        tx: Some(BitcoinTxAckTransaction {
+            version: None,
+            inputs: vec![BitcoinTxInput {
+                address_n: Vec::new(),
+                prev_hash: input.prev_hash.clone(),
+                prev_index: input.prev_index,
+                script_sig,
+                sequence: Some(input.sequence),
+                script_type: None,
+                amount: None,
+            }],
+            bin_outputs: Vec::new(),
+            lock_time: None,
+            outputs: Vec::new(),
+            inputs_cnt: None,
+            outputs_cnt: None,
+            extra_data: None,
+            extra_data_len: None,
+        }),
+    };
+    let mut payload = Vec::new();
+    message.encode(&mut payload)?;
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_BITCOIN_TX_ACK,
+        payload,
+    })
+}
+
+/// Encode a `TxAck` for a single binary output of a referenced (previous) transaction.
+///
+/// Called when the firmware sends `TXOUTPUT` with `tx_hash` set.
+pub fn encode_bitcoin_tx_ack_prev_output(
+    output: &super::types::RefTxBinOutput,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    let message = BitcoinTxAck {
+        tx: Some(BitcoinTxAckTransaction {
+            version: None,
+            inputs: Vec::new(),
+            bin_outputs: vec![BitcoinTxBinOutput {
+                amount: output.amount,
+                script_pubkey: output.script_pubkey.clone(),
+            }],
+            lock_time: None,
+            outputs: Vec::new(),
+            inputs_cnt: None,
+            outputs_cnt: None,
+            extra_data: None,
+            extra_data_len: None,
+        }),
+    };
+    let mut payload = Vec::new();
+    message.encode(&mut payload)?;
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_BITCOIN_TX_ACK,
+        payload,
+    })
+}
+
+/// Encode a `TxAck` for a chunk of extra data from a referenced (previous) transaction.
+///
+/// Called when the firmware sends `TXEXTRADATA` with `tx_hash` set.
+pub fn encode_bitcoin_tx_ack_prev_extra_data(
+    chunk: &[u8],
+) -> Result<EncodedMessage, ProtoMappingError> {
+    let message = BitcoinTxAck {
+        tx: Some(BitcoinTxAckTransaction {
+            version: None,
+            inputs: Vec::new(),
+            bin_outputs: Vec::new(),
+            lock_time: None,
+            outputs: Vec::new(),
+            inputs_cnt: None,
+            outputs_cnt: None,
+            extra_data: Some(chunk.to_vec()),
             extra_data_len: None,
         }),
     };
@@ -1376,6 +1524,7 @@ mod tests {
                 op_return_data: None,
             }],
             chunkify: false,
+            ref_txs: Vec::new(),
         });
         let (encoded, offset) = encode_sign_tx_request(&request).unwrap();
         assert_eq!(offset, 0);
@@ -1499,5 +1648,147 @@ mod tests {
 
         let decoded = EthereumTxAck::decode(encoded.payload.as_slice()).unwrap();
         assert_eq!(decoded.data_chunk.unwrap(), chunk);
+    }
+
+    #[test]
+    fn encodes_bitcoin_tx_ack_prev_meta() {
+        use super::super::types::{RefTx, RefTxBinOutput, RefTxInput};
+
+        let ref_tx = RefTx {
+            hash: vec![0xAA; 32],
+            version: 1,
+            lock_time: 500_000,
+            inputs: vec![
+                RefTxInput {
+                    prev_hash: vec![0x11; 32],
+                    prev_index: 0,
+                    sequence: 0xffff_ffff,
+                    script_sig: vec![0x76, 0xa9], // minimal scriptSig
+                },
+            ],
+            bin_outputs: vec![
+                RefTxBinOutput { amount: 50_000, script_pubkey: vec![0x76, 0xa9, 0x14] },
+                RefTxBinOutput { amount: 25_000, script_pubkey: vec![0x00, 0x14] },
+            ],
+            extra_data: None,
+        };
+
+        let encoded = encode_bitcoin_tx_ack_prev_meta(&ref_tx).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_BITCOIN_TX_ACK);
+
+        let decoded = BitcoinTxAck::decode(encoded.payload.as_slice()).unwrap();
+        let tx = decoded.tx.unwrap();
+        assert_eq!(tx.version, Some(1));
+        assert_eq!(tx.lock_time, Some(500_000));
+        assert_eq!(tx.inputs_cnt, Some(1));
+        assert_eq!(tx.outputs_cnt, Some(2));
+        assert!(tx.extra_data_len.is_none()); // no extra_data
+        assert!(tx.inputs.is_empty());
+        assert!(tx.bin_outputs.is_empty());
+        assert!(tx.outputs.is_empty());
+    }
+
+    #[test]
+    fn encodes_bitcoin_tx_ack_prev_meta_with_extra_data() {
+        use super::super::types::{RefTx, RefTxBinOutput, RefTxInput};
+
+        let ref_tx = RefTx {
+            hash: vec![0xBB; 32],
+            version: 3,
+            lock_time: 0,
+            inputs: vec![RefTxInput {
+                prev_hash: vec![0x22; 32],
+                prev_index: 1,
+                sequence: 0xffff_fffe,
+                script_sig: Vec::new(),
+            }],
+            bin_outputs: vec![RefTxBinOutput { amount: 1_000_000, script_pubkey: vec![0x51] }],
+            extra_data: Some(vec![0xDE, 0xAD, 0xBE, 0xEF]),
+        };
+
+        let encoded = encode_bitcoin_tx_ack_prev_meta(&ref_tx).unwrap();
+        let decoded = BitcoinTxAck::decode(encoded.payload.as_slice()).unwrap();
+        let tx = decoded.tx.unwrap();
+        assert_eq!(tx.extra_data_len, Some(4));
+    }
+
+    #[test]
+    fn encodes_bitcoin_tx_ack_prev_input_with_script_sig() {
+        use super::super::types::RefTxInput;
+
+        let input = RefTxInput {
+            prev_hash: vec![0xCC; 32],
+            prev_index: 2,
+            sequence: 0xffff_fffd,
+            script_sig: vec![0x48, 0x30, 0x45], // DER-encoded sig prefix
+        };
+
+        let encoded = encode_bitcoin_tx_ack_prev_input(&input).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_BITCOIN_TX_ACK);
+
+        let decoded = BitcoinTxAck::decode(encoded.payload.as_slice()).unwrap();
+        let tx = decoded.tx.unwrap();
+        assert_eq!(tx.inputs.len(), 1);
+        let inp = &tx.inputs[0];
+        assert_eq!(inp.prev_hash, vec![0xCC; 32]);
+        assert_eq!(inp.prev_index, 2);
+        assert_eq!(inp.sequence, Some(0xffff_fffd));
+        assert_eq!(inp.script_sig, Some(vec![0x48, 0x30, 0x45]));
+        assert!(inp.address_n.is_empty());
+        assert!(inp.amount.is_none());
+        assert!(inp.script_type.is_none());
+        assert!(tx.bin_outputs.is_empty());
+        assert!(tx.outputs.is_empty());
+    }
+
+    #[test]
+    fn encodes_bitcoin_tx_ack_prev_input_empty_script_sig() {
+        use super::super::types::RefTxInput;
+
+        let input = RefTxInput {
+            prev_hash: vec![0x11; 32],
+            prev_index: 0,
+            sequence: 0xffff_ffff,
+            script_sig: Vec::new(), // SegWit — no scriptSig
+        };
+
+        let encoded = encode_bitcoin_tx_ack_prev_input(&input).unwrap();
+        let decoded = BitcoinTxAck::decode(encoded.payload.as_slice()).unwrap();
+        let inp = &decoded.tx.unwrap().inputs[0];
+        assert!(inp.script_sig.is_none());
+    }
+
+    #[test]
+    fn encodes_bitcoin_tx_ack_prev_output() {
+        use super::super::types::RefTxBinOutput;
+
+        let output = RefTxBinOutput {
+            amount: 1_234_567,
+            script_pubkey: vec![0x76, 0xa9, 0x14, 0xDE, 0xAD],
+        };
+
+        let encoded = encode_bitcoin_tx_ack_prev_output(&output).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_BITCOIN_TX_ACK);
+
+        let decoded = BitcoinTxAck::decode(encoded.payload.as_slice()).unwrap();
+        let tx = decoded.tx.unwrap();
+        assert_eq!(tx.bin_outputs.len(), 1);
+        assert_eq!(tx.bin_outputs[0].amount, 1_234_567);
+        assert_eq!(tx.bin_outputs[0].script_pubkey, vec![0x76, 0xa9, 0x14, 0xDE, 0xAD]);
+        assert!(tx.inputs.is_empty());
+        assert!(tx.outputs.is_empty());
+    }
+
+    #[test]
+    fn encodes_bitcoin_tx_ack_prev_extra_data() {
+        let chunk = vec![0xFE, 0xED, 0xFA, 0xCE];
+        let encoded = encode_bitcoin_tx_ack_prev_extra_data(&chunk).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_BITCOIN_TX_ACK);
+
+        let decoded = BitcoinTxAck::decode(encoded.payload.as_slice()).unwrap();
+        let tx = decoded.tx.unwrap();
+        assert_eq!(tx.extra_data, Some(chunk));
+        assert!(tx.inputs.is_empty());
+        assert!(tx.bin_outputs.is_empty());
     }
 }

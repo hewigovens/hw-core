@@ -318,6 +318,41 @@ pub struct BtcSignOutput {
     pub op_return_data: Option<Vec<u8>>,
 }
 
+/// An input from a previous (referenced) transaction, used to satisfy
+/// firmware `TXINPUT` requests where `tx_hash` is set.
+#[derive(Debug, Clone)]
+pub struct RefTxInput {
+    pub prev_hash: Vec<u8>,
+    pub prev_index: u32,
+    pub sequence: u32,
+    /// Raw scriptSig bytes (empty for SegWit inputs).
+    pub script_sig: Vec<u8>,
+}
+
+/// A binary output from a previous (referenced) transaction, used to satisfy
+/// firmware `TXOUTPUT` requests where `tx_hash` is set.
+#[derive(Debug, Clone)]
+pub struct RefTxBinOutput {
+    pub amount: u64,
+    /// Raw scriptPubKey bytes.
+    pub script_pubkey: Vec<u8>,
+}
+
+/// A complete referenced (previous) transaction.  The host must supply one
+/// `RefTx` for every `prev_hash` referenced by a signing input so that the
+/// firmware can verify amounts.
+#[derive(Debug, Clone)]
+pub struct RefTx {
+    /// Transaction hash (txid) as raw bytes (little-endian, 32 bytes).
+    pub hash: Vec<u8>,
+    pub version: u32,
+    pub lock_time: u32,
+    pub inputs: Vec<RefTxInput>,
+    pub bin_outputs: Vec<RefTxBinOutput>,
+    /// Optional extra data appended after outputs (e.g. Zcash v3+ transactions).
+    pub extra_data: Option<Vec<u8>>,
+}
+
 #[derive(Debug, Clone)]
 pub struct BtcSignTx {
     pub version: u32,
@@ -325,6 +360,9 @@ pub struct BtcSignTx {
     pub inputs: Vec<BtcSignInput>,
     pub outputs: Vec<BtcSignOutput>,
     pub chunkify: bool,
+    /// Referenced (previous) transactions required to satisfy firmware
+    /// `TXMETA` / `TXINPUT` / `TXOUTPUT` requests that carry a `tx_hash`.
+    pub ref_txs: Vec<RefTx>,
 }
 
 #[derive(Debug, Clone)]
