@@ -132,3 +132,9 @@ cli-address-eth:
 
 cli-sign-eth:
     cargo run -p hw-cli -- -vv sign eth --path "m/44'/60'/0'/0/0" --tx '{"to":"0x000000000000000000000000000000000000dead","nonce":"0x0","gas_limit":"0x5208","chain_id":1,"max_fee_per_gas":"0x3b9aca00","max_priority_fee":"0x59682f00","value":"0x0"}'
+
+build-android:
+    ./android/scripts/build-rust.sh
+
+build-android-release:
+    ./android/scripts/build-rust.sh --release
