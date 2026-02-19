@@ -93,9 +93,9 @@ fn request_index(tx_request: &DecodedBitcoinTxRequest, request_name: &str) -> Ba
         })
 }
 
-fn build_ref_txs_index<'a>(
-    btc: &'a crate::thp::types::BtcSignTx,
-) -> HashMap<&'a [u8], &'a crate::thp::types::BtcRefTx> {
+fn build_ref_txs_index(
+    btc: &crate::thp::types::BtcSignTx,
+) -> HashMap<&[u8], &crate::thp::types::BtcRefTx> {
     btc.ref_txs
         .iter()
         .map(|tx| (tx.hash.as_slice(), tx))

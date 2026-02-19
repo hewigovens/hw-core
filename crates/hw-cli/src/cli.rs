@@ -452,7 +452,7 @@ mod tests {
         assert_eq!(args.path, None);
         assert_eq!(args.message_type, EthSignMessageType::Eip712);
         assert!(args.message.is_none());
-        assert!(args.hex == false);
+        assert!(!args.hex);
         assert!(!args.chunkify);
         assert_eq!(
             args.data_file.as_deref(),

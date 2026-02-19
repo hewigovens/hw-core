@@ -158,6 +158,27 @@ fn message_to_hex_bytes(message: &str) -> BackendResult<Vec<u8>> {
         .map_err(|err| BackendError::Transport(format!("invalid hex string '{message}': {err}")))
 }
 
+fn parse_eip712_address_bytes(value: &str) -> BackendResult<Vec<u8>> {
+    let clean = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .unwrap_or(value);
+    if clean.len() != 40 {
+        return Err(BackendError::Transport(format!(
+            "invalid EIP-712 address length: expected 40 hex chars, got {}",
+            clean.len()
+        )));
+    }
+    if !clean.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(BackendError::Transport(format!(
+            "invalid EIP-712 address: non-hex characters in '{value}'"
+        )));
+    }
+    hex::decode(clean).map_err(|err| {
+        BackendError::Transport(format!("invalid EIP-712 address hex '{value}': {err}"))
+    })
+}
+
 fn json_member<'a>(value: &'a JsonValue, key: &str) -> Option<&'a JsonValue> {
     value.as_object().and_then(|obj| obj.get(key))
 }
@@ -198,7 +219,7 @@ fn encode_typed_data_value(
         let str_value = value.as_str().ok_or_else(|| {
             BackendError::Transport(format!("expected string for EIP-712 address, got {value}"))
         })?;
-        return message_to_hex_bytes(str_value);
+        return parse_eip712_address_bytes(str_value);
     }
     if type_name == "string" {
         let str_value = value.as_str().ok_or_else(|| {
@@ -535,5 +556,22 @@ mod tests {
         typed_data.message["from"]["age"] = serde_json::json!(128);
         let err = resolve_value_for_member_path(&typed_data, &[1, 0, 1]).unwrap_err();
         assert!(err.to_string().contains("overflow"));
+    }
+
+    #[test]
+    fn rejects_non_hex_address_values() {
+        let mut typed_data = mail_typed_data();
+        typed_data.message["from"]["wallet"] =
+            serde_json::json!("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
+        let err = resolve_value_for_member_path(&typed_data, &[1, 0, 0]).unwrap_err();
+        assert!(err.to_string().contains("non-hex characters"));
+    }
+
+    #[test]
+    fn rejects_wrong_length_address_values() {
+        let mut typed_data = mail_typed_data();
+        typed_data.message["from"]["wallet"] = serde_json::json!("0x1234");
+        let err = resolve_value_for_member_path(&typed_data, &[1, 0, 0]).unwrap_err();
+        assert!(err.to_string().contains("address length"));
     }
 }
