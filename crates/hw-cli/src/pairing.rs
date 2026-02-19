@@ -53,7 +53,7 @@ impl PairingController for CliPairingController {
                 code
             }
             ThpPairingMethod::SkipPairing => {
-                return Err("SkipPairing is unsupported in interactive CLI flow".to_string());
+                return Err("SkipPairing is unsupported in CLI pairing flow".to_string());
             }
         };
 

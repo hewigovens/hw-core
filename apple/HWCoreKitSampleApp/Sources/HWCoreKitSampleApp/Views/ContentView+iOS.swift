@@ -27,7 +27,7 @@ struct IOSContentView: View {
                     }
                     addressCard
                     signCard
-                    if !viewModel.address.isEmpty || !viewModel.signatureSummary.isEmpty {
+                    if !viewModel.address.isEmpty || !viewModel.signatureSummary.isEmpty || !viewModel.messageSignatureSummary.isEmpty {
                         resultCard
                     }
                     logsCard
@@ -133,6 +133,9 @@ struct IOSContentView: View {
                     iosActionButton("Sign", systemImage: "signature", isProminent: false, disabled: !viewModel.canSign, accessibilityID: "action.sign") {
                         Task { await viewModel.signSampleTransaction() }
                     }
+                    iosActionButton("Sign Msg", systemImage: "text.bubble", isProminent: false, disabled: !viewModel.canSignMessage, accessibilityID: "action.sign_message") {
+                        Task { await viewModel.signMessage() }
+                    }
                     iosActionButton("Disconnect", systemImage: "xmark.circle", isProminent: false, disabled: !viewModel.canDisconnect, accessibilityID: "action.disconnect") {
                         Task { await viewModel.disconnect() }
                     }
@@ -186,6 +189,10 @@ struct IOSContentView: View {
 
                 Divider()
 
+                messageSignInputs
+
+                Divider()
+
                 Text("Preview")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -219,7 +226,7 @@ struct IOSContentView: View {
                     .accessibilityIdentifier("result.address.copy")
                 }
 
-                if !viewModel.signatureSummary.isEmpty {
+                if !viewModel.signatureSummary.isEmpty || !viewModel.messageSignatureSummary.isEmpty {
                     if !viewModel.address.isEmpty {
                         Divider()
                     }
@@ -227,7 +234,7 @@ struct IOSContentView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     ScrollView(.horizontal) {
-                        Text(viewModel.signatureSummary)
+                        Text(viewModel.messageSignatureSummary.isEmpty ? viewModel.signatureSummary : viewModel.messageSignatureSummary)
                             .font(.system(.footnote, design: .monospaced))
                             .textSelection(.enabled)
                             .accessibilityLabel("Signature")
@@ -335,6 +342,27 @@ struct IOSContentView: View {
                 )
                 .accessibilityIdentifier("input.sign.btc.tx_json")
             Text("Advanced BTC flows should preload all required input/output context in wallet code.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var messageSignInputs: some View {
+        if viewModel.selectedChain == .ethereum || viewModel.selectedChain == .bitcoin {
+            Text("Message Sign")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            textInput("Path (\(viewModel.chainLabel(viewModel.selectedChain)))", text: $viewModel.messageSignPathInput)
+                .accessibilityIdentifier("input.message.path")
+            textInput("Message", text: $viewModel.messageSignPayload)
+                .accessibilityIdentifier("input.message.payload")
+            Toggle("Message is hex", isOn: $viewModel.messageSignIsHex)
+                .accessibilityIdentifier("toggle.message.hex")
+            Toggle("Chunkify", isOn: $viewModel.messageSignChunkify)
+                .accessibilityIdentifier("toggle.message.chunkify")
+        } else {
+            Text("Message signing is available for ETH/BTC only.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

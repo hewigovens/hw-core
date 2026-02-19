@@ -57,6 +57,9 @@ public typealias ChainConfig = HWCoreFFI.ChainConfig
 public typealias SessionRetryPolicy = HWCoreFFI.SessionRetryPolicy
 public typealias AddressResult = HWCoreFFI.AddressResult
 public typealias AccessListEntry = HWCoreFFI.AccessListEntry
+public typealias MessageSignatureEncoding = HWCoreFFI.MessageSignatureEncoding
+public typealias SignMessageRequest = HWCoreFFI.SignMessageRequest
+public typealias SignMessageResult = HWCoreFFI.SignMessageResult
 public typealias SignTxRequest = HWCoreFFI.SignTxRequest
 public typealias SignTxResult = HWCoreFFI.SignTxResult
 
@@ -133,6 +136,38 @@ public extension SignTxRequest {
             maxPriorityFee: "0x0",
             accessList: [],
             chunkify: false
+        )
+    }
+}
+
+public extension SignMessageRequest {
+    static func ethereum(
+        path: String = Chain.ethereum.defaultPath,
+        message: String,
+        isHex: Bool = false,
+        chunkify: Bool = false
+    ) -> SignMessageRequest {
+        SignMessageRequest(
+            chain: .ethereum,
+            path: path,
+            message: message,
+            isHex: isHex,
+            chunkify: chunkify
+        )
+    }
+
+    static func bitcoin(
+        path: String = Chain.bitcoin.defaultPath,
+        message: String,
+        isHex: Bool = false,
+        chunkify: Bool = false
+    ) -> SignMessageRequest {
+        SignMessageRequest(
+            chain: .bitcoin,
+            path: path,
+            message: message,
+            isHex: isHex,
+            chunkify: chunkify
         )
     }
 }

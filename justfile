@@ -124,9 +124,6 @@ cli-scan:
 cli-pair:
     cargo run -p hw-cli -- -vv pair
 
-cli-pair-interactive:
-    cargo run -p hw-cli -- -vv pair --interactive
-
 cli-address-eth:
     cargo run -p hw-cli -- -vv address --chain eth --include-public-key
 

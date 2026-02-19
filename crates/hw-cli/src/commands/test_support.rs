@@ -7,7 +7,8 @@ use trezor_connect::thp::types::{
     HandshakeCompletionResponse, HandshakeCompletionState, HandshakeInitOutcome,
     HandshakeInitRequest, KnownCredential, PairingRequest, PairingRequestApproved,
     PairingTagRequest, PairingTagResponse, SelectMethodRequest, SelectMethodResponse,
-    SignTxRequest, SignTxResponse, ThpProperties,
+    SignMessageRequest, SignMessageResponse, SignTxRequest, SignTxResponse, SignTypedDataRequest,
+    SignTypedDataResponse, ThpProperties,
 };
 use trezor_connect::thp::{
     Chain, HostConfig, PairingMethod,
@@ -19,15 +20,21 @@ pub struct MockCounters {
     pub credential_calls: usize,
     pub create_session_calls: usize,
     pub get_address_calls: usize,
+    pub sign_message_calls: usize,
+    pub sign_typed_data_calls: usize,
     pub sign_tx_calls: usize,
 }
 
 pub struct MockBackend {
     pub counters: MockCounters,
     pub last_get_address_request: Option<GetAddressRequest>,
+    pub last_sign_message_request: Option<SignMessageRequest>,
+    pub last_sign_typed_data_request: Option<SignTypedDataRequest>,
     pub last_sign_tx_request: Option<SignTxRequest>,
     pub create_session_responses: VecDeque<BackendResult<CreateSessionResponse>>,
     pub get_address_response: Option<GetAddressResponse>,
+    pub sign_message_response: Option<SignMessageResponse>,
+    pub sign_typed_data_response: Option<SignTypedDataResponse>,
     pub sign_tx_response: Option<SignTxResponse>,
     handshake_hash: Vec<u8>,
     handshake_completion_state: HandshakeCompletionState,
@@ -39,12 +46,16 @@ impl MockBackend {
         Self {
             counters: MockCounters::default(),
             last_get_address_request: None,
+            last_sign_message_request: None,
+            last_sign_typed_data_request: None,
             last_sign_tx_request: None,
             create_session_responses: VecDeque::from([
                 Err(BackendError::Device("device returned error code 99".into())),
                 Ok(CreateSessionResponse),
             ]),
             get_address_response: None,
+            sign_message_response: None,
+            sign_typed_data_response: None,
             sign_tx_response: None,
             handshake_hash: handshake_hash.to_vec(),
             handshake_completion_state: HandshakeCompletionState::Paired,
@@ -56,20 +67,6 @@ impl MockBackend {
         }
     }
 
-    pub fn autopaired(handshake_hash: &[u8]) -> Self {
-        Self {
-            counters: MockCounters::default(),
-            last_get_address_request: None,
-            last_sign_tx_request: None,
-            create_session_responses: VecDeque::from([Ok(CreateSessionResponse)]),
-            get_address_response: None,
-            sign_tx_response: None,
-            handshake_hash: handshake_hash.to_vec(),
-            handshake_completion_state: HandshakeCompletionState::AutoPaired,
-            selected_credential: None,
-        }
-    }
-
     pub fn with_get_address_response(mut self, response: GetAddressResponse) -> Self {
         self.get_address_response = Some(response);
         self
@@ -77,6 +74,16 @@ impl MockBackend {
 
     pub fn with_sign_tx_response(mut self, response: SignTxResponse) -> Self {
         self.sign_tx_response = Some(response);
+        self
+    }
+
+    pub fn with_sign_message_response(mut self, response: SignMessageResponse) -> Self {
+        self.sign_message_response = Some(response);
+        self
+    }
+
+    pub fn with_sign_typed_data_response(mut self, response: SignTypedDataResponse) -> Self {
+        self.sign_typed_data_response = Some(response);
         self
     }
 
@@ -221,6 +228,28 @@ impl ThpBackend for MockBackend {
         })
     }
 
+    async fn sign_message(
+        &mut self,
+        request: SignMessageRequest,
+    ) -> BackendResult<SignMessageResponse> {
+        self.counters.sign_message_calls += 1;
+        self.last_sign_message_request = Some(request);
+        self.sign_message_response.clone().ok_or_else(|| {
+            BackendError::Transport("unexpected sign_message without canned response".into())
+        })
+    }
+
+    async fn sign_typed_data(
+        &mut self,
+        request: SignTypedDataRequest,
+    ) -> BackendResult<SignTypedDataResponse> {
+        self.counters.sign_typed_data_calls += 1;
+        self.last_sign_typed_data_request = Some(request);
+        self.sign_typed_data_response.clone().ok_or_else(|| {
+            BackendError::Transport("unexpected sign_typed_data without canned response".into())
+        })
+    }
+
     async fn abort(&mut self) -> BackendResult<()> {
         Ok(())
     }
@@ -259,6 +288,30 @@ pub fn canned_btc_sign_response() -> SignTxResponse {
         v: 0,
         r: vec![0xDD; 64],
         s: Vec::new(),
+    }
+}
+
+pub fn canned_eth_message_sign_response() -> SignMessageResponse {
+    SignMessageResponse {
+        chain: Chain::Ethereum,
+        address: "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE".to_string(),
+        signature: vec![0xEE; 65],
+    }
+}
+
+pub fn canned_btc_message_sign_response() -> SignMessageResponse {
+    SignMessageResponse {
+        chain: Chain::Bitcoin,
+        address: "bc1qexample000000000000000000000000000000".to_string(),
+        signature: vec![0xFF; 65],
+    }
+}
+
+pub fn canned_eth_typed_data_sign_response() -> SignTypedDataResponse {
+    SignTypedDataResponse {
+        chain: Chain::Ethereum,
+        address: "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE".to_string(),
+        signature: vec![0xAB; 65],
     }
 }
 

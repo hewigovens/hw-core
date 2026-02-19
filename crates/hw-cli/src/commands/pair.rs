@@ -5,9 +5,8 @@ use anyhow::{Context, Result, bail};
 use ble_transport::BleManager;
 use hw_wallet::WalletError;
 use hw_wallet::ble::{
-    CREATE_SESSION_ATTEMPTS, RETRY_DELAY, SessionPhase, advance_to_paired, backend_from_session,
-    connect_trezor_device, create_session_with_retry, scan_profile_until_match, trezor_profile,
-    workflow_with_storage,
+    SessionPhase, advance_to_paired, backend_from_session, connect_trezor_device,
+    scan_profile_until_match, trezor_profile, workflow_with_storage,
 };
 use tokio::time::timeout;
 use tracing::{debug, info};
@@ -15,14 +14,13 @@ use trezor_connect::thp::{FileStorage, HostConfig, PairingMethod as ThpPairingMe
 
 use crate::cli::{PairArgs, PairingMethod};
 use crate::commands::common::select_device;
-use crate::commands::session;
 use crate::config::{default_host_name, default_storage_path};
 use crate::pairing::CliPairingController;
 
 pub async fn run(args: PairArgs) -> Result<()> {
     info!(
-        "pair command started: pairing_method={:?}, scan_timeout_secs={}, thp_timeout_secs={}, interactive={}, force={}",
-        args.pairing_method, args.timeout_secs, args.thp_timeout_secs, args.interactive, args.force
+        "pair command started: pairing_method={:?}, scan_timeout_secs={}, thp_timeout_secs={}, force={}",
+        args.pairing_method, args.timeout_secs, args.thp_timeout_secs, args.force
     );
     if args.pairing_method != PairingMethod::Ble {
         bail!("only --pairing-method ble is supported");
@@ -117,7 +115,7 @@ pub async fn run(args: PairArgs) -> Result<()> {
         .context("workflow setup failed")?;
     debug!("workflow initialized with persisted host state");
 
-    let try_to_unlock = args.interactive;
+    let try_to_unlock = true;
     println!("Running pair workflow...");
     let mut step = advance_to_paired(&mut workflow, try_to_unlock)
         .await
@@ -154,28 +152,6 @@ pub async fn run(args: PairArgs) -> Result<()> {
         workflow.host_config().known_credentials.len()
     );
     println!("Saved host state to: {}", storage_path.display());
-
-    if args.interactive {
-        println!("Creating wallet session...");
-        create_session_with_retry(
-            &mut workflow,
-            None,
-            false,
-            false,
-            CREATE_SESSION_ATTEMPTS,
-            RETRY_DELAY,
-        )
-        .await
-        .context("create-session failed before entering interactive mode")?;
-        let session_result = session::run(&mut workflow).await;
-
-        println!("Closing BLE session...");
-        if let Err(err) = workflow.backend_mut().link_mut().disconnect().await {
-            debug!("BLE disconnect failed during interactive shutdown: {err}");
-        }
-
-        session_result?;
-    }
 
     Ok(())
 }

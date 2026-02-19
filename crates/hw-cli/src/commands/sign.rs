@@ -408,6 +408,9 @@ mod tests {
     };
     use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
 
+    const BTC_SIGN_WITH_REF_TXS: &str =
+        include_str!("../../../../tests/data/bitcoin/btc_sign_with_ref_txs.json");
+
     #[tokio::test]
     async fn sign_flow_orchestrates_handshake_confirmation_and_session_retry() {
         let backend = MockBackend::paired_with_session_retry(b"sign-test")
@@ -517,13 +520,7 @@ mod tests {
         .unwrap();
         assert_eq!(step, SessionPhase::Ready);
 
-        let tx = parse_btc_tx_json(
-            r#"{
-                "inputs":[{"path":"m/84'/0'/0'/0/0","prev_hash":"0x1111111111111111111111111111111111111111111111111111111111111111","prev_index":0,"amount":"1000"}],
-                "outputs":[{"address":"bc1qexample0000000000000000000000000000000000","amount":"900"}]
-            }"#,
-        )
-        .unwrap();
+        let tx = parse_btc_tx_json(BTC_SIGN_WITH_REF_TXS).unwrap();
         let request = build_btc_sign_tx_request(tx).unwrap();
         let response = sign_tx_with_workflow(&mut workflow, request).await.unwrap();
 

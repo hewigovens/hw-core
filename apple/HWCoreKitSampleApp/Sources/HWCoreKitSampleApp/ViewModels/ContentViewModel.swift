@@ -23,6 +23,7 @@ final class ContentViewModel: ObservableObject {
     @Published var isBusy = false
     @Published var address = ""
     @Published var signatureSummary = ""
+    @Published var messageSignatureSummary = ""
     @Published var logs: [String] = []
     @Published var addressPathInput: String
     @Published var showAddressOnDevice = true
@@ -38,6 +39,10 @@ final class ContentViewModel: ObservableObject {
     @Published var ethMaxFeePerGas = "0x3b9aca00"
     @Published var ethMaxPriorityFee = "0x59682f00"
     @Published var ethChunkify = false
+    @Published var messageSignPathInput: String
+    @Published var messageSignPayload = "hello from hw-core"
+    @Published var messageSignIsHex = false
+    @Published var messageSignChunkify = false
     @Published var solSignPathInput: String
     @Published var solSerializedTxHex: String
     @Published var solChunkify = false
@@ -98,11 +103,16 @@ final class ContentViewModel: ObservableObject {
     init() {
         let ethPath = Chain.ethereum.defaultPath
         let solPath = Chain.solana.defaultPath
+        let btcPath = Chain.bitcoin.defaultPath
         addressPathInput = ethPath
         ethSignPathInput = ethPath
+        messageSignPathInput = ethPath
         solSignPathInput = solPath
         solSerializedTxHex = Self.defaultSolanaTxHex
         btcTxJsonInput = Self.defaultBitcoinTxJson
+        if selectedChain == .bitcoin {
+            messageSignPathInput = btcPath
+        }
     }
 
     deinit {
@@ -131,6 +141,10 @@ final class ContentViewModel: ObservableObject {
 
     var canSign: Bool {
         !isBusy && session != nil && (sessionState?.canSignTx ?? false)
+    }
+
+    var canSignMessage: Bool {
+        canSign && selectedChain != .solana
     }
 
     var canDisconnect: Bool {
@@ -295,8 +309,33 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func signMessage() async {
+        await runAction(prefix: "signMessage") { [self] in
+            guard let session else {
+                status = "Connect first"
+                return
+            }
+            guard sessionState?.canSignTx == true else {
+                status = "Connect first"
+                return
+            }
+            guard selectedChain != .solana else {
+                status = "Message signing is available for ETH/BTC only"
+                return
+            }
+
+            let request = try buildMessageSignRequest(chain: selectedChain)
+            appendLog("message sign preview: \(messageSignPreview)")
+            let result = try await session.signMessage(request)
+            messageSignatureSummary = describeMessageSignResult(result)
+            status = "Message signed"
+            appendLog("message sign (\(chainLabel(selectedChain))) result: \(messageSignatureSummary)")
+        }
+    }
+
     func selectedChainDidChange() {
         addressPathInput = defaultPath(for: selectedChain)
+        messageSignPathInput = defaultPath(for: selectedChain)
         status = "Selected chain: \(chainLabel(selectedChain))"
     }
 
@@ -314,12 +353,24 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    var messageSignPreview: String {
+        switch selectedChain {
+        case .ethereum:
+            return "ETH path=\(resolvedPath(messageSignPathInput, chain: .ethereum)) hex=\(messageSignIsHex) bytes=\(messageSignPayload.utf8.count)"
+        case .bitcoin:
+            return "BTC path=\(resolvedPath(messageSignPathInput, chain: .bitcoin)) hex=\(messageSignIsHex) bytes=\(messageSignPayload.utf8.count)"
+        case .solana:
+            return "SOL message signing not supported"
+        }
+    }
+
     func copyAddressToClipboard() {
         copyToClipboard(address, emptyMessage: "No address to copy", successLabel: "address")
     }
 
     func copySignatureToClipboard() {
-        copyToClipboard(signatureSummary, emptyMessage: "No signature to copy", successLabel: "signature")
+        let value = messageSignatureSummary.isEmpty ? signatureSummary : messageSignatureSummary
+        copyToClipboard(value, emptyMessage: "No signature to copy", successLabel: "signature")
     }
 
     func copyLogsToClipboard() {
@@ -327,7 +378,8 @@ final class ContentViewModel: ObservableObject {
     }
 
     func exportSignatureToFile() {
-        guard !signatureSummary.isEmpty else {
+        let exportValue = messageSignatureSummary.isEmpty ? signatureSummary : messageSignatureSummary
+        guard !exportValue.isEmpty else {
             status = "No signature to export"
             return
         }
@@ -338,7 +390,7 @@ final class ContentViewModel: ObservableObject {
         panel.allowedContentTypes = [.plainText]
         if panel.runModal() == .OK, let url = panel.url {
             do {
-                try signatureSummary.write(to: url, atomically: true, encoding: .utf8)
+                try exportValue.write(to: url, atomically: true, encoding: .utf8)
                 status = "Signature exported"
                 appendLog("signature exported: \(url.path)")
             } catch {
@@ -592,6 +644,32 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    private func buildMessageSignRequest(chain: Chain) throws -> SignMessageRequest {
+        let payload = messageSignPayload.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty else {
+            throw InputValidationError(message: "Message payload is required")
+        }
+
+        switch chain {
+        case .ethereum:
+            return SignMessageRequest.ethereum(
+                path: resolvedPath(messageSignPathInput, chain: .ethereum),
+                message: payload,
+                isHex: messageSignIsHex,
+                chunkify: messageSignChunkify
+            )
+        case .bitcoin:
+            return SignMessageRequest.bitcoin(
+                path: resolvedPath(messageSignPathInput, chain: .bitcoin),
+                message: payload,
+                isHex: messageSignIsHex,
+                chunkify: messageSignChunkify
+            )
+        case .solana:
+            throw InputValidationError(message: "Message signing is available for ETH/BTC only")
+        }
+    }
+
     private func describeSignResult(_ result: SignTxResult, chain: Chain) -> String {
         switch chain {
         case .ethereum:
@@ -599,6 +677,10 @@ final class ContentViewModel: ObservableObject {
         case .bitcoin, .solana:
             return "signature=0x\(hex(result.r))"
         }
+    }
+
+    private func describeMessageSignResult(_ result: SignMessageResult) -> String {
+        "address=\(result.address) signature=\(result.signatureFormatted)"
     }
 
     private func hex(_ data: Data) -> String {

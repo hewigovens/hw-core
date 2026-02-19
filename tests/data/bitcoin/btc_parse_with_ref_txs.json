@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "lock_time": 0,
+  "inputs": [
+    {
+      "path": "m/84'/0'/0'/0/0",
+      "prev_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "prev_index": 1,
+      "amount": "12345"
+    }
+  ],
+  "outputs": [
+    {
+      "address": "bc1qexample0000000000000000000000000000000000",
+      "amount": "12000"
+    }
+  ],
+  "ref_txs": [
+    {
+      "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "version": 2,
+      "lock_time": 0,
+      "inputs": [
+        {
+          "prev_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+          "prev_index": 0,
+          "script_sig": ""
+        }
+      ],
+      "bin_outputs": [
+        {
+          "amount": "12345",
+          "script_pubkey": "001400112233445566778899aabbccddeeff00112233"
+        },
+        {
+          "amount": "999",
+          "script_pubkey": "0014ffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    }
+  ]
+}

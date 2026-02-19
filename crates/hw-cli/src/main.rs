@@ -20,5 +20,6 @@ async fn main() -> Result<()> {
         Command::Pair(args) => commands::pair::run(args).await,
         Command::Address(args) => commands::address::run(args).await,
         Command::Sign(args) => commands::sign::run(args).await,
+        Command::SignMessage(args) => commands::sign_message::run(args).await,
     }
 }
