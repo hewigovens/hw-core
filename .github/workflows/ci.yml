@@ -51,6 +51,8 @@ jobs:
           java-version: "17"
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
       - name: Install Android NDK
         run: sdkmanager "ndk;26.3.11579264"
       - name: Configure Android NDK env
@@ -62,8 +64,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Cache cargo-ndk binary
+        id: cache-cargo-ndk
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-ndk
+          key: cargo-ndk-${{ runner.os }}-v3
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
+        if: steps.cache-cargo-ndk.outputs.cache-hit != 'true'
+        run: cargo install cargo-ndk
       - name: Cache cargo registry
         uses: actions/cache@v5
         with:

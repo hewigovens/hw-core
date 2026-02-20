@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.hwcore.lib"
+    namespace = "dev.hewig.hwcore.lib"
     compileSdk = 35
 
     defaultConfig {
