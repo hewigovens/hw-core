@@ -27,7 +27,7 @@ struct IOSContentView: View {
                     }
                     addressCard
                     signCard
-                    if !viewModel.address.isEmpty || !viewModel.signatureSummary.isEmpty || !viewModel.messageSignatureSummary.isEmpty {
+                    if !viewModel.address.isEmpty || !viewModel.signatureSummary.isEmpty {
                         resultCard
                     }
                     logsCard
@@ -226,7 +226,7 @@ struct IOSContentView: View {
                     .accessibilityIdentifier("result.address.copy")
                 }
 
-                if !viewModel.signatureSummary.isEmpty || !viewModel.messageSignatureSummary.isEmpty {
+                if !viewModel.signatureSummary.isEmpty {
                     if !viewModel.address.isEmpty {
                         Divider()
                     }
@@ -234,7 +234,7 @@ struct IOSContentView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     ScrollView(.horizontal) {
-                        Text(viewModel.messageSignatureSummary.isEmpty ? viewModel.signatureSummary : viewModel.messageSignatureSummary)
+                        Text(viewModel.signatureSummary)
                             .font(.system(.footnote, design: .monospaced))
                             .textSelection(.enabled)
                             .accessibilityLabel("Signature")

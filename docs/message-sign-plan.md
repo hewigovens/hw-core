@@ -37,17 +37,14 @@ Interactive CLI session mode has been removed to reduce maintenance; interactive
 - Reused one signature-print helper for consistent output formatting.
 - Removed REPL-style interactive CLI mode and `pair --interactive` flow.
 - Extracted EIP-712 type/value adapter logic into a dedicated module with Suite-parity tests.
+- Extracted shared CLI BLE scan/connect/workflow bootstrap into `commands/common.rs` and reused it in `address`, `sign`, `sign-message`, and `pair`.
 
 ### Next Simplifications (recommended)
-1. Extract shared CLI BLE bootstrap/session prep
-- Problem: `address`, `sign`, and `sign-message` still duplicate scan/connect/bootstrap loops.
-- Plan: move into `crates/hw-cli/src/commands/common.rs` helper with operation label hooks.
+1. Centralize `sign-message` mode validation
+- Problem: argument compatibility rules and typed-data file loading are coupled to the command runner function.
+- Plan: add one parser/validator module returning typed request enums, so request construction and validation tests stay isolated from transport setup.
 
-2. Centralize `sign-message` mode validation
-- Problem: argument compatibility rules are duplicated in interactive and non-interactive paths.
-- Plan: add one parser/validator module returning typed request enums for both command modes.
-
-3. Add fixture coverage for invalid ETH mode combinations
+2. Add fixture coverage for invalid ETH mode combinations
 - Examples:
   - `--type eip712` with `--message`
   - `--type eip191` with `--data-file`

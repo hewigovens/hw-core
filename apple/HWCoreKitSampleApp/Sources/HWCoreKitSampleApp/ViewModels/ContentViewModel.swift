@@ -23,7 +23,6 @@ final class ContentViewModel: ObservableObject {
     @Published var isBusy = false
     @Published var address = ""
     @Published var signatureSummary = ""
-    @Published var messageSignatureSummary = ""
     @Published var logs: [String] = []
     @Published var addressPathInput: String
     @Published var showAddressOnDevice = true
@@ -327,9 +326,9 @@ final class ContentViewModel: ObservableObject {
             let request = try buildMessageSignRequest(chain: selectedChain)
             appendLog("message sign preview: \(messageSignPreview)")
             let result = try await session.signMessage(request)
-            messageSignatureSummary = describeMessageSignResult(result)
+            signatureSummary = describeMessageSignResult(result)
             status = "Message signed"
-            appendLog("message sign (\(chainLabel(selectedChain))) result: \(messageSignatureSummary)")
+            appendLog("message sign (\(chainLabel(selectedChain))) result: \(signatureSummary)")
         }
     }
 
@@ -369,8 +368,7 @@ final class ContentViewModel: ObservableObject {
     }
 
     func copySignatureToClipboard() {
-        let value = messageSignatureSummary.isEmpty ? signatureSummary : messageSignatureSummary
-        copyToClipboard(value, emptyMessage: "No signature to copy", successLabel: "signature")
+        copyToClipboard(signatureSummary, emptyMessage: "No signature to copy", successLabel: "signature")
     }
 
     func copyLogsToClipboard() {
@@ -378,8 +376,7 @@ final class ContentViewModel: ObservableObject {
     }
 
     func exportSignatureToFile() {
-        let exportValue = messageSignatureSummary.isEmpty ? signatureSummary : messageSignatureSummary
-        guard !exportValue.isEmpty else {
+        guard !signatureSummary.isEmpty else {
             status = "No signature to export"
             return
         }
@@ -390,7 +387,7 @@ final class ContentViewModel: ObservableObject {
         panel.allowedContentTypes = [.plainText]
         if panel.runModal() == .OK, let url = panel.url {
             do {
-                try exportValue.write(to: url, atomically: true, encoding: .utf8)
+                try signatureSummary.write(to: url, atomically: true, encoding: .utf8)
                 status = "Signature exported"
                 appendLog("signature exported: \(url.path)")
             } catch {

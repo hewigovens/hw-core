@@ -1,20 +1,10 @@
-use std::sync::Arc;
-use std::time::Duration;
-
 use anyhow::{Context, Result, bail};
-use ble_transport::BleManager;
-use hw_wallet::WalletError;
-use hw_wallet::ble::{
-    SessionPhase, advance_to_paired, backend_from_session, connect_trezor_device,
-    scan_profile_until_match, trezor_profile, workflow_with_storage,
-};
-use tokio::time::timeout;
-use tracing::{debug, info};
-use trezor_connect::thp::{FileStorage, HostConfig, PairingMethod as ThpPairingMethod};
+use hw_wallet::ble::{SessionPhase, advance_to_paired};
+use tracing::info;
 
 use crate::cli::{PairArgs, PairingMethod};
-use crate::commands::common::select_device;
-use crate::config::{default_host_name, default_storage_path};
+use crate::commands::common::{ConnectWorkflowOptions, connect_workflow};
+use crate::config::default_storage_path;
 use crate::pairing::CliPairingController;
 
 pub async fn run(args: PairArgs) -> Result<()> {
@@ -37,83 +27,24 @@ pub async fn run(args: PairArgs) -> Result<()> {
         println!("Cleared saved pairing state: {}", storage_path.display());
     }
 
-    let profile = trezor_profile()?;
-    debug!(
-        "pair profile: id={}, service_uuid={}",
-        profile.id, profile.service_uuid
-    );
-    let manager = BleManager::new().await.context("BLE manager init failed")?;
-
-    println!(
-        "Scanning for {} devices for {}s...",
-        profile.name, args.timeout_secs
-    );
-    let devices = scan_profile_until_match(
-        &manager,
-        profile,
-        Duration::from_secs(args.timeout_secs),
-        args.device_id.as_deref(),
+    let (mut workflow, storage_path) = connect_workflow(
+        ConnectWorkflowOptions {
+            scan_timeout_secs: args.timeout_secs,
+            thp_timeout_secs: args.thp_timeout_secs,
+            device_id: args.device_id.clone(),
+            storage_path: Some(storage_path),
+            host_name: args.host_name.clone(),
+            app_name: args.app_name.clone(),
+        },
+        "pair",
+        "Remove this Trezor from macOS Bluetooth settings, then re-run `hw-cli pair --force`.",
     )
-    .await
-    .context("BLE scan failed")?;
-    info!("scan complete: discovered {} device(s)", devices.len());
-
-    if devices.is_empty() {
-        bail!("no devices found");
-    }
-
-    let selected = select_device(devices, args.device_id.as_deref())?;
-    let selected_name = selected
-        .info()
-        .name
-        .clone()
-        .unwrap_or_else(|| "unknown".to_string());
-    println!(
-        "Connecting to {} ({})...",
-        selected.info().id,
-        selected_name
-    );
-
-    println!("Opening BLE session...");
-    let session = match timeout(
-        Duration::from_secs(args.thp_timeout_secs),
-        connect_trezor_device(selected, profile),
-    )
-    .await
-    {
-        Err(_) => bail!(
-            "opening BLE session timed out after {}s",
-            args.thp_timeout_secs
-        ),
-        Ok(Ok(session)) => session,
-        Ok(Err(WalletError::PeerRemovedPairingInfo)) => {
-            bail!(
-                "opening BLE session failed: peer removed pairing information. Remove this Trezor from macOS Bluetooth settings, then re-run `hw-cli pair --force`."
-            );
-        }
-        Ok(Err(err)) => return Err(err).context("opening BLE session failed"),
-    };
-    println!("BLE session established.");
-    debug!("BLE session established");
-    let backend = backend_from_session(session, Duration::from_secs(args.thp_timeout_secs));
-    debug!(
-        "configured THP backend response timeout: {:?}",
-        backend.handshake_timeout()
-    );
-
-    let host_name = args.host_name.unwrap_or_else(default_host_name);
+    .await?;
     info!(
         "pair identity: host_name='{}', app_name='{}'",
-        host_name, args.app_name
+        workflow.host_config().host_name,
+        workflow.host_config().app_name
     );
-    let mut config = HostConfig::new(host_name, args.app_name);
-    // Match Suite default to avoid implicit SkipPairing unless explicitly requested later.
-    config.pairing_methods = vec![ThpPairingMethod::CodeEntry];
-    let storage = Arc::new(FileStorage::new(storage_path.clone()));
-    let mut workflow = workflow_with_storage(backend, config, storage)
-        .await
-        .context("workflow setup failed")?;
-    debug!("workflow initialized with persisted host state");
 
     let try_to_unlock = true;
     println!("Running pair workflow...");

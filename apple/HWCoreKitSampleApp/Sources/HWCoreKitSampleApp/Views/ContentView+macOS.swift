@@ -182,10 +182,10 @@ struct MacContentView: View {
                     }
                 }
 
-                if !viewModel.signatureSummary.isEmpty || !viewModel.messageSignatureSummary.isEmpty {
+                if !viewModel.signatureSummary.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         ScrollView(.horizontal) {
-                            Text(viewModel.messageSignatureSummary.isEmpty ? viewModel.signatureSummary : viewModel.messageSignatureSummary)
+                            Text(viewModel.signatureSummary)
                                 .font(.system(.footnote, design: .monospaced))
                                 .textSelection(.enabled)
                                 .accessibilityLabel("Signature")
