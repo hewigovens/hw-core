@@ -38,6 +38,10 @@ final class ContentViewModel: ObservableObject {
     @Published var ethMaxFeePerGas = "0x3b9aca00"
     @Published var ethMaxPriorityFee = "0x59682f00"
     @Published var ethChunkify = false
+    @Published var messageSignPathInput: String
+    @Published var messageSignPayload = "hello from hw-core"
+    @Published var messageSignIsHex = false
+    @Published var messageSignChunkify = false
     @Published var solSignPathInput: String
     @Published var solSerializedTxHex: String
     @Published var solChunkify = false
@@ -91,6 +95,27 @@ final class ContentViewModel: ObservableObject {
           "amount": "900",
           "script_type": "paytoaddress"
         }
+      ],
+      "ref_txs": [
+        {
+          "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "version": 2,
+          "lock_time": 0,
+          "inputs": [
+            {
+              "prev_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "prev_index": 0,
+              "script_sig": "",
+              "sequence": 4294967295
+            }
+          ],
+          "bin_outputs": [
+            {
+              "amount": "1000",
+              "script_pubkey": "001400112233445566778899aabbccddeeff00112233"
+            }
+          ]
+        }
       ]
     }
     """
@@ -98,11 +123,16 @@ final class ContentViewModel: ObservableObject {
     init() {
         let ethPath = Chain.ethereum.defaultPath
         let solPath = Chain.solana.defaultPath
+        let btcPath = Chain.bitcoin.defaultPath
         addressPathInput = ethPath
         ethSignPathInput = ethPath
+        messageSignPathInput = ethPath
         solSignPathInput = solPath
         solSerializedTxHex = Self.defaultSolanaTxHex
         btcTxJsonInput = Self.defaultBitcoinTxJson
+        if selectedChain == .bitcoin {
+            messageSignPathInput = btcPath
+        }
     }
 
     deinit {
@@ -131,6 +161,10 @@ final class ContentViewModel: ObservableObject {
 
     var canSign: Bool {
         !isBusy && session != nil && (sessionState?.canSignTx ?? false)
+    }
+
+    var canSignMessage: Bool {
+        canSign && selectedChain != .solana
     }
 
     var canDisconnect: Bool {
@@ -295,8 +329,33 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func signMessage() async {
+        await runAction(prefix: "signMessage") { [self] in
+            guard let session else {
+                status = "Connect first"
+                return
+            }
+            guard sessionState?.canSignTx == true else {
+                status = "Connect first"
+                return
+            }
+            guard selectedChain != .solana else {
+                status = "Message signing is available for ETH/BTC only"
+                return
+            }
+
+            let request = try buildMessageSignRequest(chain: selectedChain)
+            appendLog("message sign preview: \(messageSignPreview)")
+            let result = try await session.signMessage(request)
+            signatureSummary = describeMessageSignResult(result)
+            status = "Message signed"
+            appendLog("message sign (\(chainLabel(selectedChain))) result: \(signatureSummary)")
+        }
+    }
+
     func selectedChainDidChange() {
         addressPathInput = defaultPath(for: selectedChain)
+        messageSignPathInput = defaultPath(for: selectedChain)
         status = "Selected chain: \(chainLabel(selectedChain))"
     }
 
@@ -311,6 +370,17 @@ final class ContentViewModel: ObservableObject {
                 return "BTC \(summary)"
             }
             return "BTC invalid tx JSON"
+        }
+    }
+
+    var messageSignPreview: String {
+        switch selectedChain {
+        case .ethereum:
+            return "ETH path=\(resolvedPath(messageSignPathInput, chain: .ethereum)) hex=\(messageSignIsHex) bytes=\(messageSignPayload.utf8.count)"
+        case .bitcoin:
+            return "BTC path=\(resolvedPath(messageSignPathInput, chain: .bitcoin)) hex=\(messageSignIsHex) bytes=\(messageSignPayload.utf8.count)"
+        case .solana:
+            return "SOL message signing not supported"
         }
     }
 
@@ -592,6 +662,32 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    private func buildMessageSignRequest(chain: Chain) throws -> SignMessageRequest {
+        let payload = messageSignPayload.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty else {
+            throw InputValidationError(message: "Message payload is required")
+        }
+
+        switch chain {
+        case .ethereum:
+            return SignMessageRequest.ethereum(
+                path: resolvedPath(messageSignPathInput, chain: .ethereum),
+                message: payload,
+                isHex: messageSignIsHex,
+                chunkify: messageSignChunkify
+            )
+        case .bitcoin:
+            return SignMessageRequest.bitcoin(
+                path: resolvedPath(messageSignPathInput, chain: .bitcoin),
+                message: payload,
+                isHex: messageSignIsHex,
+                chunkify: messageSignChunkify
+            )
+        case .solana:
+            throw InputValidationError(message: "Message signing is available for ETH/BTC only")
+        }
+    }
+
     private func describeSignResult(_ result: SignTxResult, chain: Chain) -> String {
         switch chain {
         case .ethereum:
@@ -599,6 +695,10 @@ final class ContentViewModel: ObservableObject {
         case .bitcoin, .solana:
             return "signature=0x\(hex(result.r))"
         }
+    }
+
+    private func describeMessageSignResult(_ result: SignMessageResult) -> String {
+        "address=\(result.address) signature=\(result.signatureFormatted)"
     }
 
     private func hex(_ data: Data) -> String {
@@ -653,7 +753,8 @@ final class ContentViewModel: ObservableObject {
         }
         let inputs = (dictionary["inputs"] as? [Any])?.count ?? 0
         let outputs = (dictionary["outputs"] as? [Any])?.count ?? 0
-        return "inputs=\(inputs) outputs=\(outputs)"
+        let refTxs = (dictionary["ref_txs"] as? [Any])?.count ?? 0
+        return "inputs=\(inputs) outputs=\(outputs) ref_txs=\(refTxs)"
     }
 
     private func copyToClipboard(_ value: String, emptyMessage: String, successLabel: String) {

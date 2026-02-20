@@ -14,8 +14,15 @@ use hw_wallet::ble::{
 use hw_wallet::btc::{
     build_sign_tx_request as build_btc_sign_tx_request, parse_tx_json as parse_btc_tx_json,
 };
+use hw_wallet::eip712::{
+    build_sign_typed_data_request, build_sign_typed_hash_request, normalize_typed_data_signature,
+};
 use hw_wallet::eth::{TxAccessListInput, TxInput, build_sign_tx_request, verify_sign_tx_response};
 use hw_wallet::hex::decode as decode_hex;
+use hw_wallet::message::{
+    SignatureEncoding as WalletSignatureEncoding, build_sign_message_request,
+    normalize_message_signature,
+};
 use parking_lot::Mutex;
 use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tokio::time::timeout;
@@ -24,14 +31,17 @@ use trezor_connect::thp::storage::ThpStorage;
 use trezor_connect::thp::types::PairingPrompt as ThpPairingPrompt;
 use trezor_connect::thp::{
     FileStorage, GetAddressRequest as ThpGetAddressRequest, PairingController, PairingDecision,
-    PairingMethod as ThpPairingMethod, Phase, ThpWorkflow, ThpWorkflowError,
+    PairingMethod as ThpPairingMethod, Phase, SignMessageRequest as ThpSignMessageRequest,
+    ThpWorkflow, ThpWorkflowError,
 };
 
 use crate::errors::HWCoreError;
 use crate::types::{
     AccessListEntry, AddressResult, BleDeviceInfo, GetAddressRequest, HandshakeCache, HostConfig,
     PairingProgress, PairingProgressKind, PairingPrompt, SessionHandshakeState, SessionRetryPolicy,
-    SessionState, SignTxRequest, SignTxResult, ThpState, WorkflowEvent, WorkflowEventKind,
+    SessionState, SignMessageRequest, SignMessageResult, SignTxRequest, SignTxResult,
+    SignTypedDataRequest, SignTypedDataResult, SignatureEncoding, ThpState, WorkflowEvent,
+    WorkflowEventKind,
 };
 
 const DEFAULT_THP_TIMEOUT: Duration = Duration::from_secs(60);
@@ -286,6 +296,43 @@ fn map_sign_tx_request(
     }
 }
 
+fn map_sign_message_request(
+    request: SignMessageRequest,
+) -> Result<ThpSignMessageRequest, HWCoreError> {
+    let path = parse_bip32_path(&request.path).map_err(HWCoreError::from)?;
+    build_sign_message_request(
+        request.chain,
+        path,
+        &request.message,
+        request.is_hex,
+        request.chunkify,
+    )
+    .map_err(HWCoreError::from)
+}
+
+fn map_sign_typed_data_request(
+    request: SignTypedDataRequest,
+) -> Result<trezor_connect::thp::SignTypedDataRequest, HWCoreError> {
+    if request.chain != crate::types::Chain::Ethereum {
+        return Err(HWCoreError::Validation(
+            "typed-data signing currently supports Ethereum only".to_string(),
+        ));
+    }
+
+    let path = parse_bip32_path(&request.path).map_err(HWCoreError::from)?;
+    if let Some(data_json) = request.data_json {
+        return build_sign_typed_data_request(path, &data_json, request.metamask_v4_compat)
+            .map_err(HWCoreError::from);
+    }
+
+    build_sign_typed_hash_request(
+        path,
+        &request.domain_separator_hash,
+        request.message_hash.as_deref(),
+    )
+    .map_err(HWCoreError::from)
+}
+
 async fn sign_tx_for_workflow<B>(
     workflow: &mut ThpWorkflow<B>,
     request: SignTxRequest,
@@ -307,6 +354,57 @@ where
         s: response.s,
         tx_hash: verification.as_ref().map(|sig| sig.tx_hash.to_vec()),
         recovered_address: verification.map(|sig| sig.recovered_address),
+    })
+}
+
+fn map_signature_encoding(encoding: WalletSignatureEncoding) -> SignatureEncoding {
+    match encoding {
+        WalletSignatureEncoding::Hex => SignatureEncoding::Hex,
+        WalletSignatureEncoding::Base64 => SignatureEncoding::Base64,
+    }
+}
+
+async fn sign_message_for_workflow<B>(
+    workflow: &mut ThpWorkflow<B>,
+    request: SignMessageRequest,
+) -> Result<SignMessageResult, HWCoreError>
+where
+    B: trezor_connect::thp::ThpBackend + Send,
+{
+    let sign_request = map_sign_message_request(request)?;
+    let response = workflow
+        .sign_message(sign_request)
+        .await
+        .map_err(HWCoreError::from)?;
+    let normalized = normalize_message_signature(&response).map_err(HWCoreError::from)?;
+    Ok(SignMessageResult {
+        chain: response.chain,
+        address: response.address,
+        signature: response.signature,
+        signature_formatted: normalized.value,
+        signature_encoding: map_signature_encoding(normalized.encoding),
+    })
+}
+
+async fn sign_typed_data_for_workflow<B>(
+    workflow: &mut ThpWorkflow<B>,
+    request: SignTypedDataRequest,
+) -> Result<SignTypedDataResult, HWCoreError>
+where
+    B: trezor_connect::thp::ThpBackend + Send,
+{
+    let sign_request = map_sign_typed_data_request(request)?;
+    let response = workflow
+        .sign_typed_data(sign_request)
+        .await
+        .map_err(HWCoreError::from)?;
+    let normalized = normalize_typed_data_signature(&response).map_err(HWCoreError::from)?;
+    Ok(SignTypedDataResult {
+        chain: response.chain,
+        address: response.address,
+        signature: response.signature,
+        signature_formatted: normalized,
+        signature_encoding: SignatureEncoding::Hex,
     })
 }
 
@@ -567,956 +665,6 @@ impl BleWorkflowHandle {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::VecDeque;
+mod tests;
 
-    use super::{
-        get_address_for_workflow, map_get_address_request, map_sign_tx_request,
-        pairing_confirm_connection_for_workflow, pairing_start_for_state,
-        pairing_submit_code_for_workflow, sign_tx_for_workflow,
-    };
-    use trezor_connect::thp::backend::{BackendError, BackendResult, ThpBackend};
-    use trezor_connect::thp::types::{
-        CodeEntryChallengeRequest, CodeEntryChallengeResponse, CreateChannelRequest,
-        CreateChannelResponse, CreateSessionRequest, CreateSessionResponse, CredentialRequest,
-        CredentialResponse, GetAddressResponse, HandshakeCompletionRequest,
-        HandshakeCompletionResponse, HandshakeCompletionState, HandshakeInitOutcome,
-        HandshakeInitRequest, KnownCredential, PairingRequest, PairingRequestApproved,
-        PairingTagRequest, PairingTagResponse, SelectMethodRequest, SelectMethodResponse,
-        SignTxRequest as BackendSignTxRequest, SignTxResponse, ThpProperties,
-    };
-    use trezor_connect::thp::{Chain, HostConfig, PairingMethod, Phase, ThpWorkflow};
-
-    use crate::errors::HWCoreError;
-    use crate::types::{GetAddressRequest, SignTxRequest};
-
-    struct MockBackend {
-        handshake_hash: Vec<u8>,
-        completion_state: HandshakeCompletionState,
-        confirmed_connection: bool,
-        expected_code: Option<String>,
-        select_responses: VecDeque<SelectMethodResponse>,
-        last_get_address_request: Option<trezor_connect::thp::GetAddressRequest>,
-        last_sign_tx_request: Option<BackendSignTxRequest>,
-    }
-
-    impl MockBackend {
-        fn paired_requires_confirmation() -> Self {
-            Self {
-                handshake_hash: b"paired-handshake".to_vec(),
-                completion_state: HandshakeCompletionState::Paired,
-                confirmed_connection: false,
-                expected_code: None,
-                select_responses: VecDeque::new(),
-                last_get_address_request: None,
-                last_sign_tx_request: None,
-            }
-        }
-
-        fn requires_code_entry_pairing() -> Self {
-            let mut select_responses = VecDeque::new();
-            select_responses.push_back(SelectMethodResponse::CodeEntryCommitment {
-                commitment: vec![0xAB; 32],
-            });
-            Self {
-                handshake_hash: b"code-entry-handshake".to_vec(),
-                completion_state: HandshakeCompletionState::RequiresPairing,
-                confirmed_connection: false,
-                expected_code: Some("123456".to_string()),
-                select_responses,
-                last_get_address_request: None,
-                last_sign_tx_request: None,
-            }
-        }
-    }
-
-    impl ThpBackend for MockBackend {
-        async fn create_channel(
-            &mut self,
-            request: CreateChannelRequest,
-        ) -> BackendResult<CreateChannelResponse> {
-            Ok(CreateChannelResponse {
-                nonce: request.nonce,
-                channel: 0xBEEF,
-                handshake_hash: self.handshake_hash.clone(),
-                properties: ThpProperties {
-                    internal_model: "T3W1".into(),
-                    model_variant: 1,
-                    protocol_version_major: 2,
-                    protocol_version_minor: 0,
-                    pairing_methods: vec![PairingMethod::CodeEntry],
-                },
-            })
-        }
-
-        async fn handshake_init(
-            &mut self,
-            _request: HandshakeInitRequest,
-        ) -> BackendResult<HandshakeInitOutcome> {
-            Ok(HandshakeInitOutcome {
-                host_encrypted_static_pubkey: vec![1, 2, 3],
-                encrypted_payload: vec![4, 5, 6],
-                trezor_encrypted_static_pubkey: vec![7, 8, 9],
-                handshake_hash: self.handshake_hash.clone(),
-                host_key: vec![0x11; 32],
-                trezor_key: vec![0x22; 32],
-                host_static_key: vec![0x33; 32],
-                host_static_public_key: vec![0x44; 32],
-                pairing_methods: vec![PairingMethod::CodeEntry],
-                credentials: vec![KnownCredential {
-                    credential: "cred".into(),
-                    trezor_static_public_key: Some(vec![0x55; 32]),
-                    autoconnect: false,
-                }],
-                selected_credential: Some(KnownCredential {
-                    credential: "cred".into(),
-                    trezor_static_public_key: Some(vec![0x55; 32]),
-                    autoconnect: false,
-                }),
-                nfc_data: None,
-                handshake_commitment: None,
-                trezor_cpace_public_key: None,
-                code_entry_challenge: None,
-            })
-        }
-
-        async fn handshake_complete(
-            &mut self,
-            _request: HandshakeCompletionRequest,
-        ) -> BackendResult<HandshakeCompletionResponse> {
-            Ok(HandshakeCompletionResponse {
-                state: self.completion_state,
-            })
-        }
-
-        async fn pairing_request(
-            &mut self,
-            _request: PairingRequest,
-        ) -> BackendResult<PairingRequestApproved> {
-            Ok(PairingRequestApproved)
-        }
-
-        async fn select_pairing_method(
-            &mut self,
-            _request: SelectMethodRequest,
-        ) -> BackendResult<SelectMethodResponse> {
-            self.select_responses
-                .pop_front()
-                .ok_or_else(|| BackendError::Transport("unexpected select_pairing_method".into()))
-        }
-
-        async fn code_entry_challenge(
-            &mut self,
-            _request: CodeEntryChallengeRequest,
-        ) -> BackendResult<CodeEntryChallengeResponse> {
-            Ok(CodeEntryChallengeResponse {
-                trezor_cpace_public_key: vec![0xCD; 32],
-            })
-        }
-
-        async fn send_pairing_tag(
-            &mut self,
-            request: PairingTagRequest,
-        ) -> BackendResult<PairingTagResponse> {
-            match request {
-                PairingTagRequest::CodeEntry { code, .. } => {
-                    if self.expected_code.as_deref() == Some(code.as_str()) {
-                        Ok(PairingTagResponse::Accepted {
-                            secret: vec![0xEF; 32],
-                        })
-                    } else {
-                        Ok(PairingTagResponse::Retry("invalid code".into()))
-                    }
-                }
-                _ => Err(BackendError::UnsupportedPairingMethod),
-            }
-        }
-
-        async fn credential_request(
-            &mut self,
-            _request: CredentialRequest,
-        ) -> BackendResult<CredentialResponse> {
-            self.confirmed_connection = true;
-            Ok(CredentialResponse {
-                trezor_static_public_key: vec![0x66; 32],
-                credential: "cred".into(),
-                autoconnect: false,
-            })
-        }
-
-        async fn end_request(&mut self) -> BackendResult<()> {
-            Ok(())
-        }
-
-        async fn create_new_session(
-            &mut self,
-            _request: CreateSessionRequest,
-        ) -> BackendResult<CreateSessionResponse> {
-            if self.completion_state == HandshakeCompletionState::Paired
-                && !self.confirmed_connection
-            {
-                return Err(BackendError::Device(
-                    "session requires connection confirmation".into(),
-                ));
-            }
-            Ok(CreateSessionResponse)
-        }
-
-        async fn get_address(
-            &mut self,
-            request: trezor_connect::thp::GetAddressRequest,
-        ) -> BackendResult<GetAddressResponse> {
-            let chain = request.chain;
-            let address = match chain {
-                Chain::Ethereum => "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE",
-                Chain::Bitcoin => "bc1qexample000000000000000000000000000000",
-                Chain::Solana => "So11111111111111111111111111111111111111112",
-            };
-            self.last_get_address_request = Some(request);
-            Ok(GetAddressResponse {
-                chain,
-                address: address.into(),
-                mac: Some(vec![0xAA; 32]),
-                public_key: Some("xpub-test".into()),
-            })
-        }
-
-        async fn sign_tx(
-            &mut self,
-            request: BackendSignTxRequest,
-        ) -> BackendResult<SignTxResponse> {
-            self.last_sign_tx_request = Some(request);
-            Ok(SignTxResponse {
-                chain: Chain::Ethereum,
-                v: 0,
-                r: vec![0xAA; 32],
-                s: vec![0xBB; 32],
-            })
-        }
-
-        async fn abort(&mut self) -> BackendResult<()> {
-            Ok(())
-        }
-    }
-
-    fn default_host_config() -> HostConfig {
-        let mut config = HostConfig::new("test-host", "hw-core/ffi");
-        config.pairing_methods = vec![PairingMethod::CodeEntry];
-        config
-    }
-
-    #[tokio::test]
-    async fn paired_handshake_requires_connection_confirmation_before_session() {
-        let backend = MockBackend::paired_requires_confirmation();
-        let mut workflow = ThpWorkflow::new(backend, default_host_config());
-
-        workflow.create_channel().await.unwrap();
-        workflow.handshake(false).await.unwrap();
-        assert_eq!(workflow.state().phase(), Phase::Pairing);
-        assert!(workflow.state().is_paired());
-
-        let err = workflow
-            .create_session(None, false, false)
-            .await
-            .expect_err("session should fail before confirmation");
-        assert!(
-            err.to_string().contains("connection confirmation"),
-            "unexpected error: {err}"
-        );
-
-        let progress = pairing_confirm_connection_for_workflow(&mut workflow)
-            .await
-            .expect("confirmation succeeds");
-        assert_eq!(progress.kind, crate::types::PairingProgressKind::Completed);
-
-        workflow
-            .create_session(None, false, false)
-            .await
-            .expect("session succeeds after confirmation");
-    }
-
-    #[tokio::test]
-    async fn code_entry_pairing_submit_completes_pairing() {
-        let backend = MockBackend::requires_code_entry_pairing();
-        let mut workflow = ThpWorkflow::new(backend, default_host_config());
-
-        workflow.create_channel().await.unwrap();
-        workflow.handshake(false).await.unwrap();
-        assert_eq!(workflow.state().phase(), Phase::Pairing);
-        assert!(!workflow.state().is_paired());
-
-        let prompt = pairing_start_for_state(workflow.state()).expect("pairing prompt");
-        assert!(!prompt.requires_connection_confirmation);
-        assert!(prompt.available_methods.contains(&PairingMethod::CodeEntry));
-
-        pairing_submit_code_for_workflow(&mut workflow, "123456".into())
-            .await
-            .expect("pairing completes");
-        assert_eq!(workflow.state().phase(), Phase::Paired);
-    }
-
-    #[tokio::test]
-    async fn typed_address_and_sign_requests_map_to_workflow_calls() {
-        let backend = MockBackend::paired_requires_confirmation();
-        let mut workflow = ThpWorkflow::new(backend, default_host_config());
-
-        workflow.create_channel().await.unwrap();
-        workflow.handshake(false).await.unwrap();
-        pairing_confirm_connection_for_workflow(&mut workflow)
-            .await
-            .unwrap();
-        workflow.create_session(None, false, false).await.unwrap();
-
-        let address = get_address_for_workflow(
-            &mut workflow,
-            GetAddressRequest {
-                chain: Chain::Ethereum,
-                path: "m/44'/60'/0'/0/0".into(),
-                show_on_device: true,
-                include_public_key: true,
-                chunkify: true,
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            address.address,
-            "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE"
-        );
-
-        let signed = sign_tx_for_workflow(
-            &mut workflow,
-            SignTxRequest {
-                chain: Chain::Ethereum,
-                path: "m/44'/60'/0'/0/0".into(),
-                to: "0x000000000000000000000000000000000000dead".into(),
-                value: "0x0".into(),
-                nonce: "0x0".into(),
-                gas_limit: "0x5208".into(),
-                chain_id: 1,
-                data: "0x".into(),
-                max_fee_per_gas: "0x3b9aca00".into(),
-                max_priority_fee: "0x59682f00".into(),
-                access_list: Vec::new(),
-                chunkify: false,
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(signed.chain, Chain::Ethereum);
-        assert_eq!(signed.v, 0);
-        assert_eq!(signed.r.len(), 32);
-        assert_eq!(signed.s.len(), 32);
-
-        let backend = workflow.backend_mut();
-        let get_address_request = backend.last_get_address_request.as_ref().unwrap();
-        assert_eq!(get_address_request.chain, Chain::Ethereum);
-        assert!(get_address_request.show_display);
-        assert!(get_address_request.include_public_key);
-        assert!(get_address_request.chunkify);
-
-        let sign_request = backend.last_sign_tx_request.as_ref().unwrap();
-        assert_eq!(sign_request.chain, Chain::Ethereum);
-        assert_eq!(sign_request.chain_id, 1);
-        assert_eq!(
-            sign_request.path,
-            vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0]
-        );
-    }
-
-    #[test]
-    fn get_address_request_maps_solana_chain() {
-        let mapped = map_get_address_request(GetAddressRequest {
-            chain: Chain::Solana,
-            path: "m/44'/501'/0'/0'".into(),
-            show_on_device: false,
-            include_public_key: true,
-            chunkify: true,
-        })
-        .expect("map request");
-        assert_eq!(mapped.chain, Chain::Solana);
-        assert_eq!(
-            mapped.path,
-            vec![0x8000_002c, 0x8000_01f5, 0x8000_0000, 0x8000_0000]
-        );
-        assert!(!mapped.show_display);
-        assert!(mapped.include_public_key);
-        assert!(mapped.chunkify);
-    }
-
-    #[test]
-    fn sign_tx_request_maps_solana_chain() {
-        let mapped = map_sign_tx_request(SignTxRequest {
-            chain: Chain::Solana,
-            path: "m/44'/501'/0'/0'".into(),
-            to: String::new(),
-            value: "0x0".into(),
-            nonce: "0x0".into(),
-            gas_limit: "0x0".into(),
-            chain_id: 0,
-            data: "0x0102030405060708090a0b0c0d0e0f10".into(),
-            max_fee_per_gas: "0x0".into(),
-            max_priority_fee: "0x0".into(),
-            access_list: Vec::new(),
-            chunkify: false,
-        })
-        .expect("solana request should map");
-        assert_eq!(mapped.chain, Chain::Solana);
-        assert_eq!(
-            mapped.data,
-            vec![
-                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
-                0x0f, 0x10,
-            ]
-        );
-    }
-
-    #[test]
-    fn sign_tx_request_rejects_too_short_solana_payload() {
-        let err = map_sign_tx_request(SignTxRequest {
-            chain: Chain::Solana,
-            path: "m/44'/501'/0'/0'".into(),
-            to: String::new(),
-            value: "0x0".into(),
-            nonce: "0x0".into(),
-            gas_limit: "0x0".into(),
-            chain_id: 0,
-            data: "0x010203".into(),
-            max_fee_per_gas: "0x0".into(),
-            max_priority_fee: "0x0".into(),
-            access_list: Vec::new(),
-            chunkify: false,
-        })
-        .expect_err("short Solana payload should fail");
-        assert!(matches!(err, HWCoreError::Validation(_)));
-    }
-
-    #[test]
-    fn sign_tx_request_maps_bitcoin_chain() {
-        let mapped = map_sign_tx_request(SignTxRequest {
-            chain: Chain::Bitcoin,
-            path: String::new(),
-            to: String::new(),
-            value: "0x0".into(),
-            nonce: "0x0".into(),
-            gas_limit: "0x0".into(),
-            chain_id: 0,
-            data: "{\"inputs\":[{\"path\":\"m/84'/0'/0'/0/0\",\"prev_hash\":\"0x1111111111111111111111111111111111111111111111111111111111111111\",\"prev_index\":0,\"amount\":\"1000\"}],\"outputs\":[{\"address\":\"bc1qexample0000000000000000000000000000000000\",\"amount\":\"900\"}]}".into(),
-            max_fee_per_gas: "0x0".into(),
-            max_priority_fee: "0x0".into(),
-            access_list: Vec::new(),
-            chunkify: false,
-        })
-        .expect("bitcoin request should map");
-        assert_eq!(mapped.chain, Chain::Bitcoin);
-        assert!(mapped.btc.is_some());
-    }
-}
-
-#[uniffi::export(async_runtime = "tokio")]
-impl BleWorkflowHandle {
-    #[uniffi::method]
-    pub async fn session_state(&self) -> Result<SessionState, HWCoreError> {
-        let ready = *self.session_ready.lock().await;
-        let workflow = self.workflow.lock().await;
-        let phase = session_phase(workflow.state(), ready);
-        let prompt_message = if matches!(phase, WalletSessionPhase::NeedsPairingCode) {
-            Some(pairing_start_for_state(workflow.state())?.message)
-        } else {
-            None
-        };
-        Ok(build_session_state(phase, prompt_message))
-    }
-
-    #[uniffi::method]
-    pub async fn pair_only(&self, try_to_unlock: bool) -> Result<SessionState, HWCoreError> {
-        self.pair_only_with_policy(try_to_unlock, None).await
-    }
-
-    #[uniffi::method]
-    pub async fn pair_only_with_policy(
-        &self,
-        try_to_unlock: bool,
-        retry_policy: Option<SessionRetryPolicy>,
-    ) -> Result<SessionState, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "PAIR_ONLY_START".to_string(),
-            message: "Advancing workflow to paired state".to_string(),
-        })
-        .await;
-
-        let mut workflow = self.workflow.lock().await;
-        let policy = retry_policy.unwrap_or_default();
-        let result = advance_to_paired_with_policy(&mut workflow, try_to_unlock, &policy).await;
-        let mapped = match result {
-            Ok(phase) => {
-                let prompt_message = if matches!(phase, WalletSessionPhase::NeedsPairingCode) {
-                    Some(pairing_start_for_state(workflow.state())?.message)
-                } else {
-                    None
-                };
-                Ok(build_session_state(phase, prompt_message))
-            }
-            Err(err) => Err(HWCoreError::from(err)),
-        };
-        drop(workflow);
-
-        *self.session_ready.lock().await = false;
-
-        match mapped {
-            Ok(state) => {
-                if matches!(state.phase, WalletSessionPhase::NeedsPairingCode)
-                    && let Some(message) = &state.prompt_message
-                {
-                    self.push_event(WorkflowEvent {
-                        kind: WorkflowEventKind::PairingPrompt,
-                        code: "PAIRING_CODE_REQUIRED".to_string(),
-                        message: message.clone(),
-                    })
-                    .await;
-                }
-                Ok(state)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
-    }
-
-    #[uniffi::method]
-    pub async fn connect_ready(&self, try_to_unlock: bool) -> Result<SessionState, HWCoreError> {
-        self.connect_ready_with_policy(try_to_unlock, None).await
-    }
-
-    #[uniffi::method]
-    pub async fn connect_ready_with_policy(
-        &self,
-        try_to_unlock: bool,
-        retry_policy: Option<SessionRetryPolicy>,
-    ) -> Result<SessionState, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "CONNECT_READY_START".to_string(),
-            message: "Advancing workflow to session-ready state".to_string(),
-        })
-        .await;
-
-        let mut ready = *self.session_ready.lock().await;
-        let options = bootstrap_options(try_to_unlock, retry_policy);
-
-        let mut workflow = self.workflow.lock().await;
-        let result = advance_session_bootstrap(&mut workflow, &mut ready, &options).await;
-        let mapped = match result {
-            Ok(phase) => {
-                let prompt_message = if matches!(phase, WalletSessionPhase::NeedsPairingCode) {
-                    Some(pairing_start_for_state(workflow.state())?.message)
-                } else {
-                    None
-                };
-                Ok(build_session_state(phase, prompt_message))
-            }
-            Err(err) => Err(HWCoreError::from(err)),
-        };
-        drop(workflow);
-
-        *self.session_ready.lock().await = ready;
-
-        match mapped {
-            Ok(state) => {
-                if matches!(state.phase, WalletSessionPhase::Ready) {
-                    self.push_event(WorkflowEvent {
-                        kind: WorkflowEventKind::Ready,
-                        code: "SESSION_READY".to_string(),
-                        message: "BLE workflow is authenticated and session-ready".to_string(),
-                    })
-                    .await;
-                } else if matches!(state.phase, WalletSessionPhase::NeedsPairingCode)
-                    && let Some(message) = &state.prompt_message
-                {
-                    self.push_event(WorkflowEvent {
-                        kind: WorkflowEventKind::PairingPrompt,
-                        code: "PAIRING_CODE_REQUIRED".to_string(),
-                        message: message.clone(),
-                    })
-                    .await;
-                }
-                Ok(state)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
-    }
-
-    #[uniffi::method]
-    pub async fn create_channel(&self) -> Result<HandshakeCache, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "CREATE_CHANNEL_START".to_string(),
-            message: "Creating THP channel".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        if let Err(err) = workflow.create_channel().await {
-            let ffi_err = HWCoreError::from(err);
-            drop(workflow);
-            self.push_error_event(&ffi_err).await;
-            return Err(ffi_err);
-        }
-        let cache = workflow.state().handshake_cache().cloned().ok_or_else(|| {
-            HWCoreError::Workflow("handshake cache missing after create_channel".to_string())
-        })?;
-        drop(workflow);
-        *self.session_ready.lock().await = false;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "CREATE_CHANNEL_OK".to_string(),
-            message: "THP channel created".to_string(),
-        })
-        .await;
-        Ok(cache)
-    }
-
-    #[uniffi::method]
-    pub async fn handshake(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "HANDSHAKE_START".to_string(),
-            message: "Performing THP handshake".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        if let Err(err) = workflow.handshake(try_to_unlock).await {
-            let ffi_err = HWCoreError::from(err);
-            drop(workflow);
-            self.push_error_event(&ffi_err).await;
-            return Err(ffi_err);
-        }
-        let state = workflow.state().phase();
-        let is_paired = workflow.state().is_paired();
-        drop(workflow);
-        *self.session_ready.lock().await = false;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "HANDSHAKE_OK".to_string(),
-            message: "THP handshake complete".to_string(),
-        })
-        .await;
-        if matches!(state, Phase::Pairing) && !is_paired {
-            self.push_event(WorkflowEvent {
-                kind: WorkflowEventKind::PairingPrompt,
-                code: "PAIRING_REQUIRED".to_string(),
-                message: "Pairing interaction is required (code-entry expected)".to_string(),
-            })
-            .await;
-        }
-        Ok(())
-    }
-
-    #[uniffi::method]
-    pub async fn prepare_channel_and_handshake(
-        &self,
-        try_to_unlock: bool,
-    ) -> Result<SessionHandshakeState, HWCoreError> {
-        self.create_channel().await?;
-        self.handshake(try_to_unlock).await?;
-
-        let state = self.state().await;
-        match state.phase {
-            Phase::Paired => Ok(SessionHandshakeState::Ready),
-            Phase::Pairing => {
-                let prompt = self.pairing_start().await?;
-                if prompt.requires_connection_confirmation {
-                    Ok(SessionHandshakeState::ConnectionConfirmationRequired { prompt })
-                } else {
-                    Ok(SessionHandshakeState::PairingRequired { prompt })
-                }
-            }
-            Phase::Handshake => Err(HWCoreError::Workflow(
-                "unexpected handshake phase".to_string(),
-            )),
-        }
-    }
-
-    #[uniffi::method]
-    pub async fn pairing_start(&self) -> Result<PairingPrompt, HWCoreError> {
-        let mut workflow = self.workflow.lock().await;
-        if workflow.state().phase() == Phase::Pairing
-            && !workflow.state().is_paired()
-            && let Err(err) = workflow.pairing(None).await
-            && !matches!(err, ThpWorkflowError::PairingInteractionRequired)
-        {
-            let ffi_err = HWCoreError::from(err);
-            drop(workflow);
-            self.push_error_event(&ffi_err).await;
-            return Err(ffi_err);
-        }
-        let prompt = pairing_start_for_state(workflow.state())?;
-        drop(workflow);
-
-        let code = if prompt.requires_connection_confirmation {
-            "PAIRING_CONFIRMATION_REQUIRED"
-        } else {
-            "PAIRING_CODE_REQUIRED"
-        };
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::PairingPrompt,
-            code: code.to_string(),
-            message: prompt.message.clone(),
-        })
-        .await;
-        Ok(prompt)
-    }
-
-    #[uniffi::method]
-    pub async fn pairing_submit_code(&self, code: String) -> Result<PairingProgress, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "PAIRING_SUBMIT_CODE_START".to_string(),
-            message: "Submitting pairing code".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = pairing_submit_code_for_workflow(&mut workflow, code).await;
-        drop(workflow);
-
-        match result {
-            Ok(progress) => {
-                *self.session_ready.lock().await = false;
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "PAIRING_COMPLETE".to_string(),
-                    message: progress.message.clone(),
-                })
-                .await;
-                Ok(progress)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
-    }
-
-    #[uniffi::method]
-    pub async fn pairing_confirm_connection(&self) -> Result<PairingProgress, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "PAIRING_CONFIRM_CONNECTION_START".to_string(),
-            message: "Confirming paired connection with device".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = pairing_confirm_connection_for_workflow(&mut workflow).await;
-        drop(workflow);
-
-        match result {
-            Ok(progress) => {
-                *self.session_ready.lock().await = false;
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "PAIRING_CONFIRM_CONNECTION_OK".to_string(),
-                    message: progress.message.clone(),
-                })
-                .await;
-                Ok(progress)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
-    }
-
-    #[uniffi::method]
-    pub async fn create_session(
-        &self,
-        passphrase: Option<String>,
-        on_device: bool,
-        derive_cardano: bool,
-    ) -> Result<(), HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "CREATE_SESSION_START".to_string(),
-            message: "Creating wallet session".to_string(),
-        })
-        .await;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::ButtonRequest,
-            code: "DEVICE_CONFIRMATION_POSSIBLE".to_string(),
-            message: "Confirm on device if prompted during session creation".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        if let Err(err) = workflow
-            .create_session(passphrase, on_device, derive_cardano)
-            .await
-        {
-            let ffi_err = HWCoreError::from(err);
-            drop(workflow);
-            self.push_error_event(&ffi_err).await;
-            return Err(ffi_err);
-        }
-        drop(workflow);
-        *self.session_ready.lock().await = true;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Ready,
-            code: "SESSION_READY".to_string(),
-            message: "Wallet session created".to_string(),
-        })
-        .await;
-        Ok(())
-    }
-
-    #[uniffi::method]
-    pub async fn prepare_ready_session(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
-        self.prepare_ready_session_with_policy(try_to_unlock, None)
-            .await
-    }
-
-    #[uniffi::method]
-    pub async fn prepare_ready_session_with_policy(
-        &self,
-        try_to_unlock: bool,
-        retry_policy: Option<SessionRetryPolicy>,
-    ) -> Result<(), HWCoreError> {
-        match self
-            .connect_ready_with_policy(try_to_unlock, retry_policy)
-            .await?
-        {
-            SessionState {
-                phase: WalletSessionPhase::Ready,
-                ..
-            } => Ok(()),
-            SessionState {
-                phase: WalletSessionPhase::NeedsPairingCode,
-                ..
-            } => Err(HWCoreError::Workflow(
-                "pairing interaction required before session can be prepared".to_string(),
-            )),
-            state => Err(HWCoreError::Workflow(format!(
-                "unexpected workflow step after connect_ready: {:?}",
-                state.phase
-            ))),
-        }
-    }
-
-    #[uniffi::method]
-    pub async fn get_address(
-        &self,
-        request: GetAddressRequest,
-    ) -> Result<AddressResult, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "GET_ADDRESS_START".to_string(),
-            message: "Requesting address from device".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = get_address_for_workflow(&mut workflow, request).await;
-        drop(workflow);
-
-        match result {
-            Ok(response) => {
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "GET_ADDRESS_OK".to_string(),
-                    message: "Address received".to_string(),
-                })
-                .await;
-                Ok(response)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
-    }
-
-    #[uniffi::method]
-    pub async fn sign_tx(&self, request: SignTxRequest) -> Result<SignTxResult, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "SIGN_TX_START".to_string(),
-            message: "Requesting transaction signature from device".to_string(),
-        })
-        .await;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::ButtonRequest,
-            code: "DEVICE_CONFIRMATION_POSSIBLE".to_string(),
-            message: "Confirm on device if prompted during signing".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = sign_tx_for_workflow(&mut workflow, request).await;
-        drop(workflow);
-
-        match result {
-            Ok(response) => {
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "SIGN_TX_OK".to_string(),
-                    message: "Transaction signed".to_string(),
-                })
-                .await;
-                Ok(response)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
-    }
-
-    #[uniffi::method]
-    pub async fn abort(&self) -> Result<(), HWCoreError> {
-        let mut workflow = self.workflow.lock().await;
-        workflow.abort().await?;
-        drop(workflow);
-        *self.session_ready.lock().await = false;
-        Ok(())
-    }
-
-    #[uniffi::method]
-    pub async fn state(&self) -> ThpState {
-        let workflow = self.workflow.lock().await;
-        ThpState::from(workflow.state())
-    }
-
-    #[uniffi::method]
-    pub async fn host_config(&self) -> HostConfig {
-        let workflow = self.workflow.lock().await;
-        workflow.host_config().clone().into()
-    }
-
-    #[uniffi::method]
-    pub async fn next_event(
-        &self,
-        timeout_ms: Option<u64>,
-    ) -> Result<Option<WorkflowEvent>, HWCoreError> {
-        loop {
-            let maybe_event = {
-                let mut events = self.events.lock().await;
-                events.pop_front()
-            };
-            if maybe_event.is_some() {
-                return Ok(maybe_event);
-            }
-
-            let notified = self.notify.notified();
-            if let Some(timeout_ms) = timeout_ms {
-                if timeout(Duration::from_millis(timeout_ms), notified)
-                    .await
-                    .is_err()
-                {
-                    return Ok(None);
-                }
-            } else {
-                notified.await;
-            }
-        }
-    }
-}
+mod workflow_api;

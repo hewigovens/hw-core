@@ -258,6 +258,51 @@ pub struct SignTxResult {
     pub recovered_address: Option<String>,
 }
 
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct SignMessageRequest {
+    pub chain: Chain,
+    pub path: String,
+    pub message: String,
+    pub is_hex: bool,
+    pub chunkify: bool,
+}
+
+#[derive(uniffi::Enum, Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SignatureEncoding {
+    Hex,
+    Base64,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct SignMessageResult {
+    pub chain: Chain,
+    pub address: String,
+    pub signature: Vec<u8>,
+    pub signature_formatted: String,
+    pub signature_encoding: SignatureEncoding,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct SignTypedDataRequest {
+    pub chain: Chain,
+    pub path: String,
+    pub domain_separator_hash: String,
+    pub message_hash: Option<String>,
+    #[uniffi(default = None)]
+    pub data_json: Option<String>,
+    #[uniffi(default = true)]
+    pub metamask_v4_compat: bool,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct SignTypedDataResult {
+    pub chain: Chain,
+    pub address: String,
+    pub signature: Vec<u8>,
+    pub signature_formatted: String,
+    pub signature_encoding: SignatureEncoding,
+}
+
 #[uniffi::export]
 pub fn host_config_new(host_name: String, app_name: String) -> HostConfig {
     RawHostConfig::new(host_name, app_name).into()

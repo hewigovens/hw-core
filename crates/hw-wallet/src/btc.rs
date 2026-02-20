@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use serde::Deserialize;
 use trezor_connect::thp::{
-    BtcInputScriptType, BtcOutputScriptType, BtcSignInput, BtcSignOutput, BtcSignTx, SignTxRequest,
+    BtcInputScriptType, BtcOutputScriptType, BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput,
+    BtcSignOutput, BtcSignTx, SignTxRequest,
 };
 
 use crate::bip32::parse_bip32_path;
@@ -17,6 +20,8 @@ pub struct TxInput {
     pub chunkify: bool,
     pub inputs: Vec<TxInputInput>,
     pub outputs: Vec<TxInputOutput>,
+    #[serde(default)]
+    pub ref_txs: Vec<TxInputRefTx>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,6 +46,35 @@ pub struct TxInputOutput {
     pub op_return_data: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TxInputRefTx {
+    pub hash: String,
+    pub version: u32,
+    pub lock_time: u32,
+    pub inputs: Vec<TxInputRefTxInput>,
+    pub bin_outputs: Vec<TxInputRefTxOutput>,
+    pub extra_data: Option<String>,
+    pub timestamp: Option<u32>,
+    pub version_group_id: Option<u32>,
+    pub expiry: Option<u32>,
+    pub branch_id: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TxInputRefTxInput {
+    pub prev_hash: String,
+    pub prev_index: u32,
+    pub script_sig: String,
+    #[serde(default = "default_sequence")]
+    pub sequence: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TxInputRefTxOutput {
+    pub amount: String,
+    pub script_pubkey: String,
+}
+
 fn default_version() -> u32 {
     2
 }
@@ -63,29 +97,31 @@ pub fn parse_tx_json(json: &str) -> WalletResult<TxInput> {
 }
 
 pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
-    if tx.inputs.is_empty() {
+    let TxInput {
+        version,
+        lock_time,
+        chunkify,
+        inputs: raw_inputs,
+        outputs: raw_outputs,
+        ref_txs: raw_ref_txs,
+    } = tx;
+
+    if raw_inputs.is_empty() {
         return Err(WalletError::Signing(
             "bitcoin tx must contain at least one input".into(),
         ));
     }
-    if tx.outputs.is_empty() {
+    if raw_outputs.is_empty() {
         return Err(WalletError::Signing(
             "bitcoin tx must contain at least one output".into(),
         ));
     }
 
-    let inputs = tx
-        .inputs
+    let inputs = raw_inputs
         .into_iter()
         .map(|input| {
             let path = parse_bip32_path(&input.path)?;
-            let prev_hash = decode(&input.prev_hash)?;
-            if prev_hash.len() != 32 {
-                return Err(WalletError::Signing(format!(
-                    "prev_hash must be 32 bytes, got {} bytes",
-                    prev_hash.len()
-                )));
-            }
+            let prev_hash = parse_hash32("prev_hash", &input.prev_hash)?;
             let amount = parse_sats(&input.amount)?;
             let script_type = parse_input_script_type(&input.script_type)?;
             Ok(BtcSignInput {
@@ -99,8 +135,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
         })
         .collect::<WalletResult<Vec<_>>>()?;
 
-    let outputs = tx
-        .outputs
+    let outputs = raw_outputs
         .into_iter()
         .map(|output| {
             if output.address.is_none() && output.path.is_none() {
@@ -120,8 +155,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                 .path
                 .as_deref()
                 .map(parse_bip32_path)
-                .transpose()
-                .map_err(|err| WalletError::Signing(err.to_string()))?
+                .transpose()?
                 .unwrap_or_default();
             let op_return_data = output.op_return_data.as_deref().map(decode).transpose()?;
             Ok(BtcSignOutput {
@@ -134,13 +168,105 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
         })
         .collect::<WalletResult<Vec<_>>>()?;
 
+    let ref_txs = raw_ref_txs
+        .into_iter()
+        .map(|tx| {
+            let hash = parse_hash32("ref_txs.hash", &tx.hash)?;
+            let inputs = tx
+                .inputs
+                .into_iter()
+                .map(|input| {
+                    Ok(BtcRefTxInput {
+                        prev_hash: parse_hash32("ref_txs.inputs.prev_hash", &input.prev_hash)?,
+                        prev_index: input.prev_index,
+                        script_sig: decode(&input.script_sig)?,
+                        sequence: input.sequence,
+                    })
+                })
+                .collect::<WalletResult<Vec<_>>>()?;
+            let bin_outputs = tx
+                .bin_outputs
+                .into_iter()
+                .map(|output| {
+                    Ok(BtcRefTxOutput {
+                        amount: parse_sats(&output.amount)?,
+                        script_pubkey: decode(&output.script_pubkey)?,
+                    })
+                })
+                .collect::<WalletResult<Vec<_>>>()?;
+            let extra_data = tx.extra_data.as_deref().map(decode).transpose()?;
+            Ok(BtcRefTx {
+                hash,
+                version: tx.version,
+                lock_time: tx.lock_time,
+                inputs,
+                bin_outputs,
+                extra_data,
+                timestamp: tx.timestamp,
+                version_group_id: tx.version_group_id,
+                expiry: tx.expiry,
+                branch_id: tx.branch_id,
+            })
+        })
+        .collect::<WalletResult<Vec<_>>>()?;
+
+    validate_ref_txs_for_inputs(&inputs, &ref_txs)?;
+
     Ok(SignTxRequest::bitcoin(BtcSignTx {
-        version: tx.version,
-        lock_time: tx.lock_time,
+        version,
+        lock_time,
         inputs,
         outputs,
-        chunkify: tx.chunkify,
+        ref_txs,
+        chunkify,
     }))
+}
+
+fn parse_hash32(field: &str, value: &str) -> WalletResult<Vec<u8>> {
+    let decoded = decode(value)?;
+    if decoded.len() != 32 {
+        return Err(WalletError::Signing(format!(
+            "{field} must be 32 bytes, got {} bytes",
+            decoded.len()
+        )));
+    }
+    Ok(decoded)
+}
+
+fn validate_ref_txs_for_inputs(inputs: &[BtcSignInput], ref_txs: &[BtcRefTx]) -> WalletResult<()> {
+    let mut ref_txs_by_hash: HashMap<Vec<u8>, &BtcRefTx> = HashMap::new();
+    for ref_tx in ref_txs {
+        if ref_txs_by_hash
+            .insert(ref_tx.hash.clone(), ref_tx)
+            .is_some()
+        {
+            return Err(WalletError::Signing(format!(
+                "duplicate ref_txs hash {}",
+                ::hex::encode(&ref_tx.hash)
+            )));
+        }
+    }
+
+    for (input_index, input) in inputs.iter().enumerate() {
+        let Some(ref_tx) = ref_txs_by_hash.get(&input.prev_hash) else {
+            return Err(WalletError::Signing(format!(
+                "ref_txs must include transaction {} referenced by input {}",
+                ::hex::encode(&input.prev_hash),
+                input_index
+            )));
+        };
+        let prev_index = input.prev_index as usize;
+        if prev_index >= ref_tx.bin_outputs.len() {
+            return Err(WalletError::Signing(format!(
+                "input {input_index} prev_index {} out of bounds for ref_txs hash {} (outputs={})",
+                input.prev_index,
+                ::hex::encode(&input.prev_hash),
+                ref_tx.bin_outputs.len()
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn parse_sats(value: &str) -> WalletResult<u64> {
@@ -190,59 +316,51 @@ mod tests {
     use super::*;
     use hw_chain::Chain;
 
+    const BTC_PARSE_WITH_REF_TXS: &str =
+        include_str!("../../../tests/data/bitcoin/btc_parse_with_ref_txs.json");
+    const BTC_BUILD_WITH_REF_TXS: &str =
+        include_str!("../../../tests/data/bitcoin/btc_build_with_ref_txs.json");
+    const BTC_MISSING_REF_TXS: &str =
+        include_str!("../../../tests/data/bitcoin/btc_missing_ref_txs.json");
+    const BTC_PREV_INDEX_OOB: &str =
+        include_str!("../../../tests/data/bitcoin/btc_prev_index_oob.json");
+
     #[test]
     fn parse_btc_tx_json() {
-        let tx = parse_tx_json(
-            r#"{
-                "version": 2,
-                "lock_time": 0,
-                "inputs": [
-                    {
-                        "path": "m/84'/0'/0'/0/0",
-                        "prev_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
-                        "prev_index": 1,
-                        "amount": "12345"
-                    }
-                ],
-                "outputs": [
-                    {
-                        "address": "bc1qexample0000000000000000000000000000000000",
-                        "amount": "12000"
-                    }
-                ]
-            }"#,
-        )
-        .unwrap();
+        let tx = parse_tx_json(BTC_PARSE_WITH_REF_TXS).unwrap();
         assert_eq!(tx.version, 2);
         assert_eq!(tx.inputs.len(), 1);
         assert_eq!(tx.outputs.len(), 1);
+        assert_eq!(tx.ref_txs.len(), 1);
     }
 
     #[test]
     fn build_btc_sign_request() {
-        let tx = parse_tx_json(
-            r#"{
-                "inputs": [
-                    {
-                        "path": "m/84'/0'/0'/0/0",
-                        "prev_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
-                        "prev_index": 0,
-                        "amount": "0x64"
-                    }
-                ],
-                "outputs": [
-                    {
-                        "path": "m/84'/0'/0'/1/0",
-                        "amount": "90"
-                    }
-                ]
-            }"#,
-        )
-        .unwrap();
+        let tx = parse_tx_json(BTC_BUILD_WITH_REF_TXS).unwrap();
         let request = build_sign_tx_request(tx).unwrap();
         assert_eq!(request.chain, Chain::Bitcoin);
         let btc = request.btc.unwrap();
         assert_eq!(btc.inputs[0].amount, 100);
         assert_eq!(btc.outputs[0].amount, 90);
+        assert_eq!(btc.ref_txs.len(), 1);
+    }
+
+    #[test]
+    fn build_btc_sign_request_fails_when_ref_tx_is_missing() {
+        let tx = parse_tx_json(BTC_MISSING_REF_TXS).unwrap();
+        let err = build_sign_tx_request(tx).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("ref_txs must include transaction 1111111111111111111111111111111111111111111111111111111111111111"));
+    }
+
+    #[test]
+    fn build_btc_sign_request_fails_on_prev_index_bounds() {
+        let tx = parse_tx_json(BTC_PREV_INDEX_OOB).unwrap();
+        let err = build_sign_tx_request(tx).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("input 0 prev_index 2 out of bounds for ref_txs hash")
+        );
     }
 }

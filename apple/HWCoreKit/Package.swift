@@ -21,7 +21,6 @@ let package = Package(
             path: "Sources/HWCoreFFI",
             linkerSettings: [
                 .unsafeFlags(["-L", "../../target/debug", "-lhw_ffi"], .when(platforms: [.macOS])),
-                .unsafeFlags(["-L", "../../target/ios-sim/debug", "-lhw_ffi"], .when(platforms: [.iOS])),
             ]
         ),
         .target(

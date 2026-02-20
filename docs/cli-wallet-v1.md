@@ -4,7 +4,7 @@ Last updated: 2026-02-07
 Status legend: TODO | IN_PROGRESS | BLOCKED | DONE
 
 ## Mission
-Deliver an interactive CLI that can, with a real Trezor Safe 7 over BLE:
+Deliver a CLI that can, with a real Trezor Safe 7 over BLE:
 1. Connect and pair
 2. Read an Ethereum address
 3. Sign an Ethereum transaction
@@ -39,7 +39,7 @@ Out of scope:
 - [x] Pair flow retries `create-channel` on transient BLE timeout.
 - [x] Pair/address scanning exits early when a matching device is discovered instead of always waiting full timeout.
 - [x] CLI supports verbose debug logging via `-v` / `-vv`.
-- [x] `pair --interactive` keeps BLE/THP session open and provides REPL commands (currently `address --chain <eth|btc>`) to avoid reconnecting per action.
+- [x] REPL session mode (`pair --interactive`) was implemented previously and has been removed to reduce maintenance.
 - [x] BLE THP backend auto-acknowledges `ButtonRequest` with `ButtonAck` during encrypted flow.
 - [x] Pair/address detect BLE "Peer removed pairing information" and show explicit OS unpair/removal recovery guidance.
 - [x] CLI defaults host pairing preference to `CodeEntry` (aligned with Trezor Suite default) instead of accepting all methods implicitly.
@@ -53,14 +53,14 @@ Out of scope:
 - [x] Chain-generic host `get-address` API exists in THP layer (Ethereum implementation complete, extensible to more chains).
 - [x] CLI `address --chain eth` is implemented and supports optional `--include-public-key`.
 - [x] ETH signing flow is implemented in THP types/backend/proto conversions/BLE backend/workflow.
-- [x] CLI `sign eth --path <bip32> --tx <json|@file>` is implemented (non-interactive and in interactive REPL).
+- [x] CLI `sign eth --path <bip32> --tx <json|@file>` is implemented.
 - [x] ETH tx JSON parsing/building has been moved into shared `crates/hw-wallet` for CLI/FFI reuse.
 - [x] Handshake `Paired` state now follows Suite-compatible connection-finalization flow (`CredentialRequest` + `EndRequest`) before session creation.
-- [x] `address`/`sign`/`pair --interactive` handle paired-connection confirmation before `create_session`.
+- [x] `address`/`sign`/`pair` handle paired-connection confirmation before `create_session`.
 - [x] EIP-1559 sign protobuf mapping fixed (`chunkify` tag=13) to avoid firmware decode failure on `payment_req`.
 - [x] Handshake transient busy/not-ready errors (e.g. device error code 5) now retry with fresh channel setup.
 - [x] Local post-sign verification outputs tx hash + recovered Ethereum signer address.
-- [x] Mocked orchestration tests cover address/sign and interactive session command flow (`address` then `sign`) without hardware.
+- [x] Mocked orchestration tests cover address/sign command flow without hardware.
 - [x] Retry and error normalization now include create-session transient busy/failure handling (error code 5/99).
 - [x] Hardware smoke checklist is documented and kept for manual regression runs.
 
@@ -104,8 +104,8 @@ Exit criteria:
 - [x] `P2-06` Add focused tests for pairing command state transitions and storage reuse. `DONE`
 - [x] `P2-07` Add verbose pairing logs and handle THP `ButtonRequest`/`ButtonAck` continuation flow. `DONE`
 - [x] `P2-08` Add configurable THP timeout and retry for create-channel timeout recovery. `DONE`
-- [x] `P2-09` Add `pair --interactive` session mode (REPL) for multi-step commands without reconnect/disconnect churn. `DONE`
-- [x] `P2-10` Add interactive REPL tab autocomplete for commands/flags/default path guidance. `DONE`
+- [x] `P2-09` `pair --interactive` REPL session mode was added and later removed to reduce maintenance. `DONE`
+- [x] `P2-10` REPL autocomplete was added and later removed with REPL removal. `DONE`
 
 Exit criteria:
 - First run pairs manually; second run avoids re-pair unless `--force`.
@@ -151,7 +151,6 @@ Exit criteria:
 ## Proposed v1 Command UX
 - `hw-cli scan`
 - `hw-cli pair --pairing-method ble --timeout-secs 60 --thp-timeout-secs 60`
-- `hw-cli pair --interactive` (session mode)
 - `hw-cli address --chain eth --include-public-key` (auto-runs pairing prompt if device is not paired)
 - `hw-cli address --path "m/44'/60'/0'/0/0"` (chain inferred/defaulted from path)
 - `hw-cli sign eth --path "m/44'/60'/0'/0/0" --tx ./tx.json` (auto-runs pairing prompt if device is not paired)
@@ -202,8 +201,8 @@ Commands:
 1. Scan:
    - `just cli-scan`
    - Expect at least one `Trezor Safe 7` candidate.
-2. Pair (interactive):
-   - `just cli-pair-interactive`
+2. Pair:
+   - `just cli-pair`
    - Confirm connection/pairing on device when prompted.
    - Enter 6-digit code-entry challenge.
    - Expect `Pairing complete.` and persisted host state path.
@@ -220,8 +219,8 @@ Commands:
    - Re-run steps 3 and 4.
    - Expect success without a full pairing flow.
 6. Forced re-pair:
-   - `cargo run -p hw-cli -- -vv pair --force --interactive`
-   - Expect storage reset followed by successful pairing and session.
+   - `cargo run -p hw-cli -- -vv pair --force`
+   - Expect storage reset followed by successful pairing.
 
 Failure recovery notes:
 - `Peer removed pairing information`:

@@ -2,7 +2,7 @@
 name = "hw-cli"
 version.workspace = true
 edition.workspace = true
-description = "Interactive CLI for Trezor Safe 7 workflows over BLE"
+description = "CLI for Trezor Safe 7 workflows over BLE"
 license.workspace = true
 repository.workspace = true
 
@@ -21,4 +21,3 @@ trezor-connect = { workspace = true, features = ["ble"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 whoami = "2.1.1"
-rustyline = "17.0"

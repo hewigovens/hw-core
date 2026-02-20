@@ -1,60 +1,70 @@
-# Bitcoin Signing Completion Plan
+# Bitcoin Signing Plan (Status)
 
 ## Goal
-Finish BTC signing for the current app/CLI flow by implementing previous-transaction request handling (`TXMETA`, `TXINPUT`, `TXOUTPUT`, `TXEXTRADATA`) in the THP signing loop.
+Complete BTC signing for current app/CLI flow by handling previous-transaction requests in the THP signing loop.
 
-## Scope (v1)
-- Support standard signing flows that require referenced previous transactions.
-- Add a stable request format for referenced transaction data.
-- Keep current `TXORIGINPUT`, `TXORIGOUTPUT`, and `TXPAYMENTREQ` out of scope for v1.
+## Scope
+- `v1` (completed): `TXMETA`, `TXINPUT`, `TXOUTPUT`, `TXEXTRADATA` for previous transactions using `ref_txs`.
+- `v2` (remaining): `TXORIGINPUT`, `TXORIGOUTPUT`, `TXPAYMENTREQ`.
 
-## Work Items
-1. Request model updates
-- Extend BTC sign payload model with `ref_txs`.
-- Each referenced tx must include enough data for Trezor requests:
+## Current Status (2026-02-19)
+
+### Completed (`v1`)
+1. Request model and payload contract
+- `ref_txs` is supported in BTC sign JSON.
+- Referenced tx data supports:
   - `hash`, `version`, `lock_time`
-  - `inputs` (prev hash/index, sequence, `script_sig`)
-  - `bin_outputs` (amount, `script_pubkey`)
-  - optional `extra_data`
-  - optional future fields (`timestamp`, `version_group_id`, `expiry`, `branch_id`)
+  - `inputs` (`prev_hash`, `prev_index`, `sequence`, `script_sig`)
+  - `bin_outputs` (`amount`, `script_pubkey`)
+  - optional `extra_data`, `timestamp`, `version_group_id`, `expiry`, `branch_id`
 
-2. Wallet parsing/validation
-- Update `/Users/hewig/workspace/hw-core/crates/hw-wallet/src/btc.rs` JSON parser to accept and validate `ref_txs`.
-- Enforce that every signing input `prev_hash` has a matching referenced tx.
-- Validate indexed access safety (request index bounds for prev inputs/outputs).
+2. Wallet parsing and validation
+- BTC parser accepts and validates `ref_txs`.
+- Every signing input `prev_hash` must exist in `ref_txs`.
+- Bounds checks are enforced for requested referenced outputs.
+- Duplicate `ref_txs` hashes are rejected.
 
 3. THP proto mapping
-- Update `/Users/hewig/workspace/hw-core/crates/trezor-connect/src/thp/proto.rs`:
-  - Add `TxAck` encoding helpers for previous tx meta/input/output/extra-data chunk.
-  - Add message fields needed for prev output responses (`bin_outputs`/`script_pubkey` path).
+- Added previous-tx ACK encoders for:
+  - prev meta
+  - prev input
+  - prev output (`bin_outputs`)
+  - prev extra-data chunk
+- Added missing proto fields required by these responses.
 
 4. Signing state machine
-- Update `/Users/hewig/workspace/hw-core/crates/trezor-connect/src/ble.rs` BTC sign loop:
-  - If `tx_hash` is set in `TxRequest.details`, route to previous-tx responder.
-  - Dispatch by request type:
-    - `TXMETA` -> previous tx meta
-    - `TXINPUT` -> previous tx input
-    - `TXOUTPUT` -> previous tx binary output
-    - `TXEXTRADATA` -> chunked extra data response
-  - Keep clear errors for unsupported request types (orig/payment request) in v1.
+- BTC sign loop routes requests by `tx_hash` presence:
+  - `TXMETA` -> referenced tx meta
+  - `TXINPUT` -> referenced tx input
+  - `TXOUTPUT` -> referenced tx binary output
+  - `TXEXTRADATA` -> referenced tx extra-data chunk
+- Unsupported types remain explicit errors:
+  - `TXORIGINPUT`, `TXORIGOUTPUT`, `TXPAYMENTREQ`
 
-5. FFI and sample app
-- Expose new BTC JSON contract through existing FFI sign request path.
-- Update sample BTC JSON fixture to include realistic `ref_txs` example.
+5. FFI and sample data
+- Existing FFI sign path supports the updated BTC JSON contract.
+- Sample/default BTC JSON now includes `ref_txs`.
 
-## Tests
-1. Proto tests
-- Encode/decode tests for all new prev-tx ack shapes.
+6. Tests and test data
+- Added proto tests for prev-tx ACK payloads.
+- Added wallet tests for `ref_txs` success and validation failures.
+- Added backend tests for unknown hash and out-of-bounds index errors.
+- Moved BTC/ETH test JSON payloads to `tests/data/...` and updated tests to load from files.
 
-2. Wallet tests
-- JSON parsing tests for valid/invalid `ref_txs`.
-- Missing referenced tx should return a validation error.
+7. Proto code organization
+- Split `thp/proto.rs` into:
+  - `thp/proto/mod.rs` (shared/pairing)
+  - `thp/proto/bitcoin.rs`
+  - `thp/proto/ethereum.rs`
+  - `thp/proto/solana.rs`
+- Kept the external `thp::proto::*` API stable via re-exports.
 
-3. Backend tests
-- Mock `TxRequest` sequence that includes prev-tx requests and assert successful completion.
-- Add negative tests for unknown hash and out-of-bounds request index.
+## Remaining Work (`v2`)
+1. Implement `TXORIGINPUT` flow.
+2. Implement `TXORIGOUTPUT` flow.
+3. Implement `TXPAYMENTREQ` flow.
+4. Add integration tests covering mixed `TX*` sequences including orig/payment requests.
 
 ## Acceptance Criteria
-- BTC signing no longer fails with `previous-transaction metadata requests are not implemented yet`.
-- CLI and sample app can sign a BTC fixture with valid `ref_txs`.
-- Unsupported advanced request types still fail with explicit, actionable errors.
+- `v1` status: met.
+- `v2` status: pending on `TXORIG*` and `TXPAYMENTREQ`.

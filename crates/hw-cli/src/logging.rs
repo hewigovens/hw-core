@@ -8,18 +8,7 @@ pub fn init_tracing(verbosity: u8) {
         _ => "trace",
     };
 
-    let mut filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
-    filter = filter
-        .add_directive(
-            "rustyline=off"
-                .parse()
-                .expect("hardcoded directive should parse"),
-        )
-        .add_directive(
-            "rustyline::tty=off"
-                .parse()
-                .expect("hardcoded directive should parse"),
-        );
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
