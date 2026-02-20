@@ -1,0 +1,33 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-ci:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust with iOS target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: extractions/setup-just@v3
+      - name: cargo check (iOS)
+        run: cargo check -p hw-ffi --target aarch64-apple-ios
+      - name: Install Xcode tools
+        run: |
+          brew install xcodegen xcbeautify
+      - name: Generate sample app projects (iOS + macOS)
+        run: |
+          just bindings
+          just generate-apple-projects
+      - name: Build iOS sample app
+        run: xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build | xcbeautify
+      - name: Build macOS sample app
+        run: xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' build | xcbeautify

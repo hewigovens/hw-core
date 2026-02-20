@@ -82,17 +82,27 @@ install-xcbeautify:
     fi
     brew install xcbeautify
 
+generate-ios-project:
+    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+
+generate-mac-project:
+    xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
+
+generate-apple-projects:
+    just generate-ios-project
+    just generate-mac-project
+
 run-mac:
     just sample
 
 build-ios:
     just bindings
-    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+    just generate-ios-project
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build | xcbeautify
 
 build-ios-ui:
     just bindings
-    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+    just generate-ios-project
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build-for-testing | xcbeautify
 
 test-ios-ui:
@@ -107,7 +117,7 @@ run-ios:
     #!/usr/bin/env bash
     set -euo pipefail
     just bindings
-    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+    just generate-ios-project
     SIM_DEVICE_ID="$(just --quiet _ios-sim-device-id)"
     xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
     open -a Simulator --args -CurrentDeviceUDID "$SIM_DEVICE_ID"
@@ -121,7 +131,7 @@ run-ios-device:
     #!/usr/bin/env bash
     set -euo pipefail
     just bindings
-    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+    just generate-ios-project
     DEVICE_ID="${DEVICE_ID:-$(just --quiet _ios-device-id)}"
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$DEVICE_ID" -allowProvisioningUpdates -derivedDataPath target/DerivedData/HWCoreKitSampleAppiOSDevice build | xcbeautify
     APP_PATH="target/DerivedData/HWCoreKitSampleAppiOSDevice/Build/Products/Debug-iphoneos/HWCoreKitSampleAppiOS.app"
@@ -134,7 +144,7 @@ test-mac-ui:
 
 build-mac-ui:
     just bindings
-    xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
+    just generate-mac-project
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' build-for-testing | xcbeautify
 
 scan-demo:
