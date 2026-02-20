@@ -36,11 +36,13 @@ bindings:
     cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
     if [[ "$(uname -s)" == "Darwin" ]]; then
         ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-ffi
-        rustup target add aarch64-apple-ios
         cargo build -p hw-ffi --target aarch64-apple-ios
     else
         ./apple/HWCoreKit/Scripts/sync-bindings.sh
     fi
+
+install-ios-targets:
+    rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 
 _ios-sim-device-id:
     #!/usr/bin/env bash
@@ -51,6 +53,21 @@ _ios-sim-device-id:
         exit 1
     fi
     echo "$SIM_DEVICE_ID"
+
+_ios-device-id:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DEVICE_ID="$(
+        xcrun xctrace list devices 2>/dev/null \
+        | awk '/iPhone/ && $0 !~ /Simulator/ { print }' \
+        | sed -E 's/.*\(([0-9A-Fa-f-]+)\)[[:space:]]*$/\1/' \
+        | head -n 1
+    )"
+    if [[ -z "$DEVICE_ID" ]]; then
+        echo "No connected iPhone device found." >&2
+        exit 1
+    fi
+    echo "$DEVICE_ID"
 
 sample:
     just bindings
@@ -63,23 +80,17 @@ install-xcbeautify:
         xcbeautify --version
         exit 0
     fi
-    if ! command -v brew >/dev/null 2>&1; then
-        echo "xcbeautify is not installed and Homebrew is unavailable. Install xcbeautify manually." >&2
-        exit 1
-    fi
     brew install xcbeautify
 
 run-mac:
     just sample
 
 build-ios:
-    just install-xcbeautify
     just bindings
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build | xcbeautify
 
 build-ios-ui:
-    just install-xcbeautify
     just bindings
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build-for-testing | xcbeautify
@@ -87,7 +98,6 @@ build-ios-ui:
 test-ios-ui:
     #!/usr/bin/env bash
     set -euo pipefail
-    just install-xcbeautify
     just build-ios-ui
     SIM_DEVICE_ID="$(just --quiet _ios-sim-device-id)"
     xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
@@ -96,7 +106,6 @@ test-ios-ui:
 run-ios:
     #!/usr/bin/env bash
     set -euo pipefail
-    just install-xcbeautify
     just bindings
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     SIM_DEVICE_ID="$(just --quiet _ios-sim-device-id)"
@@ -108,13 +117,22 @@ run-ios:
     xcrun simctl launch "$SIM_DEVICE_ID" dev.hewig.hwcorekit.sampleiosapp
     open -a Simulator
 
+run-ios-device:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just bindings
+    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+    DEVICE_ID="${DEVICE_ID:-$(just --quiet _ios-device-id)}"
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$DEVICE_ID" -allowProvisioningUpdates -derivedDataPath target/DerivedData/HWCoreKitSampleAppiOSDevice build | xcbeautify
+    APP_PATH="target/DerivedData/HWCoreKitSampleAppiOSDevice/Build/Products/Debug-iphoneos/HWCoreKitSampleAppiOS.app"
+    xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH"
+    xcrun devicectl device process launch --device "$DEVICE_ID" dev.hewig.hwcorekit.sampleiosapp
+
 test-mac-ui:
-    just install-xcbeautify
     just build-mac-ui
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' test-without-building | xcbeautify
 
 build-mac-ui:
-    just install-xcbeautify
     just bindings
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' build-for-testing | xcbeautify

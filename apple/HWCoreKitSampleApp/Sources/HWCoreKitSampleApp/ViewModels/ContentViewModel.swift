@@ -95,6 +95,27 @@ final class ContentViewModel: ObservableObject {
           "amount": "900",
           "script_type": "paytoaddress"
         }
+      ],
+      "ref_txs": [
+        {
+          "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "version": 2,
+          "lock_time": 0,
+          "inputs": [
+            {
+              "prev_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "prev_index": 0,
+              "script_sig": "",
+              "sequence": 4294967295
+            }
+          ],
+          "bin_outputs": [
+            {
+              "amount": "1000",
+              "script_pubkey": "001400112233445566778899aabbccddeeff00112233"
+            }
+          ]
+        }
       ]
     }
     """
@@ -732,7 +753,8 @@ final class ContentViewModel: ObservableObject {
         }
         let inputs = (dictionary["inputs"] as? [Any])?.count ?? 0
         let outputs = (dictionary["outputs"] as? [Any])?.count ?? 0
-        return "inputs=\(inputs) outputs=\(outputs)"
+        let refTxs = (dictionary["ref_txs"] as? [Any])?.count ?? 0
+        return "inputs=\(inputs) outputs=\(outputs) ref_txs=\(refTxs)"
     }
 
     private func copyToClipboard(_ value: String, emptyMessage: String, successLabel: String) {

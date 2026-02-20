@@ -6,7 +6,7 @@ description = "UniFFI bindings for hw-core (Swift/Kotlin)"
 license.workspace = true
 repository.workspace = true
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 default = []

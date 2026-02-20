@@ -288,7 +288,7 @@ struct MacContentView: View {
                 .font(.system(.footnote, design: .monospaced))
                 .frame(minHeight: 140)
                 .accessibilityIdentifier("input.sign.btc.tx_json")
-            Text("Advanced BTC flows should preload all required input/output context in wallet code.")
+            Text("BTC signing requires ref_txs that match each input prev_hash/prev_index.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
