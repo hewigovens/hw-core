@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.hwcore"
+    namespace = "dev.hewig.hwcore"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.hwcore"
+        applicationId = "dev.hewig.hwcore"
         minSdk = 28
         targetSdk = 35
         versionCode = 1

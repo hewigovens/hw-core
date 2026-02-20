@@ -1,4 +1,4 @@
-package com.example.hwcore
+package dev.hewig.hwcore
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.hwcore.ui.theme.HWCoreTheme
+import dev.hewig.hwcore.ui.theme.HWCoreTheme
 import uniffi.hw_ffi.hwCoreVersion
 
 class MainActivity : ComponentActivity() {

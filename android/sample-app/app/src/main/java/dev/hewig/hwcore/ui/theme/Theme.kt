@@ -1,4 +1,4 @@
-package com.example.hwcore.ui.theme
+package dev.hewig.hwcore.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme

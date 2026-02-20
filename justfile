@@ -32,7 +32,7 @@ bindings:
     cargo build -p hw-ffi
     mkdir -p target/bindings/swift target/bindings/kotlin
     cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
-    ./apple/HWCoreKit/Scripts/sync-bindings.sh
+    ./scripts/sync-bindings.sh --apple
 
 sample:
     just bindings
@@ -57,14 +57,14 @@ run-mac:
 build-ios:
     just install-xcbeautify
     just bindings
-    ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
+    ./scripts/sync-bindings.sh --apple --ios-sim-only
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build | xcbeautify
 
 build-ios-ui:
     just install-xcbeautify
     just bindings
-    ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
+    ./scripts/sync-bindings.sh --apple --ios-sim-only
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build-for-testing | xcbeautify
 
@@ -83,7 +83,7 @@ run-ios:
     set -euo pipefail
     just install-xcbeautify
     just bindings
-    ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
+    ./scripts/sync-bindings.sh --apple --ios-sim-only
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     SIM_DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')"
     if [[ -z "$SIM_DEVICE_ID" ]]; then
@@ -134,7 +134,7 @@ cli-sign-eth:
     cargo run -p hw-cli -- -vv sign eth --path "m/44'/60'/0'/0/0" --tx '{"to":"0x000000000000000000000000000000000000dead","nonce":"0x0","gas_limit":"0x5208","chain_id":1,"max_fee_per_gas":"0x3b9aca00","max_priority_fee":"0x59682f00","value":"0x0"}'
 
 build-android:
-    ./android/scripts/build-rust.sh
+    ./scripts/sync-bindings.sh --android
 
 build-android-release:
-    ./android/scripts/build-rust.sh --release
+    ./scripts/sync-bindings.sh --android --release

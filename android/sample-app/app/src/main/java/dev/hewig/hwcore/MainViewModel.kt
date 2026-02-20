@@ -1,4 +1,4 @@
-package com.example.hwcore
+package dev.hewig.hwcore
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
