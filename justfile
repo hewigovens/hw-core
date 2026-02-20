@@ -95,7 +95,7 @@ run-ios:
     xcrun simctl bootstatus "$SIM_DEVICE_ID" -b
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$SIM_DEVICE_ID" -derivedDataPath target/DerivedData/HWCoreKitSampleAppiOS build | xcbeautify
     xcrun simctl install "$SIM_DEVICE_ID" target/DerivedData/HWCoreKitSampleAppiOS/Build/Products/Debug-iphonesimulator/HWCoreKitSampleAppiOS.app
-    xcrun simctl launch "$SIM_DEVICE_ID" com.hwcorekit.sampleiosapp
+    xcrun simctl launch "$SIM_DEVICE_ID" dev.hewig.hwcorekit.sampleiosapp
     open -a Simulator
 
 test-mac-ui:
