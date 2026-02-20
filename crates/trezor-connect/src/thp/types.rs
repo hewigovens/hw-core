@@ -1,5 +1,7 @@
 use hw_chain::Chain;
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -239,6 +241,126 @@ pub struct GetAddressResponse {
 }
 
 #[derive(Debug, Clone)]
+pub struct SignMessageRequest {
+    pub chain: Chain,
+    pub path: Vec<u32>,
+    pub message: Vec<u8>,
+    pub chunkify: bool,
+    pub encoded_network: Option<Vec<u8>>,
+}
+
+impl SignMessageRequest {
+    pub fn ethereum(path: Vec<u32>, message: Vec<u8>) -> Self {
+        Self {
+            chain: Chain::Ethereum,
+            path,
+            message,
+            chunkify: false,
+            encoded_network: None,
+        }
+    }
+
+    pub fn bitcoin(path: Vec<u32>, message: Vec<u8>) -> Self {
+        Self {
+            chain: Chain::Bitcoin,
+            path,
+            message,
+            chunkify: false,
+            encoded_network: None,
+        }
+    }
+
+    pub fn with_chunkify(mut self, value: bool) -> Self {
+        self.chunkify = value;
+        self
+    }
+
+    pub fn with_encoded_network(mut self, value: Option<Vec<u8>>) -> Self {
+        self.encoded_network = value;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SignMessageResponse {
+    pub chain: Chain,
+    pub address: String,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SignTypedDataRequest {
+    pub chain: Chain,
+    pub path: Vec<u32>,
+    pub payload: SignTypedDataPayload,
+    pub encoded_network: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SignTypedDataPayload {
+    Hashes {
+        domain_separator_hash: Vec<u8>,
+        message_hash: Option<Vec<u8>>,
+    },
+    TypedData(Eip712TypedData),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Eip712TypedData {
+    pub types: BTreeMap<String, Vec<Eip712StructMember>>,
+    pub primary_type: String,
+    pub domain: JsonValue,
+    pub message: JsonValue,
+    pub metamask_v4_compat: bool,
+    pub show_message_hash: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Eip712StructMember {
+    pub name: String,
+    pub type_name: String,
+}
+
+impl SignTypedDataRequest {
+    pub fn ethereum(
+        path: Vec<u32>,
+        domain_separator_hash: Vec<u8>,
+        message_hash: Option<Vec<u8>>,
+    ) -> Self {
+        Self {
+            chain: Chain::Ethereum,
+            path,
+            payload: SignTypedDataPayload::Hashes {
+                domain_separator_hash,
+                message_hash,
+            },
+            encoded_network: None,
+        }
+    }
+
+    pub fn ethereum_typed_data(path: Vec<u32>, typed_data: Eip712TypedData) -> Self {
+        Self {
+            chain: Chain::Ethereum,
+            path,
+            payload: SignTypedDataPayload::TypedData(typed_data),
+            encoded_network: None,
+        }
+    }
+
+    pub fn with_encoded_network(mut self, value: Option<Vec<u8>>) -> Self {
+        self.encoded_network = value;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SignTypedDataResponse {
+    pub chain: Chain,
+    pub address: String,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
 pub struct HostConfig {
     pub pairing_methods: Vec<PairingMethod>,
     pub known_credentials: Vec<KnownCredential>,
@@ -318,39 +440,32 @@ pub struct BtcSignOutput {
     pub op_return_data: Option<Vec<u8>>,
 }
 
-/// An input from a previous (referenced) transaction, used to satisfy
-/// firmware `TXINPUT` requests where `tx_hash` is set.
 #[derive(Debug, Clone)]
-pub struct RefTxInput {
+pub struct BtcRefTxInput {
     pub prev_hash: Vec<u8>,
     pub prev_index: u32,
-    pub sequence: u32,
-    /// Raw scriptSig bytes (empty for SegWit inputs).
     pub script_sig: Vec<u8>,
+    pub sequence: u32,
 }
 
-/// A binary output from a previous (referenced) transaction, used to satisfy
-/// firmware `TXOUTPUT` requests where `tx_hash` is set.
 #[derive(Debug, Clone)]
-pub struct RefTxBinOutput {
+pub struct BtcRefTxOutput {
     pub amount: u64,
-    /// Raw scriptPubKey bytes.
     pub script_pubkey: Vec<u8>,
 }
 
-/// A complete referenced (previous) transaction.  The host must supply one
-/// `RefTx` for every `prev_hash` referenced by a signing input so that the
-/// firmware can verify amounts.
 #[derive(Debug, Clone)]
-pub struct RefTx {
-    /// Transaction hash (txid) as raw bytes (little-endian, 32 bytes).
+pub struct BtcRefTx {
     pub hash: Vec<u8>,
     pub version: u32,
     pub lock_time: u32,
-    pub inputs: Vec<RefTxInput>,
-    pub bin_outputs: Vec<RefTxBinOutput>,
-    /// Optional extra data appended after outputs (e.g. Zcash v3+ transactions).
+    pub inputs: Vec<BtcRefTxInput>,
+    pub bin_outputs: Vec<BtcRefTxOutput>,
     pub extra_data: Option<Vec<u8>>,
+    pub timestamp: Option<u32>,
+    pub version_group_id: Option<u32>,
+    pub expiry: Option<u32>,
+    pub branch_id: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -359,10 +474,8 @@ pub struct BtcSignTx {
     pub lock_time: u32,
     pub inputs: Vec<BtcSignInput>,
     pub outputs: Vec<BtcSignOutput>,
+    pub ref_txs: Vec<BtcRefTx>,
     pub chunkify: bool,
-    /// Referenced (previous) transactions required to satisfy firmware
-    /// `TXMETA` / `TXINPUT` / `TXOUTPUT` requests that carry a `tx_hash`.
-    pub ref_txs: Vec<RefTx>,
 }
 
 #[derive(Debug, Clone)]

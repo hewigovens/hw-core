@@ -276,26 +276,21 @@ mod tests {
     use super::*;
     use k256::ecdsa::SigningKey;
 
+    const ETH_PARSE_MINIMAL: &str =
+        include_str!("../../../tests/data/ethereum/eth_parse_minimal.json");
+    const ETH_BUILD_SIGN_REQUEST: &str =
+        include_str!("../../../tests/data/ethereum/eth_build_sign_request.json");
+
     #[test]
     fn parse_tx_json_minimal() {
-        let tx = parse_tx_json(r#"{"to":"0xdead"}"#).unwrap();
+        let tx = parse_tx_json(ETH_PARSE_MINIMAL).unwrap();
         assert_eq!(tx.to, "0xdead");
         assert_eq!(tx.chain_id, 1);
     }
 
     #[test]
     fn build_sign_tx_request_from_json() {
-        let tx = parse_tx_json(
-            r#"{
-                "to":"0xdead",
-                "nonce":"0x1",
-                "gas_limit":"0x5208",
-                "chain_id":1,
-                "max_fee_per_gas":"0x3b9aca00",
-                "max_priority_fee":"0x59682f00"
-            }"#,
-        )
-        .unwrap();
+        let tx = parse_tx_json(ETH_BUILD_SIGN_REQUEST).unwrap();
 
         let path = vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0];
         let request = build_sign_tx_request(path.clone(), tx).unwrap();

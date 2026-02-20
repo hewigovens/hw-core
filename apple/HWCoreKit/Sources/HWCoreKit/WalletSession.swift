@@ -181,6 +181,19 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
+    public func signMessage(
+        _ request: SignMessageRequest,
+        timeout: TimeInterval? = nil
+    ) async throws -> SignMessageResult {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "signMessage") {
+                try await self.workflow.signMessage(request: request)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
     public func disconnect(timeout: TimeInterval? = 5) async {
         do {
             _ = try await withTimeout(seconds: timeout, operation: "disconnect") {

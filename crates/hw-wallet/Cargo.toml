@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64 = "0.22"
 ble-transport = { workspace = true, features = [
     "backend-btleplug",
     "trezor-safe7",

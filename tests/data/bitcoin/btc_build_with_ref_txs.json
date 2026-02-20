@@ -1,0 +1,40 @@
+{
+  "inputs": [
+    {
+      "path": "m/84'/0'/0'/0/0",
+      "prev_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "prev_index": 0,
+      "amount": "0x64"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "m/84'/0'/0'/1/0",
+      "amount": "90"
+    }
+  ],
+  "ref_txs": [
+    {
+      "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "version": 2,
+      "lock_time": 0,
+      "inputs": [
+        {
+          "prev_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prev_index": 0,
+          "script_sig": ""
+        }
+      ],
+      "bin_outputs": [
+        {
+          "amount": "100",
+          "script_pubkey": "001400112233445566778899aabbccddeeff00112233"
+        },
+        {
+          "amount": "200",
+          "script_pubkey": "0014ffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    }
+  ]
+}

@@ -100,6 +100,13 @@ struct MacContentView: View {
                 .accessibilityLabel("Sign transaction")
                 .accessibilityIdentifier("action.sign")
 
+                Button("Sign Msg") {
+                    Task { await viewModel.signMessage() }
+                }
+                .disabled(!viewModel.canSignMessage)
+                .accessibilityLabel("Sign message")
+                .accessibilityIdentifier("action.sign_message")
+
                 Button("Disconnect") {
                     Task { await viewModel.disconnect() }
                 }
@@ -146,6 +153,8 @@ struct MacContentView: View {
                 GroupBox("Sign Request") {
                     VStack(alignment: .leading, spacing: 8) {
                         signInputs
+                        Divider()
+                        messageSignInputs
                         Divider()
                         Text("Preview")
                             .font(.footnote)
@@ -279,7 +288,32 @@ struct MacContentView: View {
                 .font(.system(.footnote, design: .monospaced))
                 .frame(minHeight: 140)
                 .accessibilityIdentifier("input.sign.btc.tx_json")
-            Text("Advanced BTC flows should preload all required input/output context in wallet code.")
+            Text("BTC signing requires ref_txs that match each input prev_hash/prev_index.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var messageSignInputs: some View {
+        if viewModel.selectedChain == .ethereum || viewModel.selectedChain == .bitcoin {
+            Text("Message Sign")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            TextField("Path (\(viewModel.chainLabel(viewModel.selectedChain)))", text: $viewModel.messageSignPathInput)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("input.message.path")
+            TextField("Message", text: $viewModel.messageSignPayload)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("input.message.payload")
+            HStack(spacing: 8) {
+                Toggle("Message is hex", isOn: $viewModel.messageSignIsHex)
+                    .accessibilityIdentifier("toggle.message.hex")
+                Toggle("Chunkify", isOn: $viewModel.messageSignChunkify)
+                    .accessibilityIdentifier("toggle.message.chunkify")
+            }
+        } else {
+            Text("Message signing is available for ETH/BTC only.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

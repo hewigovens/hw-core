@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod crypto;
+pub mod eip712;
 pub mod error;
 pub mod proto;
 pub mod state;
@@ -17,9 +18,10 @@ pub use storage::{FileStorage, HostSnapshot, StorageError, ThpStorage};
 pub use thp_proto::hw::trezor::messages::thp as messages;
 pub use transport::{ThpTransport, TransportError};
 pub use types::{
-    BtcInputScriptType, BtcOutputScriptType, BtcSignInput, BtcSignOutput, BtcSignTx,
-    CreateSessionRequest, EthAccessListEntry, GetAddressRequest, GetAddressResponse, HostConfig,
-    PairingController, PairingDecision, PairingMethod, RefTx, RefTxBinOutput, RefTxInput,
-    SignTxRequest, SignTxResponse,
+    BtcInputScriptType, BtcOutputScriptType, BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput,
+    BtcSignOutput, BtcSignTx, CreateSessionRequest, Eip712StructMember, Eip712TypedData,
+    EthAccessListEntry, GetAddressRequest, GetAddressResponse, HostConfig, PairingController,
+    PairingDecision, PairingMethod, SignMessageRequest, SignMessageResponse, SignTxRequest,
+    SignTxResponse, SignTypedDataPayload, SignTypedDataRequest, SignTypedDataResponse,
 };
 pub use workflow::ThpWorkflow;
