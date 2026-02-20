@@ -39,10 +39,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Install Rust with Android target
+      - name: Install Rust with Android targets
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
       - uses: extractions/setup-just@v3
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -53,19 +53,17 @@ jobs:
         uses: android-actions/setup-android@v3
       - name: Install Android NDK
         run: sdkmanager "ndk;26.3.11579264"
-      - name: Configure Android toolchain env
+      - name: Configure Android NDK env
         run: |
           SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           NDK_ROOT="${SDK_ROOT}/ndk/26.3.11579264"
           echo "ANDROID_NDK_HOME=${NDK_ROOT}" >> "$GITHUB_ENV"
-          echo "CC_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" >> "$GITHUB_ENV"
-          echo "CXX_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++" >> "$GITHUB_ENV"
-          echo "AR_aarch64_linux_android=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" >> "$GITHUB_ENV"
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
       - name: Cache cargo registry
         uses: actions/cache@v5
         with:
@@ -73,11 +71,26 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: mobile-${{ hashFiles('**/Cargo.lock') }}
+          key: android-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            mobile-
-      - name: cargo check
-        run: cargo check -p hw-ffi --target aarch64-linux-android
+            android-${{ runner.os }}-
+      - name: Cache Gradle
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+      - name: Build Rust .so + generate Kotlin bindings
+        run: just build-android
+      - name: Build Android lib
+        working-directory: android
+        run: ./gradlew :lib:assembleDebug --no-daemon
+      - name: Build Android sample app
+        working-directory: android
+        run: ./gradlew :sample-app:app:assembleDebug --no-daemon
 
 
   ios-ci:
