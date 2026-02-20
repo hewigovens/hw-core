@@ -36,6 +36,8 @@ bindings:
     cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
     if [[ "$(uname -s)" == "Darwin" ]]; then
         ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-ffi
+        rustup target add aarch64-apple-ios
+        cargo build -p hw-ffi --target aarch64-apple-ios
     else
         ./apple/HWCoreKit/Scripts/sync-bindings.sh
     fi

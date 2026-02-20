@@ -55,8 +55,8 @@ just run-ios
 Note:
 - The SwiftUI view and view model are shared between macOS and iOS.
 - iOS simulator links `target/ios-sim/debug/libhw_ffi.dylib`.
-- `just bindings` builds this simulator library automatically on macOS.
-- The generated iOS sample project is simulator-only (`iphonesimulator`).
+- iOS devices link `target/aarch64-apple-ios/debug/libhw_ffi.dylib`.
+- `just bindings` builds both of these iOS binaries automatically on macOS.
 
 ## iOS UI Tests
 Run iOS UI smoke tests:
