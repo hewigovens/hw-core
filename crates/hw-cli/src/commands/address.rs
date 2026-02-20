@@ -1,25 +1,10 @@
-use std::sync::Arc;
-use std::time::Duration;
-
 use anyhow::{Context, Result, bail};
-use ble_transport::BleManager;
-use hw_wallet::WalletError;
-use hw_wallet::ble::{
-    SessionBootstrapOptions, SessionPhase, advance_session_bootstrap, backend_from_session,
-    connect_trezor_device, scan_profile_until_match, trezor_profile, workflow_with_storage,
-};
 use hw_wallet::chain::{Chain, ResolvedDerivationPath, resolve_derivation_path};
-use tokio::time::timeout;
-use tracing::{debug, info};
-use trezor_connect::thp::{
-    FileStorage, GetAddressRequest, HostConfig, PairingMethod as ThpPairingMethod, ThpBackend,
-    ThpWorkflow,
-};
+use tracing::info;
+use trezor_connect::thp::{GetAddressRequest, ThpBackend, ThpWorkflow};
 
 use crate::cli::AddressArgs;
-use crate::commands::common::select_device;
-use crate::config::{default_host_name, default_storage_path};
-use crate::pairing::CliPairingController;
+use crate::commands::common::{ConnectWorkflowOptions, connect_ready_workflow};
 
 pub async fn run(args: AddressArgs) -> Result<()> {
     let resolved = ResolvedAddressTarget::from_args(&args)?;
@@ -34,101 +19,19 @@ pub async fn run(args: AddressArgs) -> Result<()> {
         args.chunkify
     );
 
-    let profile = trezor_profile()?;
-    let manager = BleManager::new().await.context("BLE manager init failed")?;
-    debug!(
-        "address profile: id={}, service_uuid={}",
-        profile.id, profile.service_uuid
-    );
-
-    println!(
-        "Scanning for {} devices for {}s...",
-        profile.name, args.timeout_secs
-    );
-    let devices = scan_profile_until_match(
-        &manager,
-        profile,
-        Duration::from_secs(args.timeout_secs),
-        args.device_id.as_deref(),
+    let mut workflow = connect_ready_workflow(
+        ConnectWorkflowOptions {
+            scan_timeout_secs: args.timeout_secs,
+            thp_timeout_secs: args.thp_timeout_secs,
+            device_id: args.device_id.clone(),
+            storage_path: args.storage_path.clone(),
+            host_name: args.host_name.clone(),
+            app_name: args.app_name.clone(),
+        },
+        "address",
+        "Remove this Trezor from macOS Bluetooth settings, then pair again.",
     )
-    .await
-    .context("BLE scan failed")?;
-    info!("scan complete: discovered {} device(s)", devices.len());
-    if devices.is_empty() {
-        bail!("no devices found");
-    }
-
-    let selected = select_device(devices, args.device_id.as_deref())?;
-    let selected_name = selected
-        .info()
-        .name
-        .clone()
-        .unwrap_or_else(|| "unknown".to_string());
-    println!(
-        "Connecting to {} ({})...",
-        selected.info().id,
-        selected_name
-    );
-
-    println!("Opening BLE session...");
-    let session = match timeout(
-        Duration::from_secs(args.thp_timeout_secs),
-        connect_trezor_device(selected, profile),
-    )
-    .await
-    {
-        Err(_) => bail!(
-            "opening BLE session timed out after {}s",
-            args.thp_timeout_secs
-        ),
-        Ok(Ok(session)) => session,
-        Ok(Err(WalletError::PeerRemovedPairingInfo)) => {
-            bail!(
-                "opening BLE session failed: peer removed pairing information. Remove this Trezor from macOS Bluetooth settings, then pair again."
-            );
-        }
-        Ok(Err(err)) => return Err(err).context("opening BLE session failed"),
-    };
-    println!("BLE session established.");
-    let backend = backend_from_session(session, Duration::from_secs(args.thp_timeout_secs));
-
-    let storage_path = args.storage_path.unwrap_or_else(default_storage_path);
-    let host_name = args.host_name.unwrap_or_else(default_host_name);
-    let mut config = HostConfig::new(host_name, args.app_name);
-    config.pairing_methods = vec![ThpPairingMethod::CodeEntry];
-    let storage = Arc::new(FileStorage::new(storage_path.clone()));
-    let mut workflow = workflow_with_storage(backend, config, storage)
-        .await
-        .context("workflow setup failed")?;
-    debug!("address workflow initialized with persisted host state");
-
-    println!("Preparing authenticated wallet session...");
-    let mut session_ready = false;
-    let options = SessionBootstrapOptions {
-        thp_timeout: Duration::from_secs(args.thp_timeout_secs),
-        try_to_unlock: true,
-        passphrase: None,
-        on_device: false,
-        derive_cardano: false,
-        ..SessionBootstrapOptions::default()
-    };
-    loop {
-        let step = advance_session_bootstrap(&mut workflow, &mut session_ready, &options)
-            .await
-            .context("failed to prepare authenticated wallet session")?;
-        match step {
-            SessionPhase::Ready => break,
-            SessionPhase::NeedsPairingCode => {
-                println!("Pairing required. Complete code-entry pairing on this terminal.");
-                let controller = CliPairingController;
-                workflow
-                    .pairing(Some(&controller))
-                    .await
-                    .context("pairing failed during address workflow")?;
-            }
-            other => bail!("address workflow reached unexpected step: {:?}", other),
-        }
-    }
+    .await?;
 
     println!("Requesting {:?} address from device...", resolved.chain);
     let response = get_address_with_workflow(
@@ -220,9 +123,11 @@ mod tests {
     use crate::commands::test_support::{
         MockBackend, canned_eth_address_response, default_test_host_config,
     };
+    use hw_wallet::ble::{SessionBootstrapOptions, SessionPhase, advance_session_bootstrap};
     use hw_wallet::chain::{
         DEFAULT_BTC_BIP32_PATH, DEFAULT_ETH_BIP32_PATH, DEFAULT_SOL_BIP32_PATH,
     };
+    use std::time::Duration;
     use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
 
     fn args(chain: Option<Chain>, path: Option<&str>) -> AddressArgs {

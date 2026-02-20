@@ -61,7 +61,12 @@ if [[ "$DO_BUILD_IOS_SIM_FFI" -eq 1 ]]; then
     "$ROOT_DIR/target/aarch64-apple-ios-sim/debug/libhw_ffi.dylib" \
     "$ROOT_DIR/target/x86_64-apple-ios/debug/libhw_ffi.dylib" \
     -output "$ROOT_DIR/target/ios-sim/debug/libhw_ffi.dylib"
+  lipo -create \
+    "$ROOT_DIR/target/aarch64-apple-ios-sim/debug/libhw_ffi.a" \
+    "$ROOT_DIR/target/x86_64-apple-ios/debug/libhw_ffi.a" \
+    -output "$ROOT_DIR/target/ios-sim/debug/libhw_ffi.a"
 
   echo "Built universal iOS-simulator FFI library:"
   echo "  $ROOT_DIR/target/ios-sim/debug/libhw_ffi.dylib"
+  echo "  $ROOT_DIR/target/ios-sim/debug/libhw_ffi.a"
 fi

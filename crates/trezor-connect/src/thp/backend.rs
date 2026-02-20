@@ -68,6 +68,16 @@ pub trait ThpBackend: Send {
         request: GetAddressRequest,
     ) -> BackendResult<GetAddressResponse>;
 
+    async fn sign_message(
+        &mut self,
+        request: SignMessageRequest,
+    ) -> BackendResult<SignMessageResponse>;
+
+    async fn sign_typed_data(
+        &mut self,
+        request: SignTypedDataRequest,
+    ) -> BackendResult<SignTypedDataResponse>;
+
     async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse>;
 
     async fn abort(&mut self) -> BackendResult<()>;

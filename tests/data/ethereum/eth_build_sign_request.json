@@ -1,0 +1,8 @@
+{
+  "to":"0xdead",
+  "nonce":"0x1",
+  "gas_limit":"0x5208",
+  "chain_id":1,
+  "max_fee_per_gas":"0x3b9aca00",
+  "max_priority_fee":"0x59682f00"
+}

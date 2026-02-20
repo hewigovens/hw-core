@@ -8,6 +8,8 @@ packages:
 settings:
   base:
     SWIFT_VERSION: 5.9
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: V28VJH6B6S
 targets:
   HWCoreKitSampleAppiOS:
     type: application
@@ -21,12 +23,17 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "1.0"
         INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
-        PRODUCT_BUNDLE_IDENTIFIER: com.hwcorekit.sampleiosapp
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: HWCoreKitSampleApp uses Bluetooth to discover and communicate with your hardware wallet.
+        INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription: HWCoreKitSampleApp uses Bluetooth to connect to hardware wallet peripherals.
+        PRODUCT_BUNDLE_IDENTIFIER: dev.hewig.hwcorekit.sampleiosapp
         PRODUCT_NAME: HWCoreKitSampleAppiOS
+        OTHER_LDFLAGS[sdk=iphonesimulator*]: $(inherited) -Wl,-force_load,$(SRCROOT)/../../target/ios-sim/debug/libhw_ffi.a
+        OTHER_LDFLAGS[sdk=iphoneos*]: $(inherited) -Wl,-force_load,$(SRCROOT)/../../target/aarch64-apple-ios/debug/libhw_ffi.a
         TARGETED_DEVICE_FAMILY: "1"
     dependencies:
       - package: HWCoreKit
         product: HWCoreKit
+      - sdk: CoreBluetooth.framework
 
   HWCoreKitSampleAppiOSUITests:
     type: bundle.ui-testing
@@ -39,7 +46,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "1.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.hwcorekit.sampleiosapp.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.hewig.hwcorekit.sampleiosapp.uitests
         TEST_TARGET_NAME: HWCoreKitSampleAppiOS
     dependencies:
       - target: HWCoreKitSampleAppiOS

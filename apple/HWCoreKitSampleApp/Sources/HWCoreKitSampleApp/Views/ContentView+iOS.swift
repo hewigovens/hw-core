@@ -133,6 +133,9 @@ struct IOSContentView: View {
                     iosActionButton("Sign", systemImage: "signature", isProminent: false, disabled: !viewModel.canSign, accessibilityID: "action.sign") {
                         Task { await viewModel.signSampleTransaction() }
                     }
+                    iosActionButton("Sign Msg", systemImage: "text.bubble", isProminent: false, disabled: !viewModel.canSignMessage, accessibilityID: "action.sign_message") {
+                        Task { await viewModel.signMessage() }
+                    }
                     iosActionButton("Disconnect", systemImage: "xmark.circle", isProminent: false, disabled: !viewModel.canDisconnect, accessibilityID: "action.disconnect") {
                         Task { await viewModel.disconnect() }
                     }
@@ -183,6 +186,10 @@ struct IOSContentView: View {
                     .font(.headline)
 
                 signInputs
+
+                Divider()
+
+                messageSignInputs
 
                 Divider()
 
@@ -334,7 +341,28 @@ struct IOSContentView: View {
                         .fill(Color(.secondarySystemBackground))
                 )
                 .accessibilityIdentifier("input.sign.btc.tx_json")
-            Text("Advanced BTC flows should preload all required input/output context in wallet code.")
+            Text("BTC signing requires ref_txs that match each input prev_hash/prev_index.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var messageSignInputs: some View {
+        if viewModel.selectedChain == .ethereum || viewModel.selectedChain == .bitcoin {
+            Text("Message Sign")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            textInput("Path (\(viewModel.chainLabel(viewModel.selectedChain)))", text: $viewModel.messageSignPathInput)
+                .accessibilityIdentifier("input.message.path")
+            textInput("Message", text: $viewModel.messageSignPayload)
+                .accessibilityIdentifier("input.message.payload")
+            Toggle("Message is hex", isOn: $viewModel.messageSignIsHex)
+                .accessibilityIdentifier("toggle.message.hex")
+            Toggle("Chunkify", isOn: $viewModel.messageSignChunkify)
+                .accessibilityIdentifier("toggle.message.chunkify")
+        } else {
+            Text("Message signing is available for ETH/BTC only.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
