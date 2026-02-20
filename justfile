@@ -29,10 +29,26 @@ ci:
     cargo test --workspace
 
 bindings:
+    #!/usr/bin/env bash
+    set -euo pipefail
     cargo build -p hw-ffi
     mkdir -p target/bindings/swift target/bindings/kotlin
     cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
-    ./apple/HWCoreKit/Scripts/sync-bindings.sh
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-ffi
+    else
+        ./apple/HWCoreKit/Scripts/sync-bindings.sh
+    fi
+
+_ios-sim-device-id:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SIM_DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')"
+    if [[ -z "$SIM_DEVICE_ID" ]]; then
+        echo "No available iPhone simulator found." >&2
+        exit 1
+    fi
+    echo "$SIM_DEVICE_ID"
 
 sample:
     just bindings
@@ -57,14 +73,12 @@ run-mac:
 build-ios:
     just install-xcbeautify
     just bindings
-    ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build | xcbeautify
 
 build-ios-ui:
     just install-xcbeautify
     just bindings
-    ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build-for-testing | xcbeautify
 
@@ -73,8 +87,7 @@ test-ios-ui:
     set -euo pipefail
     just install-xcbeautify
     just build-ios-ui
-    SIM_DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')"
-    if [[ -z "$SIM_DEVICE_ID" ]]; then echo "No available iPhone simulator found." >&2; exit 1; fi
+    SIM_DEVICE_ID="$(just --quiet _ios-sim-device-id)"
     xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$SIM_DEVICE_ID" test-without-building | xcbeautify
 
@@ -83,13 +96,8 @@ run-ios:
     set -euo pipefail
     just install-xcbeautify
     just bindings
-    ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
-    SIM_DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')"
-    if [[ -z "$SIM_DEVICE_ID" ]]; then
-    echo "No available iPhone simulator found." >&2
-    exit 1
-    fi
+    SIM_DEVICE_ID="$(just --quiet _ios-sim-device-id)"
     xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
     open -a Simulator --args -CurrentDeviceUDID "$SIM_DEVICE_ID"
     xcrun simctl bootstatus "$SIM_DEVICE_ID" -b

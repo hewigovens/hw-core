@@ -106,7 +106,6 @@ jobs:
       - name: Generate sample app projects (iOS + macOS)
         run: |
           just bindings
-          ./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
           xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
           xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
       - name: Build iOS sample app
