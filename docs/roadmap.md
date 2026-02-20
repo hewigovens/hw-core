@@ -1,56 +1,43 @@
-# Roadmap
+# hw-core Roadmap
 
-Last updated: 2026-02-18
+Last updated: 2026-02-20
 
-## Implemented
+## Product Goal
+Ship a stable, reusable host stack for hardware-wallet communication over THP/BLE, with consistent behavior across CLI and mobile/desktop app surfaces.
 
-- BLE discovery, connection, THP session lifecycle, pairing, and credential persistence.
-- Noise XX handshake and encrypted BLE THP messaging.
-- THP host workflow: create-channel, handshake, pairing, session creation.
-- Vendored THP protobuf types and host encode/decode mappings.
-- Shared orchestration layer (`hw-wallet`) used by CLI and FFI.
-- CLI flows for scan/pair/address/sign with ETH/BTC/SOL transaction signing paths.
-- UniFFI-based `hw-ffi` surface with Swift and Kotlin binding generation.
-- Apple integration:
-  - `HWCoreKit` Swift wrapper package.
-  - macOS + iOS sample app (`HWCoreKitSampleApp`).
-  - macOS UI smoke test target (`just test-mac-ui`).
-  - iOS UI smoke test target (`just test-ios-ui`).
-  - lifecycle recovery hooks for app background/foreground BLE interruption.
-- Mock-backed tests for workflow/session/address/sign orchestration.
+## Current Baseline
+- THP/BLE host stack is operational end-to-end (discovery, pairing, session, encrypted messaging, persistence).
+- Shared wallet orchestration (`hw-wallet`) is used by CLI and FFI.
+- CLI supports scan/pair/address/sign and message-signing workflows.
+- `hw-ffi` bindings are generated for Swift/Kotlin and consumed by Apple app surfaces.
+- Apple sample app supports scan/pair/connect/address/sign flows with UI smoke coverage (`just test-mac-ui`, `just test-ios-ui`).
 
-## Feature Matrix (as of 2026-02-18)
+## Feature Status
 
-| Chain | Address | Sign Tx | Sign Message | Notes |
-|---|---|---|---|---|
-| Ethereum | Done | Done | Next | Message signing tracked in `docs/message-sign-plan.md`. |
-| Solana | Done | Done | Deferred | No Solana sign-message API surface found yet in current Trezor Connect/protobuf contract. |
-| Bitcoin | Done | In progress | Next | BTC sign-tx completion tracked in `docs/bitcoin-sign-plan.md`; missing prev-tx request handling. |
-
-## Open Gaps (Short Term)
-
-- Advanced Bitcoin signing request handling is incomplete (`TxExtraData`, `TxOrigInput`, `TxOrigOutput`, `TxPaymentReq`, prev-tx requests by `tx_hash`). See `docs/bitcoin-sign-plan.md`.
-- Message signing is not implemented yet in the host stack (no end-to-end ETH/BTC/SOL sign-message APIs in `trezor-connect`/`hw-wallet`/`hw-ffi`/Apple wrapper). See `docs/message-sign-plan.md`.
-- Android sample app is not started (only Kotlin bindings generation exists).
-
-## Next Actions (can be in Parallel)
-
-| Workstream | Scope | Owner (agent) | Exit Criteria |
+| Capability | Ethereum | Bitcoin | Solana |
 |---|---|---|---|
-| A. BTC protocol completion | Implement advanced BTC `TxRequest` handling in `trezor-connect` + tests using realistic prev-tx fixtures | Protocol agent | BTC signing flow handles all firmware-requested tx request types without transport-level "not implemented yet" errors |
-| B. Configurable reliability controls | Expose retry/backoff/session timeout policy from `hw-wallet` through `hw-ffi` and `HWCoreConfig` | Core/FFI agent | Completed: `SessionRetryPolicy` exposed end-to-end |
-| C. Apple hardening | Add iOS UI smoke tests and lifecycle interruption recovery tests; document manual matrix | Apple agent | Completed: `just test-ios-ui` + `docs/ios-manual-matrix.md` + lifecycle recovery hooks |
-| D. Android sample app | Create minimal Android sample (Kotlin) wired to generated bindings: scan, connect, pair, get address, sign tx | Android agent | Runnable Gradle project under `android/` with README and one end-to-end happy-path demo flow |
-| E. CI + docs alignment | Add CI jobs/commands for Apple + Android sample validation and keep roadmap/plans in sync | DevEx agent | CI proves bindings + sample builds, and docs reflect actual tested paths |
+| Address retrieval | Done | Done | Done |
+| Transaction signing | Done | Partial (advanced `TxRequest` variants pending) | Done |
+| Message signing | Done (EIP-191 + EIP-712) | Done | Deferred |
 
-Execution order:
-1. A + B in parallel (protocol capability + configuration surface).
-2. D starts with ETH path first, then expands to BTC/SOL after A stabilizes.
-3. C runs in parallel with D for mobile QA maturity.
-4. E follows as soon as A/B/C/D land baseline automation hooks.
+## Near-Term Priorities
+1. Complete advanced Bitcoin signing request support (`TXORIGINPUT`, `TXORIGOUTPUT`, `TXPAYMENTREQ`).
+2. Deliver a runnable Android sample app wired to generated Kotlin bindings.
+3. Expand integration and UI validation coverage, then wire required checks into CI.
+4. Refactor and simplify core modules to reduce duplication and improve maintainability.
+5. Keep docs focused and synchronized with implemented behavior.
 
-## Longer-Term
+## Milestones
 
+| Milestone | Status | Exit Criteria |
+|---|---|---|
+| M1: Core protocol parity | In progress | BTC signing handles full firmware-requested `TX*` sequence without "not implemented" errors |
+| M2: Cross-surface parity | In progress | CLI + Apple + Android sample cover scan/pair/connect/address/sign happy path |
+| M3: Reliability and validation | In progress | Deterministic retry/recovery behavior and documented smoke checks across surfaces |
+| M4: CI and release readiness | Planned | CI validates build/test/bindings/sample-app health and docs match shipped behavior |
+| M5: Code health and simplification | In progress | Shared logic is consolidated, modules are easier to reason about, and refactors are regression-tested |
+
+## Long-Term Direction
 - Additional transport abstractions beyond BLE.
-- Multi-vendor workflow abstraction beyond Trezor profile.
-- Broader integration test matrix (device states, reconnect chaos testing).
+- Multi-vendor wallet profile support.
+- Broader chaos/reconnect test matrix for production readiness.

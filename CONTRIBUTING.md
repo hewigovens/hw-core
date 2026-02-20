@@ -31,7 +31,6 @@ just ci
 ```bash
 just cli-scan
 just cli-pair
-just cli-pair-interactive
 just cli-address-eth
 just cli-sign-eth
 ```
@@ -39,7 +38,7 @@ just cli-sign-eth
 Direct examples:
 
 ```bash
-cargo run -p hw-cli -- -vv pair --interactive
+cargo run -p hw-cli -- -vv pair
 cargo run -p hw-cli -- -vv address --chain eth --include-public-key
 cargo run -p hw-cli -- -vv sign eth --path "m/44'/60'/0'/0/0" --tx '{"to":"0x000000000000000000000000000000000000dead","nonce":"0x0","gas_limit":"0x5208","chain_id":1,"max_fee_per_gas":"0x3b9aca00","max_priority_fee":"0x59682f00","value":"0x0"}'
 ```
@@ -66,8 +65,7 @@ cargo run -p hw-ffi --features bindings-cli --bin generate-bindings --auto targe
 ## Documentation map
 
 - Project roadmap: `docs/roadmap.md`
-- CLI wallet v1 tracker: `docs/cli-wallet-v1.md`
-- iOS/macOS planning: `docs/ios-app-plan.md`
+- Consolidated execution plan: `docs/plan.md`
 - Security policy: `SECURITY.md`
 
 ## Pull request checklist

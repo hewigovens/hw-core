@@ -80,4 +80,4 @@ hw-cli           Interactive CLI using clap (depends on hw-wallet)
 
 ## Development Status
 
-See [docs/roadmap.md](docs/roadmap.md) for the roadmap and [docs/cli-wallet-v1.md](docs/cli-wallet-v1.md) for the detailed v1 task tracker.
+See [docs/roadmap.md](docs/roadmap.md) for the high-level roadmap and [docs/plan.md](docs/plan.md) for the consolidated execution plan.

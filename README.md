@@ -84,9 +84,7 @@ flowchart TB
 Current and planned milestones are tracked in:
 
 - [docs/roadmap.md](docs/roadmap.md)
-- [docs/cli-wallet-v1.md](docs/cli-wallet-v1.md)
-- [docs/ios-app-plan.md](docs/ios-app-plan.md)
-- [docs/android-app-plan.md](docs/android-app-plan.md)
+- [docs/plan.md](docs/plan.md)
 
 ## License
 
