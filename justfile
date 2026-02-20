@@ -54,6 +54,10 @@ install-xcbeautify:
 run-mac:
     just sample
 
+generate-apple-projects:
+    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+    xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
+
 build-ios:
     just install-xcbeautify
     just bindings
