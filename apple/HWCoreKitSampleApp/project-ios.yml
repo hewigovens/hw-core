@@ -21,7 +21,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "1.0"
         INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
-        PRODUCT_BUNDLE_IDENTIFIER: com.hwcorekit.sampleiosapp
+        PRODUCT_BUNDLE_IDENTIFIER: dev.hewig.hwcorekit.sampleiosapp
         PRODUCT_NAME: HWCoreKitSampleAppiOS
         TARGETED_DEVICE_FAMILY: "1"
     dependencies:
@@ -39,7 +39,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "1.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.hwcorekit.sampleiosapp.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.hewig.hwcorekit.sampleiosapp.uitests
         TEST_TARGET_NAME: HWCoreKitSampleAppiOS
     dependencies:
       - target: HWCoreKitSampleAppiOS
