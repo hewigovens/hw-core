@@ -1,6 +1,6 @@
 # hw-core Execution Plan
 
-Last updated: 2026-02-20
+Last updated: 2026-02-21
 Status legend: TODO | IN_PROGRESS | DONE | BLOCKED
 
 ## Objective
@@ -70,18 +70,22 @@ Status: IN_PROGRESS
 
 ## Workstream D: Android Sample App
 Owner: Android/FFI
-Status: TODO
+Status: IN_PROGRESS
 
 ### Scope
 - Create a runnable Android sample app using generated Kotlin bindings.
 
-### Tasks
-- [ ] Bootstrap `android/` Gradle project and app module.
-- [ ] Implement Rust native library packaging for target ABIs.
-- [ ] Add BLE permissions and scan/connect/pair flows.
-- [ ] Add address and sign flows for ETH/BTC/SOL.
+### Completed
+- Bootstrapped `android/` Gradle project with `lib` and `sample-app` modules.
+- Rust native library packaging via `cargo-ndk` for arm64-v8a, armeabi-v7a, x86_64.
+- BLE permissions (runtime + manifest) and scan/connect/pair UI flows.
+- ETH address and sign-transaction flows in sample app.
+- `android/README.md` with build/run instructions.
+- Unified `scripts/sync-bindings.sh` supporting `--android` and `--apple` flags.
+
+### Remaining
+- [ ] Add BTC and SOL address/sign paths in sample app.
 - [ ] Add instrumentation smoke test for app launch and core controls.
-- [ ] Write `android/README.md` run/build instructions.
 
 ### Exit Criteria
 - A contributor can run Android sample happy path locally from repo docs.
@@ -96,7 +100,7 @@ Status: IN_PROGRESS
 
 ### Tasks
 - [ ] Add CI checks for Apple sample build + UI smoke jobs (where runner availability allows).
-- [ ] Add CI checks for Android sample build once project lands.
+- [x] Add CI checks for Android sample build (`android-ci.yml`).
 - [ ] Keep smoke command references current in `README.md` and `CONTRIBUTING.md`.
 - [ ] Keep this file and `docs/roadmap.md` as the only active planning docs.
 
@@ -121,13 +125,32 @@ Status: IN_PROGRESS
 ### Exit Criteria
 - Lower maintenance cost, clearer module ownership, and no behavior regressions in existing flows.
 
+## Workstream G: Library Distribution
+Owner: DevEx/Release
+Status: TODO
+
+### Scope
+- Make hw-core consumable by third-party Android and iOS/macOS apps.
+
+### Tasks
+- [ ] Android: add Gradle `maven-publish` config to `android/lib` for AAR publishing.
+- [ ] Android: CI release job that runs `just build-android-release` and publishes AAR to Maven Central.
+- [ ] iOS/macOS: build `libhwcore.a` for all platform slices (iOS device, iOS simulator, macOS).
+- [ ] iOS/macOS: produce `HWCore.xcframework` via `xcodebuild -create-xcframework`.
+- [ ] iOS/macOS: host XCFramework as a binary target in `HWCoreKit/Package.swift` for SPM consumption.
+- [ ] Tag-based CI release pipeline producing versioned AAR + XCFramework artifacts.
+- [ ] Document integration steps for third-party consumers (Android + iOS).
+
+### Exit Criteria
+- A third-party app can depend on hw-core via Maven Central (Android) or SPM binary target (iOS/macOS).
+
 ## Validation Checklist (Consolidated)
 - [ ] `just cli-scan` discovers expected device(s).
 - [ ] `just cli-pair` succeeds on first pairing and reuse path.
 - [ ] `just cli-address-eth` and `just cli-sign-eth` succeed on paired device.
 - [ ] BTC signing validates both supported and unsupported advanced request paths clearly.
 - [ ] `just test-ios-ui` and `just test-mac-ui` pass.
-- [ ] Android sample launch/build smoke passes once app exists.
+- [x] Android sample launch/build smoke passes (`just build-android`, Gradle assembleDebug).
 
 ## Risks and Dependencies
 - Advanced BTC firmware request coverage remains the biggest protocol gap.

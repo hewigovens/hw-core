@@ -2,3 +2,8 @@
 module_name = "HWCoreFFI"
 ffi_module_name = "libhwcore"
 ffi_module_filename = "libhwcore"
+
+[bindings.kotlin]
+package_name = "uniffi.hwcore"
+cdylib_name = "hwcore"
+android = true

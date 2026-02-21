@@ -2,11 +2,19 @@ name: iOS CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 jobs:
   ios-ci:
@@ -18,15 +26,22 @@ jobs:
         with:
           targets: aarch64-apple-ios
       - uses: extractions/setup-just@v3
+      - name: Run sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Restore cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci-rust"
+
       - name: cargo check (iOS)
         run: cargo check -p hw-ffi --target aarch64-apple-ios
-      - name: Install Xcode tools
-        run: |
-          brew install xcodegen xcbeautify
+
       - name: Generate sample app projects (iOS + macOS)
         run: |
+          brew install xcodegen
           just bindings
           just generate-apple-projects
+
       - name: Build iOS sample app
         run: xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build | xcbeautify
       - name: Build macOS sample app
