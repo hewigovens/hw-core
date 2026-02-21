@@ -145,6 +145,8 @@ if [[ "$DO_ANDROID" -eq 1 ]]; then
   echo "==> Generating Kotlin bindings..."
 
   mkdir -p "$ROOT_DIR/target/bindings/kotlin"
+  # Ensure pkg-config can find dbus-1 (needed by btleplug host build for generate-bindings)
+  export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig"
   cargo run -p hw-ffi --features bindings-cli --bin generate-bindings \
     -- --auto "$ROOT_DIR/target/bindings/swift" "$ROOT_DIR/target/bindings/kotlin"
 

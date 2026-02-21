@@ -67,6 +67,8 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
       - name: Build Rust .so + generate Kotlin bindings
+        env:
+          PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig
         run: just build-android
       - name: Build Android lib
         working-directory: android
