@@ -27,8 +27,8 @@ targets:
         INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription: HWCoreKitSampleApp uses Bluetooth to connect to hardware wallet peripherals.
         PRODUCT_BUNDLE_IDENTIFIER: dev.hewig.hwcorekit.sampleiosapp
         PRODUCT_NAME: HWCoreKitSampleAppiOS
-        OTHER_LDFLAGS[sdk=iphonesimulator*]: $(inherited) -Wl,-force_load,$(SRCROOT)/../../target/ios-sim/debug/libhw_ffi.a
-        OTHER_LDFLAGS[sdk=iphoneos*]: $(inherited) -Wl,-force_load,$(SRCROOT)/../../target/aarch64-apple-ios/debug/libhw_ffi.a
+        OTHER_LDFLAGS[sdk=iphonesimulator*]: $(inherited) -Wl,-force_load,$(SRCROOT)/../../target/ios-sim/debug/libhwcore.a
+        OTHER_LDFLAGS[sdk=iphoneos*]: $(inherited) -Wl,-force_load,$(SRCROOT)/../../target/aarch64-apple-ios/debug/libhwcore.a
         TARGETED_DEVICE_FAMILY: "1"
     dependencies:
       - package: HWCoreKit

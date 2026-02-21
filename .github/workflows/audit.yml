@@ -17,16 +17,10 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo registry
-        uses: actions/cache@v5
+      - name: Restore cargo cache
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: audit-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            audit-${{ runner.os }}-
+          shared-key: "ci-rust"
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: Run cargo audit

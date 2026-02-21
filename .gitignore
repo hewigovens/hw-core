@@ -9,3 +9,7 @@ apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj/
 module.modulemap
 HWCoreFFI.swift
 libhwcore.h
+
+build/
+jniLibs/
+android/lib/src/main/java/uniffi/hwcore/hwcore.kt

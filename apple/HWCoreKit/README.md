@@ -16,29 +16,29 @@ From repo root:
 
 ```bash
 just bindings
-./apple/HWCoreKit/Scripts/sync-bindings.sh
+./scripts/sync-bindings.sh --apple
 ```
 
 ## Build Rust FFI for iOS Simulator
 From repo root:
 
 ```bash
-./apple/HWCoreKit/Scripts/sync-bindings.sh --ios-sim-only
+./scripts/sync-bindings.sh --apple --ios-sim-only
 ```
 
 This produces:
 
 ```text
-target/ios-sim/debug/libhw_ffi.dylib
+target/ios-sim/debug/libhwcore.dylib
 ```
 
 `HWCoreKit` links this artifact on iOS simulator builds.
 
 ## Integrate in App
 1. Add `apple/HWCoreKit` as a local Swift package dependency in Xcode.
-2. Ensure your app can load the platform-compatible `libhw_ffi.dylib`:
-   - macOS: `target/debug/libhw_ffi.dylib`
-   - iOS simulator: `target/ios-sim/debug/libhw_ffi.dylib`
+2. Ensure your app can load the platform-compatible `libhwcore.dylib`:
+   - macOS: `target/debug/libhwcore.dylib`
+   - iOS simulator: `target/ios-sim/debug/libhwcore.dylib`
 3. Add `NSBluetoothAlwaysUsageDescription` to your app Info.plist.
 4. Use `HWCoreKit.create(...)` to initialize and begin workflow calls.
 

@@ -78,12 +78,12 @@ fn to_utf8_path(value: PathBuf, what: &str) -> Result<Utf8PathBuf> {
 
 fn find_default_library() -> Result<Utf8PathBuf> {
     let candidates = [
-        "target/debug/libhw_ffi.dylib",
-        "target/debug/libhw_ffi.so",
-        "target/debug/hw_ffi.dll",
-        "target/release/libhw_ffi.dylib",
-        "target/release/libhw_ffi.so",
-        "target/release/hw_ffi.dll",
+        "target/debug/libhwcore.dylib",
+        "target/debug/libhwcore.so",
+        "target/debug/hwcore.dll",
+        "target/release/libhwcore.dylib",
+        "target/release/libhwcore.so",
+        "target/release/hwcore.dll",
     ];
 
     for candidate in candidates {
