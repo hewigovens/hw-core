@@ -147,8 +147,11 @@ if [[ "$DO_ANDROID" -eq 1 ]]; then
   mkdir -p "$ROOT_DIR/target/bindings/kotlin"
   # Ensure pkg-config can find dbus-1 (needed by btleplug host build for generate-bindings)
   export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig"
+  # Use --lib with an explicit path to a cross-compiled .so because --auto only
+  # searches target/{debug,release} which won't exist on cross-compile-only hosts.
+  BINDGEN_LIB="$ROOT_DIR/target/aarch64-linux-android/$ANDROID_BUILD_MODE/libhw_ffi.so"
   cargo run -p hw-ffi --features bindings-cli --bin generate-bindings \
-    -- --auto "$ROOT_DIR/target/bindings/swift" "$ROOT_DIR/target/bindings/kotlin"
+    -- --lib "$BINDGEN_LIB" "$ROOT_DIR/target/bindings/swift" "$ROOT_DIR/target/bindings/kotlin"
 
   UNIFFI_SRC="$ROOT_DIR/target/bindings/kotlin/uniffi/hw_ffi/hw_ffi.kt"
   UNIFFI_DST="$ANDROID_LIB_DIR/src/main/java/uniffi/hw_ffi/hw_ffi.kt"
