@@ -5,6 +5,11 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 default:
     @just --list
 
+install-dependencies:
+    brew install xcodegen xcbeautify
+    cargo install cargo-ndk
+    rustup target install aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
 fmt:
     cargo fmt --all
 
@@ -51,19 +56,6 @@ sample:
     just bindings
     swift run --package-path apple/HWCoreKitSampleApp
 
-install-xcbeautify:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if command -v xcbeautify >/dev/null 2>&1; then
-        xcbeautify --version
-        exit 0
-    fi
-    if ! command -v brew >/dev/null 2>&1; then
-        echo "xcbeautify not found and Homebrew is not available to install it." >&2
-        exit 1
-    fi
-    brew install xcbeautify
-
 generate-apple-projects:
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
@@ -71,17 +63,17 @@ generate-apple-projects:
 run-mac:
     just sample
 
-build-ios: install-xcbeautify
+build-ios:
     just bindings
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build | xcbeautify
 
-build-ios-ui: install-xcbeautify
+build-ios-ui:
     just bindings
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build-for-testing | xcbeautify
 
-test-ios-ui: install-xcbeautify
+test-ios-ui:
     #!/usr/bin/env bash
     set -euo pipefail
     just build-ios-ui
@@ -93,7 +85,7 @@ test-ios-ui: install-xcbeautify
     xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$SIM_DEVICE_ID" test-without-building | xcbeautify
 
-run-ios: install-xcbeautify
+run-ios:
     #!/usr/bin/env bash
     set -euo pipefail
     just bindings
@@ -111,7 +103,7 @@ run-ios: install-xcbeautify
     xcrun simctl launch "$SIM_DEVICE_ID" dev.hewig.hwcorekit.sampleiosapp
     open -a Simulator
 
-run-ios-device: install-xcbeautify
+run-ios-device:
     #!/usr/bin/env bash
     set -euo pipefail
     just bindings
@@ -133,11 +125,11 @@ run-ios-device: install-xcbeautify
     xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH"
     xcrun devicectl device process launch --device "$DEVICE_ID" dev.hewig.hwcorekit.sampleiosapp
 
-test-mac-ui: install-xcbeautify
+test-mac-ui:
     just build-mac-ui
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' test-without-building | xcbeautify
 
-build-mac-ui: install-xcbeautify
+build-mac-ui:
     just bindings
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' build-for-testing | xcbeautify

@@ -3,8 +3,7 @@ target/
 .swiftpm/
 *.xcuserstate
 xcuserdata/
-apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj/
-apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj/
+*.xcodeproj/
 
 module.modulemap
 HWCoreFFI.swift
@@ -13,3 +12,4 @@ libhwcore.h
 build/
 jniLibs/
 android/lib/src/main/java/uniffi/hwcore/hwcore.kt
+gradle-daemon-jvm.properties
