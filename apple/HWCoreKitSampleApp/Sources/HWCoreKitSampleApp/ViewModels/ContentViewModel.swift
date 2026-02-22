@@ -56,6 +56,8 @@ final class ContentViewModel: ObservableObject {
     private var storagePath: String?
     private var pendingRecoveryDeviceID: String?
     private var shouldRecoverOnActive = false
+    private let defaults = UserDefaults.standard
+    private let rememberedDeviceIDDefaultsKey = "hwcore.sample.rememberedDeviceID"
 
     private enum PendingPairingFlow {
         case pairOnly
@@ -188,6 +190,9 @@ final class ContentViewModel: ObservableObject {
             } else {
                 appendLog("storage snapshot: unavailable or unreadable")
             }
+            if let rememberedDeviceID = rememberedDeviceID() {
+                appendLog("remembered device id: \(rememberedDeviceID)")
+            }
             coreKit = try await HWCoreKit.create(
                 config: HWCoreConfig(
                     hostName: defaultHostName(),
@@ -209,13 +214,22 @@ final class ContentViewModel: ObservableObject {
 
             status = "Scanning for devices..."
             devices = try await coreKit.discoverTrezor(timeoutMs: 8_000)
-            selectedDeviceIndex = 0
+            if let rememberedDeviceID = rememberedDeviceID(),
+               let rememberedIndex = devices.firstIndex(where: { $0.id == rememberedDeviceID })
+            {
+                selectedDeviceIndex = rememberedIndex
+                appendLog("scan: selected remembered device \(rememberedDeviceID)")
+            } else {
+                selectedDeviceIndex = 0
+            }
             status = "Found \(devices.count) device(s)"
             appendLog("scan complete: \(devices.count) device(s)")
 
             if session != nil {
                 await disconnectSession()
             }
+
+            await attemptAutoConnectRememberedDeviceIfPossible(trigger: "scan")
         }
     }
 
@@ -432,6 +446,32 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func resetAll() async {
+        await runAction(prefix: "reset") { [self] in
+            await disconnectSession()
+            try clearPairingStorage()
+            clearRememberedDeviceID()
+
+            devices = []
+            selectedDeviceIndex = 0
+            sessionState = nil
+            phaseSummary = "No session"
+            pairingPromptMessage = ""
+            pairingCodeInput = ""
+            showPairingAlert = false
+            pendingPairingFlow = nil
+            pendingRecoveryDeviceID = nil
+            shouldRecoverOnActive = false
+            address = ""
+            addressPublicKey = ""
+            signatureSummary = ""
+            logs.removeAll()
+
+            status = "Reset complete"
+            appendLog("reset: cleared session, pairing storage, remembered device, and UI state")
+        }
+    }
+
     func scenePhaseDidChange(_ phase: ScenePhase) async {
         switch phase {
         case .background:
@@ -492,7 +532,7 @@ final class ContentViewModel: ObservableObject {
 
             let discovered = try await coreKit.discoverTrezor(timeoutMs: 4_000)
             devices = discovered
-            if let recoveryID = pendingRecoveryDeviceID,
+            if let recoveryID = pendingRecoveryDeviceID ?? rememberedDeviceID(),
                let matchingIndex = discovered.firstIndex(where: { $0.id == recoveryID })
             {
                 selectedDeviceIndex = matchingIndex
@@ -532,6 +572,7 @@ final class ContentViewModel: ObservableObject {
 
         let selected = devices[selectedDeviceIndex]
         session = try await coreKit.connect(device: selected)
+        rememberDeviceID(selected.id)
         status = "Connected: \(selected.id)"
         appendLog("connected: \(selected.id)")
         startEventStream()
@@ -808,6 +849,53 @@ final class ContentViewModel: ObservableObject {
         if fileManager.fileExists(atPath: path) {
             try fileManager.removeItem(atPath: path)
             appendLog("cleared pairing storage: \(path)")
+        }
+    }
+
+    private func rememberedDeviceID() -> String? {
+        guard let raw = defaults.string(forKey: rememberedDeviceIDDefaultsKey) else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func rememberDeviceID(_ deviceID: String) {
+        defaults.set(deviceID, forKey: rememberedDeviceIDDefaultsKey)
+    }
+
+    private func clearRememberedDeviceID() {
+        defaults.removeObject(forKey: rememberedDeviceIDDefaultsKey)
+    }
+
+    private func attemptAutoConnectRememberedDeviceIfPossible(trigger: String) async {
+        guard let rememberedDeviceID = rememberedDeviceID(),
+              hasSelectedDevice,
+              devices[selectedDeviceIndex].id == rememberedDeviceID
+        else {
+            return
+        }
+
+        status = "Auto-connecting remembered device..."
+        appendLog("auto-connect (\(trigger)): attempting \(rememberedDeviceID)")
+
+        do {
+            try await ensureConnectedSession()
+            guard let session else { return }
+
+            if sessionState?.canConnect == true {
+                let state = try await session.connectReady(tryToUnlock: true)
+                applySessionState(state, trigger: .connectReady)
+                if state.requiresPairingCode {
+                    try await startPairingPrompt(trigger: .connectReady)
+                }
+            } else {
+                try await refreshSessionState()
+            }
+            appendLog("auto-connect (\(trigger)): complete")
+        } catch {
+            status = "Auto-connect failed"
+            appendLog("auto-connect (\(trigger)) failed: \(error.localizedDescription)")
         }
     }
 

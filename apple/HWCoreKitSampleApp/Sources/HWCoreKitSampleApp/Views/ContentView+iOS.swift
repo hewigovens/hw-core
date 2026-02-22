@@ -176,6 +176,9 @@ struct MobileContentView: View {
                     iosActionButton("Disconnect", systemImage: "xmark.circle", isProminent: false, disabled: !viewModel.canDisconnect, accessibilityID: "action.disconnect") {
                         Task { await viewModel.disconnect() }
                     }
+                    iosActionButton("Reset", systemImage: "arrow.counterclockwise.circle", isProminent: false, disabled: viewModel.isBusy, accessibilityID: "action.reset") {
+                        Task { await viewModel.resetAll() }
+                    }
                 }
             }
         }

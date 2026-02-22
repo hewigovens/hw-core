@@ -113,6 +113,13 @@ struct MacContentView: View {
                 .disabled(!viewModel.canDisconnect)
                 .accessibilityLabel("Disconnect")
                 .accessibilityIdentifier("action.disconnect")
+
+                Button("Reset") {
+                    Task { await viewModel.resetAll() }
+                }
+                .disabled(viewModel.isBusy)
+                .accessibilityLabel("Reset")
+                .accessibilityIdentifier("action.reset")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
