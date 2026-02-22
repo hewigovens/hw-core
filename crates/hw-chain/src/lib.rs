@@ -102,14 +102,16 @@ impl Chain {
 impl FromStr for Chain {
     type Err = String;
 
-    /// Parses a chain from a string.
+    /// Parses a chain from a string (case-insensitive).
     ///
-    /// Accepted values (case-sensitive):
+    /// Accepted values:
     /// - `"eth"` or `"ethereum"` → [`Chain::Ethereum`]
     /// - `"btc"` or `"bitcoin"`  → [`Chain::Bitcoin`]
     /// - `"sol"` or `"solana"`   → [`Chain::Solana`]
+    ///
+    /// Matching is case-insensitive, so `"ETH"`, `"Eth"`, and `"eth"` are all valid.
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
+        match value.to_ascii_lowercase().as_str() {
             "eth" | "ethereum" => Ok(Self::Ethereum),
             "btc" | "bitcoin" => Ok(Self::Bitcoin),
             "sol" | "solana" => Ok(Self::Solana),
@@ -142,6 +144,12 @@ mod tests {
         assert_eq!("bitcoin".parse::<Chain>().unwrap(), Chain::Bitcoin);
         assert_eq!("sol".parse::<Chain>().unwrap(), Chain::Solana);
         assert_eq!("solana".parse::<Chain>().unwrap(), Chain::Solana);
+        // case-insensitive
+        assert_eq!("ETH".parse::<Chain>().unwrap(), Chain::Ethereum);
+        assert_eq!("Ethereum".parse::<Chain>().unwrap(), Chain::Ethereum);
+        assert_eq!("BTC".parse::<Chain>().unwrap(), Chain::Bitcoin);
+        assert_eq!("SOL".parse::<Chain>().unwrap(), Chain::Solana);
+        assert!("UNKNOWN".parse::<Chain>().is_err());
     }
 
     #[test]

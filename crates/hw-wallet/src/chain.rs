@@ -6,10 +6,13 @@ pub use hw_chain::{
 };
 
 /// Alias for [`DEFAULT_ETHEREUM_BIP32_PATH`] kept for backwards compatibility.
+#[deprecated(since = "0.1.0", note = "Use `DEFAULT_ETHEREUM_BIP32_PATH` instead")]
 pub const DEFAULT_ETH_BIP32_PATH: &str = DEFAULT_ETHEREUM_BIP32_PATH;
 /// Alias for [`DEFAULT_BITCOIN_BIP32_PATH`] kept for backwards compatibility.
+#[deprecated(since = "0.1.0", note = "Use `DEFAULT_BITCOIN_BIP32_PATH` instead")]
 pub const DEFAULT_BTC_BIP32_PATH: &str = DEFAULT_BITCOIN_BIP32_PATH;
 /// Alias for [`DEFAULT_SOLANA_BIP32_PATH`] kept for backwards compatibility.
+#[deprecated(since = "0.1.0", note = "Use `DEFAULT_SOLANA_BIP32_PATH` instead")]
 pub const DEFAULT_SOL_BIP32_PATH: &str = DEFAULT_SOLANA_BIP32_PATH;
 
 /// The hardened-key bit (2^31) used when masking coin-type indices.
