@@ -120,7 +120,7 @@ fn prev_output_out_of_bounds_is_error() {
 
 #[test]
 fn thp_v2_chunk_reassembly_roundtrip() {
-    let frame = wire::encode_create_channel_request(&[0xAB; 8]);
+    let frame = wire::encode_create_channel_request(&rand::random::<u64>().to_be_bytes());
     let chunks = chunk_v2_frame(&frame, 12);
     assert!(chunks.len() > 1, "expected multi-chunk frame for test");
 
@@ -138,11 +138,11 @@ fn thp_v2_chunk_reassembly_roundtrip() {
 
 #[test]
 fn thp_v2_chunk_reassembly_recovers_after_bad_continuation() {
-    let frame1 = wire::encode_create_channel_request(&[0x11; 8]);
+    let frame1 = wire::encode_create_channel_request(&rand::random::<u64>().to_be_bytes());
     let chunks1 = chunk_v2_frame(&frame1, 12);
     assert!(chunks1.len() > 1, "expected multi-chunk frame for test");
 
-    let frame2 = wire::encode_create_channel_request(&[0x22; 8]);
+    let frame2 = wire::encode_create_channel_request(&rand::random::<u64>().to_be_bytes());
     let chunks2 = chunk_v2_frame(&frame2, 12);
     assert!(chunks2.len() > 1, "expected multi-chunk frame for test");
 

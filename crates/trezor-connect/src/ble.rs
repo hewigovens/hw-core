@@ -73,6 +73,7 @@ struct ChunkAccumulator {
 
 impl ChunkAccumulator {
     fn start(chunk: &[u8]) -> Option<Self> {
+        // A valid THP V2 first chunk needs: magic (1) + channel (2) + len (2).
         if chunk.len() < 5 {
             return None;
         }
@@ -96,6 +97,7 @@ fn ingest_thp_v2_chunk(pending: &mut Option<ChunkAccumulator>, chunk: &[u8]) -> 
         if chunk.len() < state.continuation_header.len()
             || chunk[..state.continuation_header.len()] != state.continuation_header
         {
+            debug!("BLE THP V2 bad continuation header; restarting accumulator");
             if let Some(next) = ChunkAccumulator::start(chunk) {
                 if next.frame.len() >= next.expected_total {
                     return Some(next.frame[..next.expected_total].to_vec());

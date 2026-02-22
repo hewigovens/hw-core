@@ -1,6 +1,6 @@
 --- a/android/lib/src/main/java/com/nonpolynomial/btleplug/android/impl/Peripheral.java
 +++ b/android/lib/src/main/java/com/nonpolynomial/btleplug/android/impl/Peripheral.java
-@@ -5,15 +5,21 @@
+@@ -5,16 +5,20 @@
  import android.bluetooth.BluetoothDevice;
  import android.bluetooth.BluetoothGatt;
  import android.bluetooth.BluetoothGattCallback;
@@ -14,18 +14,22 @@
 +import android.os.Looper;
  
  import java.lang.ref.WeakReference;
- import java.util.ArrayList;
-+import java.util.HashMap;
+-import java.util.ArrayList;
+-import java.util.LinkedList;
+-import java.util.List;
+-import java.util.Queue;
+-import java.util.UUID;
++import java.util.ArrayList;
 +import java.util.HashSet;
- import java.util.LinkedList;
- import java.util.List;
-+import java.util.Map;
- import java.util.Queue;
++import java.util.LinkedList;
++import java.util.List;
++import java.util.Queue;
 +import java.util.Set;
- import java.util.UUID;
++import java.util.UUID;
  
  import io.github.gedgygedgy.rust.future.Future;
-@@ -22,8 +28,8 @@
+ import io.github.gedgygedgy.rust.stream.QueueStream;
+@@ -22,8 +26,8 @@
  import io.github.gedgygedgy.rust.stream.Stream;
  
  @SuppressWarnings("unused") // Native code uses this class.
@@ -36,12 +40,16 @@
  
      private final BluetoothDevice device;
      private final Adapter adapter;
-@@ -33,8 +39,16 @@
+@@ -31,10 +35,17 @@
+     private final Callback callback;
+     private boolean connected = false;
  
-     private final Queue<Runnable> commandQueue = new LinkedList<>();
-     private final LinkedList<WeakReference<QueueStream<BluetoothGattCharacteristic>>> notificationStreams = new LinkedList<>();
+-    private final Queue<Runnable> commandQueue = new LinkedList<>();
+-    private final LinkedList<WeakReference<QueueStream<BluetoothGattCharacteristic>>> notificationStreams = new LinkedList<>();
++    private final Queue<Runnable> commandQueue = new LinkedList<>();
++    private final LinkedList<WeakReference<QueueStream<BluetoothGattCharacteristic>>> notificationStreams = new LinkedList<>();
 +    private final LinkedList<BluetoothGattCharacteristic> notificationBacklog = new LinkedList<>();
-+    private final Map<UUID, LinkedList<SimpleFuture<byte[]>>> pendingNotificationReads = new HashMap<>();
++    private final LinkedList<SimpleFuture<byte[]>> pendingNotificationReads = new LinkedList<>();
 +    private final Set<UUID> subscribedNotificationUuids = new HashSet<>();
      private boolean executingCommand = false;
      private CommandCallback commandCallback;
@@ -49,19 +57,22 @@
 +    private static final int MAX_NOTIFICATION_BACKLOG = 256;
 +    private static final int WRITE_NO_RESPONSE_MAX_RETRIES = 8;
 +    private static final long WRITE_NO_RESPONSE_RETRY_DELAY_MS = 12L;
-+    private static final long DISCONNECT_FALLBACK_DELAY_MS = 1200L;
  
      public Peripheral(Adapter adapter, String address) {
          this.device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(address);
-@@ -57,10 +71,19 @@
+@@ -56,11 +67,21 @@
+                                     throw new NotConnectedException();
                                  }
  
-                                 if (newState == BluetoothGatt.STATE_CONNECTED) {
+-                                if (newState == BluetoothGatt.STATE_CONNECTED) {
 -                                    Peripheral.this.wakeCommand(future, null);
+-                                }
++                                if (newState == BluetoothGatt.STATE_CONNECTED) {
 +                                    if (!gatt.requestMtu(247)) {
++                                        // Some stacks reject MTU requests; continue with default ATT MTU.
 +                                        Peripheral.this.wakeCommand(future, null);
 +                                    }
-                                 }
++                                }
                              });
                          }
 +
@@ -74,7 +85,7 @@
                      };
  
                      if (this.connected) {
-@@ -85,36 +108,53 @@
+@@ -85,38 +106,38 @@
      }
  
      @SuppressLint("MissingPermission")
@@ -92,6 +103,7 @@
 -                                Peripheral.this.asyncWithFuture(future, () -> {
 -                                    if (status != BluetoothGatt.GATT_SUCCESS) {
 -                                        throw new RuntimeException("Unable to disconnect");
+-                                    }
 +    public Future<Void> disconnect() {
 +        SimpleFuture<Void> future = new SimpleFuture<>();
 +        synchronized (this) {
@@ -100,13 +112,29 @@
 +                    if (!this.connected) {
 +                        Peripheral.this.wakeCommand(future, null);
 +                    } else {
-+                        final CommandCallback disconnectCallback = new CommandCallback() {
++                        this.setCommandCallback(new CommandCallback() {
 +                            @Override
 +                            public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
 +                                Peripheral.this.asyncWithFuture(future, () -> {
 +                                    if (status != BluetoothGatt.GATT_SUCCESS) {
 +                                        throw new RuntimeException("Unable to disconnect");
-                                     }
++                                    }
++
++                                    if (newState == BluetoothGatt.STATE_DISCONNECTED) {
++                                        Peripheral.this.gatt.close();
++                                        Peripheral.this.gatt = null;
++                                        Peripheral.this.wakeCommand(future, null);
++                                    }
++                                });
++                            }
++                        });
++                        this.gatt.disconnect();
++                    }
++                });
++            });
++        }
++        return future;
++    }
  
 -                                    if (newState == BluetoothGatt.STATE_DISCONNECTED) {
 -                                        Peripheral.this.gatt.close();
@@ -122,44 +150,32 @@
 -            });
 -        }
 -        return future;
-+                                    if (newState == BluetoothGatt.STATE_DISCONNECTED) {
-+                                        Peripheral.this.gatt.close();
-+                                        Peripheral.this.gatt = null;
-+                                        Peripheral.this.wakeCommand(future, null);
-+                                    }
-+                                });
-+                            }
-+                        };
-+                        this.setCommandCallback(disconnectCallback);
-+                        this.gatt.disconnect();
-+                        this.handler.postDelayed(() -> {
-+                            synchronized (Peripheral.this) {
-+                                if (Peripheral.this.commandCallback == disconnectCallback) {
-+                                    Peripheral.this.connected = false;
-+                                    if (Peripheral.this.gatt != null) {
-+                                        Peripheral.this.gatt.close();
-+                                        Peripheral.this.gatt = null;
-+                                    }
-+                                    Peripheral.this.adapter.onConnectionStateChanged(
-+                                            Peripheral.this.device.getAddress(),
-+                                            false
-+                                    );
-+                                    Peripheral.this.wakeCommand(future, null);
-+                                }
-+                            }
-+                        }, DISCONNECT_FALLBACK_DELAY_MS);
-+                    }
-+                });
-+            });
-+        }
-+        return future;
-     }
- 
+-    }
+-
      public boolean isConnected() {
-@@ -130,6 +170,25 @@
-                     if (!this.connected) {
+         return this.connected;
+     }
+@@ -131,6 +152,31 @@
                          throw new NotConnectedException();
                      }
+ 
++                    if (this.subscribedNotificationUuids.contains(uuid)) {
++                        BluetoothGattCharacteristic cached = this.dequeueNotification(uuid);
++                        if (cached == null) {
++                            cached = this.dequeueAnySubscribedNotification();
++                        }
++                        if (cached != null) {
++                            byte[] value = cached.getValue();
++                            Peripheral.this.wakeCommand(future, value);
++                            return;
++                        }
++
++                        this.pendingNotificationReads.add(future);
++                        // Read completion will arrive via onCharacteristicChanged.
++                        // Do not hold command queue while waiting for a notification.
++                        this.runNextCommand();
++                        return;
++                    }
 +
 +                    BluetoothGattCharacteristic cached = this.dequeueNotification(uuid);
 +                    if (cached != null) {
@@ -168,21 +184,10 @@
 +                        return;
 +                    }
 +
-+                    if (this.subscribedNotificationUuids.contains(uuid)) {
-+                        LinkedList<SimpleFuture<byte[]>> waiters = this.pendingNotificationReads.computeIfAbsent(
-+                                uuid,
-+                                ignored -> new LinkedList<>()
-+                        );
-+                        waiters.add(future);
-+                        // Read completion will arrive via onCharacteristicChanged.
-+                        // Do not hold command queue while waiting for a notification.
-+                        this.runNextCommand();
-+                        return;
-+                    }
- 
                      BluetoothGattCharacteristic characteristic = this.getCharacteristicByUuid(uuid);
                      this.setCommandCallback(new CommandCallback() {
-@@ -180,6 +239,13 @@
+                         @Override
+@@ -180,6 +226,13 @@
                      BluetoothGattCharacteristic characteristic = this.getCharacteristicByUuid(uuid);
                      characteristic.setValue(data);
                      characteristic.setWriteType(writeType);
@@ -196,7 +201,7 @@
                      this.setCommandCallback(new CommandCallback() {
                          @Override
                          public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
-@@ -206,6 +272,7 @@
+@@ -206,6 +259,7 @@
                              });
                          }
                      });
@@ -204,13 +209,10 @@
                      if (!this.gatt.writeCharacteristic(characteristic)) {
                          throw new RuntimeException("Unable to write characteristic");
                      }
-@@ -213,6 +280,39 @@
-             });
-         }
-         return future;
-+    }
-+
-+    @SuppressLint("MissingPermission")
+@@ -216,6 +270,39 @@
+     }
+ 
+     @SuppressLint("MissingPermission")
 +    private void writeNoResponseWithRetry(
 +            SimpleFuture<Void> future,
 +            BluetoothGattCharacteristic characteristic,
@@ -241,10 +243,13 @@
 +                );
 +            }
 +        }, WRITE_NO_RESPONSE_RETRY_DELAY_MS);
-     }
- 
-     @SuppressLint("MissingPermission")
-@@ -275,10 +375,6 @@
++    }
++
++    @SuppressLint("MissingPermission")
+     public Future<List<BluetoothGattService>> discoverServices() {
+         SimpleFuture<List<BluetoothGattService>> future = new SimpleFuture<>();
+         synchronized (this) {
+@@ -275,10 +362,6 @@
  
                      BluetoothGattDescriptor descriptor = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR);
                      descriptor.setValue(enable ? BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE : BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE);
@@ -255,21 +260,33 @@
                      this.setCommandCallback(new CommandCallback() {
                          @Override
                          public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
-@@ -291,6 +387,13 @@
+@@ -291,9 +374,22 @@
                                      throw new UnexpectedCharacteristicException();
                                  }
  
+-                                Peripheral.this.wakeCommand(future, null);
+-                            });
+-                        }
 +                                if (enable) {
 +                                    Peripheral.this.subscribedNotificationUuids.add(uuid);
 +                                } else {
 +                                    Peripheral.this.subscribedNotificationUuids.remove(uuid);
 +                                    Peripheral.this.notificationBacklog.removeIf(c -> c.getUuid().equals(uuid));
-+                                    Peripheral.this.pendingNotificationReads.remove(uuid);
++                                    if (Peripheral.this.subscribedNotificationUuids.isEmpty()) {
++                                        while (!Peripheral.this.pendingNotificationReads.isEmpty()) {
++                                            Peripheral.this.pendingNotificationReads
++                                                    .removeFirst()
++                                                    .wakeWithThrowable(new NotConnectedException());
++                                        }
++                                    }
 +                                }
-                                 Peripheral.this.wakeCommand(future, null);
-                             });
-                         }
-@@ -309,6 +412,10 @@
++                                Peripheral.this.wakeCommand(future, null);
++                            });
++                        }
+                         @Override
+                         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+                             Peripheral.this.asyncWithFuture(future, () -> {
+@@ -309,6 +405,10 @@
                              });
                          }
                      });
@@ -280,11 +297,10 @@
                  });
              });
          }
-@@ -408,6 +515,17 @@
-         }
+@@ -409,6 +509,28 @@
  
          throw new NoSuchCharacteristicException();
-+    }
+     }
 +
 +    private BluetoothGattCharacteristic dequeueNotification(UUID uuid) {
 +        for (java.util.Iterator<BluetoothGattCharacteristic> it = this.notificationBacklog.iterator(); it.hasNext(); ) {
@@ -295,10 +311,22 @@
 +            }
 +        }
 +        return null;
-     }
++    }
++
++    private BluetoothGattCharacteristic dequeueAnySubscribedNotification() {
++        for (java.util.Iterator<BluetoothGattCharacteristic> it = this.notificationBacklog.iterator(); it.hasNext(); ) {
++            BluetoothGattCharacteristic candidate = it.next();
++            if (this.subscribedNotificationUuids.contains(candidate.getUuid())) {
++                it.remove();
++                return candidate;
++            }
++        }
++        return null;
++    }
  
      @SuppressLint("MissingPermission")
-@@ -465,14 +583,22 @@
+     private BluetoothGattDescriptor getDescriptorByUuid(UUID characteristicUuid, UUID uuid) {
+@@ -465,14 +587,22 @@
          @Override
          public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
              synchronized (Peripheral.this) {
@@ -317,10 +345,10 @@
 +                    case BluetoothGatt.STATE_DISCONNECTED:
 +                        Peripheral.this.connected = false;
 +                        Peripheral.this.notificationBacklog.clear();
-+                        for (LinkedList<SimpleFuture<byte[]>> waiters : Peripheral.this.pendingNotificationReads.values()) {
-+                            while (!waiters.isEmpty()) {
-+                                waiters.removeFirst().wakeWithThrowable(new NotConnectedException());
-+                            }
++                        while (!Peripheral.this.pendingNotificationReads.isEmpty()) {
++                            Peripheral.this.pendingNotificationReads
++                                    .removeFirst()
++                                    .wakeWithThrowable(new NotConnectedException());
 +                        }
 +                        Peripheral.this.pendingNotificationReads.clear();
 +                        Peripheral.this.subscribedNotificationUuids.clear();
@@ -329,17 +357,19 @@
                  if (Peripheral.this.commandCallback != null) {
                      Peripheral.this.commandCallback.onConnectionStateChange(gatt, status, newState);
                  }
-@@ -519,15 +645,34 @@
-             BluetoothGattCharacteristic characteristic2 = new BluetoothGattCharacteristic(characteristic.getUuid(), characteristic.getProperties(), characteristic.getPermissions());
-             characteristic2.setValue(characteristic.getValue());
-             synchronized (Peripheral.this) {
+@@ -516,18 +646,33 @@
+ 
+         @Override
+         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+-            BluetoothGattCharacteristic characteristic2 = new BluetoothGattCharacteristic(characteristic.getUuid(), characteristic.getProperties(), characteristic.getPermissions());
+-            characteristic2.setValue(characteristic.getValue());
+-            synchronized (Peripheral.this) {
++            BluetoothGattCharacteristic characteristic2 = new BluetoothGattCharacteristic(characteristic.getUuid(), characteristic.getProperties(), characteristic.getPermissions());
++            characteristic2.setValue(characteristic.getValue());
++            synchronized (Peripheral.this) {
 +                SimpleFuture<byte[]> pendingRead = null;
-+                LinkedList<SimpleFuture<byte[]>> waiters = Peripheral.this.pendingNotificationReads.get(characteristic.getUuid());
-+                if (waiters != null && !waiters.isEmpty()) {
-+                    pendingRead = waiters.removeFirst();
-+                    if (waiters.isEmpty()) {
-+                        Peripheral.this.pendingNotificationReads.remove(characteristic.getUuid());
-+                    }
++                if (!Peripheral.this.pendingNotificationReads.isEmpty()) {
++                    pendingRead = Peripheral.this.pendingNotificationReads.removeFirst();
 +                } else {
 +                    Peripheral.this.notificationBacklog.add(characteristic2);
 +                    while (Peripheral.this.notificationBacklog.size() > MAX_NOTIFICATION_BACKLOG) {
