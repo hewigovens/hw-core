@@ -20,8 +20,6 @@ env:
 jobs:
   android-ci:
     runs-on: ubuntu-latest
-    # NDK pre-installed on ubuntu-latest: 27.3.13750724 (default), 28.2.13676358, 29.0.14206865
-    # ANDROID_NDK_HOME is already set by the runner to 27.3.13750724 — no override needed
     steps:
       - uses: actions/checkout@v4
 
