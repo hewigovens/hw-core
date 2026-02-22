@@ -5,20 +5,49 @@ pub use hw_chain::{
     DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
 };
 
+/// The hardened-key bit (2^31) used when masking coin-type indices.
 const HARDENED_MASK: u32 = 0x8000_0000;
 
+/// The fully-resolved derivation path for a signing request.
+///
+/// Combines the detected or explicit [`Chain`] with the canonical path string
+/// and its parsed index vector so callers do not need to re-parse the path.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ResolvedDerivationPath {
+    /// The blockchain that this path targets.
     pub chain: Chain,
+    /// The canonical BIP-32 path string (e.g. `"m/44'/60'/0'/0/0"`).
     pub path: String,
+    /// The path parsed into a sequence of 32-bit child-key indices.
     pub path_indices: Vec<u32>,
 }
 
+/// Infers the target [`Chain`] from the coin-type component (index 1) of a
+/// parsed BIP-32 path.
+///
+/// Returns `None` if the path has fewer than two components or if the
+/// coin type is not recognised.
 pub fn infer_chain_from_path(path: &[u32]) -> Option<Chain> {
     let coin_type = path.get(1).copied()? & !HARDENED_MASK;
     Chain::from_slip44(coin_type)
 }
 
+/// Resolves a [`ResolvedDerivationPath`] from optional explicit chain and path
+/// overrides.
+///
+/// Resolution rules:
+/// 1. If an explicit path is provided it is parsed; the coin type is used to
+///    infer the chain.
+/// 2. If an explicit chain is also provided it takes precedence, **unless** the
+///    inferred chain from the path differs — in that case an error is returned.
+/// 3. If neither chain nor path is provided, Ethereum with its default path is
+///    used.
+///
+/// # Errors
+///
+/// Returns [`WalletError::InvalidBip32Path`] if:
+/// - the explicit path cannot be parsed, or
+/// - the explicit chain and the chain inferred from the path are different.
 pub fn resolve_derivation_path(
     explicit_chain: Option<Chain>,
     explicit_path: Option<&str>,
