@@ -13,10 +13,15 @@ use trezor_connect::thp::{
 
 use crate::error::{WalletError, WalletResult};
 
+/// Returns the BLE [`BleProfile`] for Trezor Safe 7 devices, or
+/// [`WalletError::ProfileUnavailable`] if the profile was not compiled in.
 pub fn trezor_profile() -> WalletResult<BleProfile> {
     BleProfile::trezor_safe7().ok_or(WalletError::ProfileUnavailable)
 }
 
+/// Scans for BLE devices advertising the given profile for up to `duration`.
+///
+/// Returns a (possibly empty) list of discovered devices.
 pub async fn scan_profile(
     manager: &BleManager,
     profile: BleProfile,
@@ -26,6 +31,10 @@ pub async fn scan_profile(
     Ok(devices)
 }
 
+/// Convenience wrapper that loads the Trezor BLE profile and scans for
+/// devices advertising it.
+///
+/// Returns a tuple of the resolved profile and the discovered devices.
 pub async fn scan_trezor(
     manager: &BleManager,
     duration: Duration,
@@ -35,6 +44,11 @@ pub async fn scan_trezor(
     Ok((profile, devices))
 }
 
+/// Opens a BLE connection to a previously discovered device.
+///
+/// Translates "peer removed pairing info" BLE errors into the structured
+/// [`WalletError::PeerRemovedPairingInfo`] variant so callers can surface a
+/// user-friendly recovery message.
 pub async fn connect_trezor_device(
     device: DiscoveredDevice,
     profile: BleProfile,
@@ -70,17 +84,29 @@ pub fn workflow(backend: BleBackend, config: HostConfig) -> ThpWorkflow<BleBacke
     ThpWorkflow::new(backend, config)
 }
 
+/// Default number of attempts for creating a THP channel.
 pub const CREATE_CHANNEL_ATTEMPTS: usize = 3;
+/// Default number of handshake attempts per connection.
 pub const HANDSHAKE_ATTEMPTS: usize = 2;
+/// Default number of attempts for creating a THP session.
 pub const CREATE_SESSION_ATTEMPTS: usize = 3;
+/// Default delay between retry attempts.
 pub const RETRY_DELAY: Duration = Duration::from_millis(800);
 const CREATE_CHANNEL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// Configures retry behaviour for the multi-step THP session bootstrap.
+///
+/// All attempt counts are clamped to a minimum of 1. Use
+/// [`SessionRetryPolicy::default`] to get the recommended production settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionRetryPolicy {
+    /// Maximum number of create-channel attempts before giving up.
     pub create_channel_attempts: u32,
+    /// Maximum number of handshake attempts per connection.
     pub handshake_attempts: u32,
+    /// Maximum number of create-session attempts before giving up.
     pub create_session_attempts: u32,
+    /// Milliseconds to wait between consecutive retry attempts.
     pub retry_delay_ms: u64,
 }
 
@@ -113,24 +139,46 @@ impl SessionRetryPolicy {
     }
 }
 
+/// The current phase of a THP session bootstrap sequence.
+///
+/// Phases must be completed in order. Use [`session_phase`] to compute the
+/// current phase from a [`ThpState`] snapshot.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SessionPhase {
+    /// A THP channel has not yet been established; call `create_channel`.
     NeedsChannel,
+    /// A channel exists but the noise handshake has not completed; call `handshake`.
     NeedsHandshake,
+    /// Awaiting the user to enter the pairing code on the device.
     NeedsPairingCode,
+    /// Awaiting the user to confirm the connection on the device.
     NeedsConnectionConfirmation,
+    /// Pairing is complete; a THP session must still be created.
     NeedsSession,
+    /// A THP session is active and ready for signing requests.
     Ready,
 }
 
+/// A snapshot of what the caller can do given the current [`SessionPhase`].
+///
+/// Constructed via [`session_state`]. All boolean flags are derived deterministically
+/// from the phase; they are provided as a convenience so UI layers do not need
+/// to duplicate the phase-to-capability mapping.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SessionState {
+    /// The current bootstrap phase.
     pub phase: SessionPhase,
+    /// True when only pairing actions (not signing) are possible.
     pub can_pair_only: bool,
+    /// True when a connection/pairing flow can be initiated.
     pub can_connect: bool,
+    /// True when the session is ready to retrieve addresses from the device.
     pub can_get_address: bool,
+    /// True when the session is ready to sign transactions.
     pub can_sign_tx: bool,
+    /// True when the user must enter a pairing code to proceed.
     pub requires_pairing_code: bool,
+    /// Optional human-readable message to display alongside the current phase.
     pub prompt_message: Option<String>,
 }
 
@@ -170,13 +218,23 @@ pub fn session_state(phase: SessionPhase, prompt_message: Option<String>) -> Ses
     }
 }
 
+/// Options for the full connect-and-bootstrap-session flow.
+///
+/// Use [`Default::default`] to get sane production values and override only
+/// what you need.
 #[derive(Debug, Clone)]
 pub struct SessionBootstrapOptions {
+    /// THP-level operation timeout applied to the BLE backend.
     pub thp_timeout: Duration,
+    /// When `true`, the handshake step will attempt to auto-unlock the device.
     pub try_to_unlock: bool,
+    /// Optional BIP-39 passphrase for the session.
     pub passphrase: Option<String>,
+    /// When `true`, the passphrase is entered on the device rather than the host.
     pub on_device: bool,
+    /// When `true`, derive Cardano keys in addition to the primary chain keys.
     pub derive_cardano: bool,
+    /// Retry configuration for transient failures during bootstrap.
     pub retry_policy: SessionRetryPolicy,
 }
 
