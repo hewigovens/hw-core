@@ -125,7 +125,7 @@ mod tests {
     };
     use hw_wallet::ble::{SessionBootstrapOptions, SessionPhase, advance_session_bootstrap};
     use hw_wallet::chain::{
-        DEFAULT_BTC_BIP32_PATH, DEFAULT_ETH_BIP32_PATH, DEFAULT_SOL_BIP32_PATH,
+        DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
     };
     use std::time::Duration;
     use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
@@ -150,21 +150,21 @@ mod tests {
     fn defaults_to_eth_default_path() {
         let resolved = ResolvedAddressTarget::from_args(&args(None, None)).unwrap();
         assert_eq!(resolved.chain, Chain::Ethereum);
-        assert_eq!(resolved.path, DEFAULT_ETH_BIP32_PATH);
+        assert_eq!(resolved.path, DEFAULT_ETHEREUM_BIP32_PATH);
     }
 
     #[test]
     fn defaults_to_btc_path_when_chain_is_btc() {
         let resolved = ResolvedAddressTarget::from_args(&args(Some(Chain::Bitcoin), None)).unwrap();
         assert_eq!(resolved.chain, Chain::Bitcoin);
-        assert_eq!(resolved.path, DEFAULT_BTC_BIP32_PATH);
+        assert_eq!(resolved.path, DEFAULT_BITCOIN_BIP32_PATH);
     }
 
     #[test]
     fn defaults_to_sol_path_when_chain_is_sol() {
         let resolved = ResolvedAddressTarget::from_args(&args(Some(Chain::Solana), None)).unwrap();
         assert_eq!(resolved.chain, Chain::Solana);
-        assert_eq!(resolved.path, DEFAULT_SOL_BIP32_PATH);
+        assert_eq!(resolved.path, DEFAULT_SOLANA_BIP32_PATH);
     }
 
     #[test]

@@ -70,6 +70,7 @@ data class UiState(
     val solChunkify: Boolean = false,
     val btcTxJsonInput: String = DEFAULT_BITCOIN_TX_JSON,
     val address: String? = null,
+    val addressPublicKey: String? = null,
     val txSignResult: String? = null,
     val messageSignResult: String? = null,
     val error: String? = null,
@@ -83,6 +84,8 @@ private const val SESSION_STEP_TIMEOUT_MS = 60_000L
 private const val DEFAULT_APP_NAME = "hw-core/cli"
 private const val UI_STATE_SNAPSHOT_FILE = "sample-ui-state.json"
 private const val UI_STATE_SAVED_KEY = "sample_ui_state_json"
+private const val REMEMBERED_DEVICE_FILE = "remembered-device-id.txt"
+private const val MAX_LOG_ENTRIES = 500
 
 private const val DEFAULT_SOLANA_TX_HEX =
     "01000103dcf07724e5ed851704cc5e8528f4b08d3ebb6184d327c0ea17b88bb3aaa7c31a11111111111111111111111111111111111111111111111111111111111111110000000000000000000000000000000000000000000000000000000000000000222222222222222222222222222222222222222222222222222222222222222201020200010c020000000100000000000000"
@@ -150,11 +153,15 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     private var hostConfig: HostConfig? = null
     private var storagePath: String? = null
     private var appContext: Context? = null
+    private var rememberedDeviceId: String? = null
+    private var shouldAutoReconnect = false
+    private var autoReconnectInFlight = false
     private var snapshotLoaded = false
     private var suspendSnapshotWrites = false
 
     // ArrayDeque for O(1) amortized appends — avoids O(N^2) copy-on-every-log issue.
     private val logEntries = ArrayDeque<String>()
+    private val logLock = Any()
 
     private val retryPolicy: SessionRetryPolicy by lazy {
         sessionRetryPolicyDefault()
@@ -173,6 +180,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             restoreUiSnapshot()
             snapshotLoaded = true
         }
+        restoreRememberedDeviceId(context)
 
         if (hostConfig != null) {
             return
@@ -186,15 +194,70 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
     // -- Logging helpers --
 
+    private fun logsSnapshot(): List<String> = synchronized(logLock) {
+        logEntries.toList()
+    }
+
     private fun log(msg: String) {
         Log.d("HWCoreSample", msg)
-        logEntries.addLast(msg)
-        ui = ui.copy(log = logEntries.toList())
+        val updatedLogs = synchronized(logLock) {
+            logEntries.addLast(msg)
+            while (logEntries.size > MAX_LOG_ENTRIES) {
+                logEntries.removeFirst()
+            }
+            logEntries.toList()
+        }
+        ui = ui.copy(log = updatedLogs)
     }
 
     fun clearLogs() {
-        logEntries.clear()
+        synchronized(logLock) {
+            logEntries.clear()
+        }
         ui = ui.copy(log = emptyList())
+    }
+
+    private fun restoreRememberedDeviceId(context: Context) {
+        if (!rememberedDeviceId.isNullOrBlank()) {
+            return
+        }
+        val restored = runCatching {
+            context.filesDir
+                .resolve(REMEMBERED_DEVICE_FILE)
+                .takeIf { it.exists() }
+                ?.readText()
+                ?.trim()
+                ?.ifEmpty { null }
+        }.getOrNull()
+        if (!restored.isNullOrBlank()) {
+            setRememberedDeviceId(restored)
+        }
+    }
+
+    private fun persistRememberedDeviceId() {
+        val context = appContext ?: return
+        runCatching {
+            val file = context.filesDir.resolve(REMEMBERED_DEVICE_FILE)
+            val id = rememberedDeviceId?.trim().orEmpty()
+            if (id.isEmpty()) {
+                if (file.exists()) {
+                    file.delete()
+                }
+            } else {
+                file.writeText(id)
+            }
+        }.onFailure { err ->
+            Log.w("HWCoreSample", "Failed to persist remembered device id: ${err.message}")
+        }
+    }
+
+    private fun setRememberedDeviceId(id: String?) {
+        val normalized = id?.trim()?.ifEmpty { null }
+        if (rememberedDeviceId == normalized) {
+            return
+        }
+        rememberedDeviceId = normalized
+        persistRememberedDeviceId()
     }
 
     private fun snapshotJson(state: UiState): JSONObject =
@@ -202,6 +265,8 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             put("screen", state.screen.name)
             put("status", state.status)
             put("phaseSummary", state.phaseSummary)
+            put("hadLiveSession", state.hasWorkflow || state.sessionState != null)
+            put("rememberedDeviceId", rememberedDeviceId)
             put("selectedChain", state.selectedChain.name)
             put("addressPathInput", state.addressPathInput)
             put("showAddressOnDevice", state.showAddressOnDevice)
@@ -226,10 +291,11 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             put("solChunkify", state.solChunkify)
             put("btcTxJsonInput", state.btcTxJsonInput)
             put("address", state.address)
+            put("addressPublicKey", state.addressPublicKey)
             put("txSignResult", state.txSignResult)
             put("messageSignResult", state.messageSignResult)
             put("error", state.error)
-            put("log", JSONArray(logEntries.toList()))
+            put("log", JSONArray(logsSnapshot()))
         }
 
     private fun restoreUiFromSnapshotJson(json: JSONObject) {
@@ -248,16 +314,54 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         val restoredScreen = runCatching {
             AppScreen.valueOf(json.optString("screen", AppScreen.Home.name))
         }.getOrDefault(AppScreen.Home)
+        val restoredStatus = json.optString("status", "Idle")
+        val restoredPhase = json.optString("phaseSummary", "No session")
+        val hadLiveSession = json.optBoolean("hadLiveSession", false)
+        setRememberedDeviceId(json.optString("rememberedDeviceId").trim().ifEmpty { null })
+        val requiresReconnect = hadLiveSession ||
+            restoredScreen == AppScreen.Ready ||
+            restoredScreen == AppScreen.Pairing ||
+            restoredScreen == AppScreen.Connecting ||
+            restoredPhase != "No session"
+        shouldAutoReconnect = requiresReconnect && rememberedDeviceId != null
+        val effectiveScreen = if (requiresReconnect) AppScreen.Scanning else restoredScreen
+        val effectiveStatus = if (requiresReconnect) {
+            if (shouldAutoReconnect) {
+                "Session was reset after app resume. Attempting auto-reconnect..."
+            } else {
+                "Session was reset after app resume. Tap Scan to reconnect."
+            }
+        } else {
+            restoredStatus
+        }
+        val effectivePhase = if (requiresReconnect) "No session" else restoredPhase
 
         suspendSnapshotWrites = true
         try {
-            logEntries.clear()
-            logEntries.addAll(restoredLogs)
+            synchronized(logLock) {
+                logEntries.clear()
+                logEntries.addAll(restoredLogs)
+            }
+            if (requiresReconnect) {
+                val remembered = rememberedDeviceId
+                if (remembered != null) {
+                    synchronized(logLock) {
+                        logEntries.addLast(
+                            "Session handles were not restorable after app recreation; " +
+                                "will auto-reconnect remembered device $remembered."
+                        )
+                    }
+                } else {
+                    synchronized(logLock) {
+                        logEntries.addLast("Session handles were not restorable after app recreation; scan required.")
+                    }
+                }
+            }
             ui = UiState(
-                screen = restoredScreen,
-                status = json.optString("status", "Idle"),
-                phaseSummary = json.optString("phaseSummary", "No session"),
-                log = logEntries.toList(),
+                screen = effectiveScreen,
+                status = effectiveStatus,
+                phaseSummary = effectivePhase,
+                log = logsSnapshot(),
                 selectedChain = restoredChain,
                 addressPathInput = json.optString("addressPathInput", DEFAULT_ETH_PATH),
                 showAddressOnDevice = json.optBoolean("showAddressOnDevice", true),
@@ -282,6 +386,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 solChunkify = json.optBoolean("solChunkify", false),
                 btcTxJsonInput = json.optString("btcTxJsonInput", DEFAULT_BITCOIN_TX_JSON.trim()),
                 address = json.optString("address").takeIf { it.isNotBlank() },
+                addressPublicKey = json.optString("addressPublicKey").takeIf { it.isNotBlank() },
                 txSignResult = json.optString("txSignResult").takeIf { it.isNotBlank() },
                 messageSignResult = json.optString("messageSignResult").takeIf { it.isNotBlank() },
                 error = json.optString("error").takeIf { it.isNotBlank() },
@@ -389,7 +494,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     private fun isStaleDeviceHandleError(error: Exception): Boolean =
         error.message.orEmpty().contains("device already connected", ignoreCase = true)
 
-    private suspend fun dropWorkflow() {
+    private suspend fun dropWorkflow(forceBleManagerReset: Boolean = false) {
         workflowEventsJob?.cancel()
         workflowEventsJob = null
         val wf = workflow
@@ -401,6 +506,12 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         }
         workflow = null
         pendingPairingFlow = null
+        if (forceBleManagerReset) {
+            runCatching { bleManager?.destroy() }.onFailure { err ->
+                log("BLE manager destroy warning: ${err.message}")
+            }
+            bleManager = null
+        }
     }
 
     private fun startWorkflowEventsPump(wf: BleWorkflowHandle) {
@@ -410,6 +521,9 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 try {
                     val event = wf.nextEvent(500uL) ?: continue
                     log("WF ${event.kind}/${event.code}: ${event.message}")
+                    if (shouldClearBusyFromEvent(event.kind, event.code) && ui.isBusy) {
+                        ui = ui.copy(isBusy = false)
+                    }
                 } catch (e: Exception) {
                     if (workflow === wf) {
                         log("WF events stopped: ${e.message}")
@@ -494,8 +608,16 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             },
             hasWorkflow = true,
             screen = screen,
+            isBusy = false,
         )
         log("Session phase: ${ui.phaseSummary}")
+    }
+
+    private fun shouldClearBusyFromEvent(kind: WorkflowEventKind, code: String): Boolean {
+        if (kind == WorkflowEventKind.READY || kind == WorkflowEventKind.ERROR) {
+            return true
+        }
+        return kind == WorkflowEventKind.PROGRESS && code.endsWith("_OK")
     }
 
     private suspend fun ensureWorkflowFromSelectedDevice(): BleWorkflowHandle {
@@ -504,6 +626,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         val device = selectedDevice()
             ?: throw IllegalStateException("Select a scanned device first")
         val info = device.info()
+        setRememberedDeviceId(info.id)
 
         ui = ui.copy(screen = AppScreen.Connecting)
         log("Connecting to ${info.name ?: info.id}...")
@@ -515,6 +638,74 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         ui = ui.copy(hasWorkflow = true)
         log("BLE session connected")
         return wf
+    }
+
+    fun maybeAutoReconnect(hasBlePermissions: Boolean, isBluetoothEnabled: Boolean) {
+        if (!shouldAutoReconnect || autoReconnectInFlight) return
+        if (!hasBlePermissions || !isBluetoothEnabled) return
+        if (workflow != null || ui.isBusy) return
+        val targetId = rememberedDeviceId ?: return
+
+        autoReconnectInFlight = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                ui = ui.copy(
+                    screen = AppScreen.Scanning,
+                    status = "Auto-connecting remembered device...",
+                    error = null,
+                    isBusy = true,
+                )
+                log("Auto-connect: scanning for remembered device $targetId")
+
+                if (bleManager == null) {
+                    bleManager = BleManagerHandle.new()
+                    log("BLE manager initialized")
+                }
+                val mgr = bleManager ?: return@launch setError("Auto-connect failed: BLE manager unavailable")
+                val found = mgr.discoverTrezor(4_000uL)
+                log("Auto-connect: found ${found.size} device(s)")
+
+                val matchIndex = found.indexOfFirst { discovered ->
+                    discovered.info().id == targetId
+                }
+                if (matchIndex < 0) {
+                    ui = ui.copy(
+                        devices = found,
+                        selectedDeviceIndex = 0,
+                        status = "Remembered device not found. Tap Scan to retry.",
+                        isBusy = false,
+                    )
+                    log("Auto-connect: remembered device not found")
+                    return@launch
+                }
+
+                dropWorkflow()
+                ui = ui.copy(
+                    devices = found,
+                    selectedDeviceIndex = matchIndex,
+                    error = null,
+                )
+
+                val wf = ensureWorkflowFromSelectedDevice()
+                pendingPairingFlow = PendingPairingFlow.ConnectReady
+                log("Auto-connect: advancing workflow to session-ready state...")
+                val state = runWithTimeout("Auto-connect flow") {
+                    wf.connectReadyWithPolicy(true, retryPolicy)
+                }
+                applySessionState(state)
+                if (requiresPairingPrompt(state.phase)) {
+                    startPairing()
+                } else {
+                    ui = ui.copy(pairingPrompt = null, isBusy = false)
+                }
+                log("Auto-connect complete")
+            } catch (e: Exception) {
+                setError("Auto-connect failed: ${e.message}")
+            } finally {
+                shouldAutoReconnect = false
+                autoReconnectInFlight = false
+            }
+        }
     }
 
     private suspend fun startPairing() {
@@ -563,6 +754,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     // -- BLE Scan --
 
     fun scan() {
+        shouldAutoReconnect = false
         ui = ui.copy(
             screen = AppScreen.Scanning,
             devices = emptyList(),
@@ -596,9 +788,17 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 dropWorkflow()
 
                 log("Found ${found.size} device(s)")
+                val remembered = rememberedDeviceId
+                val selectedIndex = remembered?.let { target ->
+                    found.indexOfFirst { discovered -> discovered.info().id == target }
+                        .takeIf { it >= 0 }
+                } ?: 0
+                if (remembered != null && selectedIndex in found.indices) {
+                    log("Auto-selected remembered device: $remembered")
+                }
                 ui = ui.copy(
                     devices = found,
-                    selectedDeviceIndex = 0,
+                    selectedDeviceIndex = selectedIndex,
                     sessionState = null,
                     hasWorkflow = false,
                     pairingPrompt = null,
@@ -624,6 +824,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     // -- Session actions --
 
     fun pairOnly() {
+        shouldAutoReconnect = false
         ui = ui.copy(isBusy = true, error = null)
         log("Pair-only flow requested...")
 
@@ -649,6 +850,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     }
 
     fun connectReady() {
+        shouldAutoReconnect = false
         ui = ui.copy(isBusy = true, error = null)
         log("Connect-ready flow requested...")
 
@@ -747,6 +949,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             addressPathInput = nextAddressPath,
             messageSignPathInput = nextMessagePath,
             address = null,
+            addressPublicKey = null,
             txSignResult = null,
             messageSignResult = null,
             error = null,
@@ -819,7 +1022,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     // -- Requests --
 
     fun getAddress() {
-        ui = ui.copy(address = null, error = null, isBusy = true)
+        ui = ui.copy(address = null, addressPublicKey = null, error = null, isBusy = true)
         log("Getting ${chainLabel(ui.selectedChain)} address...")
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -838,8 +1041,16 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                     chunkify = ui.addressChunkify,
                 )
                 val result = wf.getAddress(request)
-                ui = ui.copy(address = result.address, isBusy = false, status = "Address received")
+                ui = ui.copy(
+                    address = result.address,
+                    addressPublicKey = result.publicKey,
+                    isBusy = false,
+                    status = "Address received",
+                )
                 log("${chainLabel(chain)} address: ${result.address}")
+                result.publicKey?.takeIf { it.isNotBlank() }?.let { pubkey ->
+                    log("${chainLabel(chain)} public key: $pubkey")
+                }
             } catch (e: Exception) {
                 setError("Get address failed: ${e.message}")
             }
@@ -1011,8 +1222,9 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         }
 
     fun disconnect() {
+        shouldAutoReconnect = false
         viewModelScope.launch(Dispatchers.IO) {
-            dropWorkflow()
+            dropWorkflow(forceBleManagerReset = true)
             ui = ui.copy(
                 screen = AppScreen.Scanning,
                 devices = emptyList(),
@@ -1022,6 +1234,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 phaseSummary = "No session",
                 pairingPrompt = null,
                 address = null,
+                addressPublicKey = null,
                 txSignResult = null,
                 messageSignResult = null,
                 isBusy = false,
@@ -1034,9 +1247,14 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     // -- Cleanup --
 
     fun reset() {
+        shouldAutoReconnect = false
+        autoReconnectInFlight = false
+        setRememberedDeviceId(null)
         viewModelScope.launch(Dispatchers.IO) {
-            dropWorkflow()
-            logEntries.clear()
+            dropWorkflow(forceBleManagerReset = true)
+            synchronized(logLock) {
+                logEntries.clear()
+            }
             ui = UiState()
         }
     }

@@ -5,10 +5,6 @@ pub use hw_chain::{
     DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
 };
 
-pub const DEFAULT_ETH_BIP32_PATH: &str = DEFAULT_ETHEREUM_BIP32_PATH;
-pub const DEFAULT_BTC_BIP32_PATH: &str = DEFAULT_BITCOIN_BIP32_PATH;
-pub const DEFAULT_SOL_BIP32_PATH: &str = DEFAULT_SOLANA_BIP32_PATH;
-
 const HARDENED_MASK: u32 = 0x8000_0000;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -69,12 +65,18 @@ mod tests {
         assert_eq!(Chain::Ethereum.config().slip44, 60);
         assert_eq!(
             Chain::Ethereum.config().default_path,
-            DEFAULT_ETH_BIP32_PATH
+            DEFAULT_ETHEREUM_BIP32_PATH
         );
         assert_eq!(Chain::Bitcoin.config().slip44, 0);
-        assert_eq!(Chain::Bitcoin.config().default_path, DEFAULT_BTC_BIP32_PATH);
+        assert_eq!(
+            Chain::Bitcoin.config().default_path,
+            DEFAULT_BITCOIN_BIP32_PATH
+        );
         assert_eq!(Chain::Solana.config().slip44, 501);
-        assert_eq!(Chain::Solana.config().default_path, DEFAULT_SOL_BIP32_PATH);
+        assert_eq!(
+            Chain::Solana.config().default_path,
+            DEFAULT_SOLANA_BIP32_PATH
+        );
     }
 
     #[test]
@@ -92,12 +94,12 @@ mod tests {
     fn resolve_defaults_to_eth_when_empty() {
         let resolved = resolve_derivation_path(None, None).expect("default resolution");
         assert_eq!(resolved.chain, Chain::Ethereum);
-        assert_eq!(resolved.path, DEFAULT_ETH_BIP32_PATH);
+        assert_eq!(resolved.path, DEFAULT_ETHEREUM_BIP32_PATH);
     }
 
     #[test]
     fn resolve_rejects_chain_path_mismatch() {
-        let err = resolve_derivation_path(Some(Chain::Bitcoin), Some(DEFAULT_ETH_BIP32_PATH))
+        let err = resolve_derivation_path(Some(Chain::Bitcoin), Some(DEFAULT_ETHEREUM_BIP32_PATH))
             .expect_err("mismatch should fail");
         assert!(
             err.to_string().contains("chain/path mismatch"),

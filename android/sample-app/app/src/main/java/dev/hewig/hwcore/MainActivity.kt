@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
             hasBlePermissions = hasAllBlePermissions()
             isBluetoothEnabled = isBluetoothOn()
+            vm.maybeAutoReconnect(hasBlePermissions, isBluetoothEnabled)
         }
     private val vm: MainViewModel by viewModels()
 
@@ -154,6 +155,7 @@ class MainActivity : ComponentActivity() {
         if (!hasBlePermissions) {
             requestBlePermissionsOrSettings()
         }
+        vm.maybeAutoReconnect(hasBlePermissions, isBluetoothEnabled)
 
         setContent {
             HWCoreTheme {
@@ -177,6 +179,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         hasBlePermissions = hasAllBlePermissions()
         isBluetoothEnabled = isBluetoothOn()
+        vm.maybeAutoReconnect(hasBlePermissions, isBluetoothEnabled)
     }
 }
 
@@ -722,7 +725,7 @@ fun MainScreen(
         }
         }
 
-        if (showMainTab && (ui.address != null || ui.txSignResult != null || ui.messageSignResult != null)) {
+        if (showMainTab && (ui.address != null || ui.addressPublicKey != null || ui.txSignResult != null || ui.messageSignResult != null)) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -739,6 +742,21 @@ fun MainScreen(
                                 clipboard.setText(AnnotatedString(address))
                             }) {
                                 Text("Copy Address")
+                            }
+                        }
+
+                        ui.addressPublicKey?.let { publicKey ->
+                            Divider()
+                            Text("Public Key", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                publicKey,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                            )
+                            OutlinedButton(onClick = {
+                                clipboard.setText(AnnotatedString(publicKey))
+                            }) {
+                                Text("Copy Public Key")
                             }
                         }
 

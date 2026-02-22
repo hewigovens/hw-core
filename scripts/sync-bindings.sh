@@ -28,6 +28,19 @@ find_registry_crate_dir() {
   [[ -n "$latest" ]] && echo "$latest"
 }
 
+apply_android_java_patch() {
+  local patch_file="$1"
+  if [[ ! -f "$patch_file" ]]; then
+    echo "ERROR: Missing Android Java patch file: $patch_file" >&2
+    exit 1
+  fi
+
+  if ! git -C "$ROOT_DIR" apply --whitespace=nowarn "$patch_file"; then
+    echo "ERROR: Failed applying Android Java patch: $patch_file" >&2
+    exit 1
+  fi
+}
+
 sync_android_java_support() {
   local jni_utils_dir="${JNI_UTILS_RS_DIR:-}"
   local btleplug_dir="${BTLEPLUG_RS_DIR:-}"
@@ -52,6 +65,7 @@ sync_android_java_support() {
   local btleplug_src="$btleplug_dir/src/droidplug/java/src/main/java/com/nonpolynomial/btleplug"
   local jni_dst="$ANDROID_LIB_DIR/src/main/java/io/github/gedgygedgy/rust"
   local btleplug_dst="$ANDROID_LIB_DIR/src/main/java/com/nonpolynomial/btleplug"
+  local patch_dir="$ROOT_DIR/android/patches"
 
   if [[ ! -d "$jni_src" ]]; then
     echo "ERROR: Missing jni-utils Java sources at: $jni_src" >&2
@@ -66,6 +80,8 @@ sync_android_java_support() {
   mkdir -p "$(dirname "$jni_dst")" "$(dirname "$btleplug_dst")"
   cp -R "$jni_src" "$jni_dst"
   cp -R "$btleplug_src" "$btleplug_dst"
+
+  apply_android_java_patch "$patch_dir/btleplug-Peripheral.patch"
 }
 
 usage() {
