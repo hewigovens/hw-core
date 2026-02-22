@@ -356,6 +356,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
         address.address,
         "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE"
     );
+    assert_eq!(address.public_key.as_deref(), Some("xpub-test"));
 
     let signed = sign_tx_for_workflow(
         &mut workflow,

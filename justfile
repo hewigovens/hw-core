@@ -52,6 +52,95 @@ build-android:
 build-android-release:
     ./scripts/sync-bindings.sh --android --release
 
+run-android:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just build-android
+    (
+      cd android
+      ./gradlew :sample-app:app:installDebug
+    )
+    ADB_BIN="$(command -v adb || true)"
+    if [[ -z "$ADB_BIN" ]]; then
+      for candidate in "${ANDROID_SDK_ROOT:-}/platform-tools/adb" "${ANDROID_HOME:-}/platform-tools/adb" "$HOME/Library/Android/sdk/platform-tools/adb" "/opt/homebrew/share/android-commandlinetools/platform-tools/adb"; do
+        if [[ -x "$candidate" ]]; then
+          ADB_BIN="$candidate"
+          break
+        fi
+      done
+    fi
+    if [[ -z "$ADB_BIN" ]]; then
+      echo "adb not found. Install Android platform-tools or add adb to PATH." >&2
+      exit 1
+    fi
+    echo "Using adb: $ADB_BIN"
+    "$ADB_BIN" start-server >/dev/null
+    if [[ -z "${ANDROID_SERIAL:-}" ]]; then
+      ANDROID_SERIAL="$(
+        "$ADB_BIN" devices \
+          | awk 'NR > 1 && $2 == "device" { print $1; exit }'
+      )"
+      if [[ -z "$ANDROID_SERIAL" ]]; then
+        "$ADB_BIN" devices -l
+        echo "No connected Android device found. Set ANDROID_SERIAL if needed." >&2
+        exit 1
+      fi
+    fi
+    "$ADB_BIN" -s "$ANDROID_SERIAL" wait-for-device
+    "$ADB_BIN" -s "$ANDROID_SERIAL" shell am start -n dev.hewig.hwcore/.MainActivity
+    echo "Launched dev.hewig.hwcore on device: $ANDROID_SERIAL"
+
+android-devices:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ADB_BIN="$(command -v adb || true)"
+    if [[ -z "$ADB_BIN" ]]; then
+      for candidate in "${ANDROID_SDK_ROOT:-}/platform-tools/adb" "${ANDROID_HOME:-}/platform-tools/adb" "$HOME/Library/Android/sdk/platform-tools/adb" "/opt/homebrew/share/android-commandlinetools/platform-tools/adb"; do
+        if [[ -x "$candidate" ]]; then
+          ADB_BIN="$candidate"
+          break
+        fi
+      done
+    fi
+    if [[ -z "$ADB_BIN" ]]; then
+      echo "adb not found. Install Android platform-tools or add adb to PATH." >&2
+      exit 1
+    fi
+    "$ADB_BIN" devices -l
+
+android-logs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ADB_BIN="$(command -v adb || true)"
+    if [[ -z "$ADB_BIN" ]]; then
+      for candidate in "${ANDROID_SDK_ROOT:-}/platform-tools/adb" "${ANDROID_HOME:-}/platform-tools/adb" "$HOME/Library/Android/sdk/platform-tools/adb" "/opt/homebrew/share/android-commandlinetools/platform-tools/adb"; do
+        if [[ -x "$candidate" ]]; then
+          ADB_BIN="$candidate"
+          break
+        fi
+      done
+    fi
+    if [[ -z "$ADB_BIN" ]]; then
+      echo "adb not found. Install Android platform-tools or add adb to PATH." >&2
+      exit 1
+    fi
+    "$ADB_BIN" start-server >/dev/null
+    if [[ -z "${ANDROID_SERIAL:-}" ]]; then
+      ANDROID_SERIAL="$(
+        "$ADB_BIN" devices \
+          | awk 'NR > 1 && $2 == "device" { print $1; exit }'
+      )"
+      if [[ -z "$ANDROID_SERIAL" ]]; then
+        "$ADB_BIN" devices -l
+        echo "No connected Android device found. Set ANDROID_SERIAL if needed." >&2
+        exit 1
+      fi
+    fi
+    "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -c
+    echo "Streaming logs from $ANDROID_SERIAL (Ctrl+C to stop)..."
+    "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -v time \
+      | rg --line-buffered "HWCoreSample|hwcore create_channel|WF |AndroidRuntime|JNI DETECTED ERROR|Connect failed|Pair only failed"
+
 sample:
     just bindings
     swift run --package-path apple/HWCoreKitSampleApp

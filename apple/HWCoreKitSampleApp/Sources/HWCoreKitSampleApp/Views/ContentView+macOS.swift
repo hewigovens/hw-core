@@ -169,16 +169,27 @@ struct MacContentView: View {
                 }
 
                 if !viewModel.address.isEmpty {
-                    HStack(spacing: 8) {
-                        Text("Address: \(viewModel.address)")
-                            .font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
-                            .accessibilityLabel("Address")
-                            .accessibilityIdentifier("result.address")
-                        Button("Copy") {
-                            viewModel.copyAddressToClipboard()
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Text("Address: \(viewModel.address)")
+                                .font(.system(.body, design: .monospaced))
+                                .textSelection(.enabled)
+                                .accessibilityLabel("Address")
+                                .accessibilityIdentifier("result.address")
+                            Button("Copy") {
+                                viewModel.copyAddressToClipboard()
+                            }
+                            .accessibilityIdentifier("result.address.copy")
                         }
-                        .accessibilityIdentifier("result.address.copy")
+
+                        if !viewModel.addressPublicKey.isEmpty {
+                            Text("Public Key: \(viewModel.addressPublicKey)")
+                                .font(.system(.footnote, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .accessibilityLabel("Public key")
+                                .accessibilityIdentifier("result.address.public_key")
+                        }
                     }
                 }
 

@@ -13,8 +13,6 @@ android/
     src/main/jniLibs/        Native .so files (per-ABI)
   sample-app/
     app/                     Sample Android app (Compose UI)
-  scripts/
-    build-rust.sh            Cross-compile Rust + generate bindings
 ```
 
 ## Prerequisites
@@ -34,8 +32,8 @@ android/
 ### 1. Build native libraries and generate bindings
 
 ```bash
-./android/scripts/build-rust.sh          # debug
-./android/scripts/build-rust.sh --release  # release
+./scripts/sync-bindings.sh --android            # debug
+./scripts/sync-bindings.sh --android --release  # release
 ```
 
 This cross-compiles `hw-ffi` for `arm64-v8a`, `armeabi-v7a`, and `x86_64`,
@@ -53,13 +51,26 @@ Open the `android/` directory in Android Studio. The project includes:
 
 Build and run `sample-app:app` on a physical Android device with Bluetooth.
 
+From repository root, you can do full sync + install + launch in one command:
+
+```bash
+just run-android
+```
+
+If multiple devices are connected, select one with:
+
+```bash
+ANDROID_SERIAL=<device-id> just run-android
+```
+
 ## Sample App Flow
 
 1. **Scan** — discovers nearby Trezor Safe 7 devices via BLE
-2. **Connect** — establishes THP session (Noise XX handshake)
-3. **Pair** — enter 6-digit code shown on Trezor + confirm connection
-4. **Get Address** — retrieves ETH address (`m/44'/60'/0'/0/0`)
-5. **Sign Tx** — signs a sample EIP-1559 transaction (0 ETH to `0xdead`)
+2. **Connect/Pair** — establishes THP session and handles pairing prompt/confirmation
+3. **Select Chain** — switch between ETH/BTC/SOL in the ready screen
+4. **Get Address** — fetch chain-specific default-path address
+5. **Sign Tx** — sign sample transactions for ETH/BTC/SOL
+6. **Sign Message** — sign ETH/BTC messages (SOL message signing is not enabled)
 
 ## API Surface
 

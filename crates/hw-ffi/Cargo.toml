@@ -11,12 +11,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 default = []
-bindings-cli = [
-    "dep:anyhow",
-    "dep:camino",
-    "dep:clap",
-    "dep:uniffi_bindgen",
-]
+bindings-cli = ["dep:anyhow", "dep:camino", "dep:clap", "dep:uniffi_bindgen"]
 
 [[bin]]
 name = "generate-bindings"
@@ -42,3 +37,8 @@ camino = { version = "1", optional = true }
 uniffi_bindgen = { version = "0.31.0", features = [
     "cargo-metadata",
 ], optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+btleplug = { workspace = true }
+jni = "0.19"
+jni-utils = "0.1.1"

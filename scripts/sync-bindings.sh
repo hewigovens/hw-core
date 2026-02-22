@@ -18,6 +18,56 @@ DO_BUILD_IOS_SIM_FFI=0
 ANDROID_BUILD_FLAG=""
 ANDROID_BUILD_MODE="debug"
 
+find_registry_crate_dir() {
+  local pattern="$1"
+  local latest=""
+  for d in "$HOME"/.cargo/registry/src/*/$pattern; do
+    [[ -d "$d" ]] || continue
+    latest="$d"
+  done
+  [[ -n "$latest" ]] && echo "$latest"
+}
+
+sync_android_java_support() {
+  local jni_utils_dir="${JNI_UTILS_RS_DIR:-}"
+  local btleplug_dir="${BTLEPLUG_RS_DIR:-}"
+
+  if [[ -z "$jni_utils_dir" ]]; then
+    jni_utils_dir="$(find_registry_crate_dir "jni-utils-*")"
+  fi
+  if [[ -z "$btleplug_dir" ]]; then
+    btleplug_dir="$(find_registry_crate_dir "btleplug-*")"
+  fi
+
+  if [[ -z "$jni_utils_dir" || ! -d "$jni_utils_dir" ]]; then
+    echo "ERROR: Could not locate jni-utils source. Set JNI_UTILS_RS_DIR to your local jni-utils-rs checkout." >&2
+    exit 1
+  fi
+  if [[ -z "$btleplug_dir" || ! -d "$btleplug_dir" ]]; then
+    echo "ERROR: Could not locate btleplug source. Set BTLEPLUG_RS_DIR to your local btleplug checkout." >&2
+    exit 1
+  fi
+
+  local jni_src="$jni_utils_dir/java/src/main/java/io/github/gedgygedgy/rust"
+  local btleplug_src="$btleplug_dir/src/droidplug/java/src/main/java/com/nonpolynomial/btleplug"
+  local jni_dst="$ANDROID_LIB_DIR/src/main/java/io/github/gedgygedgy/rust"
+  local btleplug_dst="$ANDROID_LIB_DIR/src/main/java/com/nonpolynomial/btleplug"
+
+  if [[ ! -d "$jni_src" ]]; then
+    echo "ERROR: Missing jni-utils Java sources at: $jni_src" >&2
+    exit 1
+  fi
+  if [[ ! -d "$btleplug_src" ]]; then
+    echo "ERROR: Missing btleplug Java sources at: $btleplug_src" >&2
+    exit 1
+  fi
+
+  rm -rf "$jni_dst" "$btleplug_dst"
+  mkdir -p "$(dirname "$jni_dst")" "$(dirname "$btleplug_dst")"
+  cp -R "$jni_src" "$jni_dst"
+  cp -R "$btleplug_src" "$btleplug_dst"
+}
+
 usage() {
   cat <<'EOF'
 Usage: sync-bindings.sh [--apple|--android|--all] [OPTIONS]
@@ -141,6 +191,10 @@ if [[ "$DO_ANDROID" -eq 1 ]]; then
     cp "$src" "$dst"
     echo "  -> $dst"
   done
+
+  echo "==> Syncing Android Java support sources (jni-utils + btleplug)..."
+  sync_android_java_support
+  echo "  -> Copied Java support into $ANDROID_LIB_DIR/src/main/java"
 
   echo "==> Generating Kotlin bindings..."
 

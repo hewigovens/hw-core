@@ -1,6 +1,6 @@
 # hw-core Execution Plan
 
-Last updated: 2026-02-21
+Last updated: 2026-02-22
 Status legend: TODO | IN_PROGRESS | DONE | BLOCKED
 
 ## Objective
@@ -70,7 +70,7 @@ Status: IN_PROGRESS
 
 ## Workstream D: Android Sample App
 Owner: Android/FFI
-Status: IN_PROGRESS
+Status: BLOCKED
 
 ### Scope
 - Create a runnable Android sample app using generated Kotlin bindings.
@@ -79,16 +79,32 @@ Status: IN_PROGRESS
 - Bootstrapped `android/` Gradle project with `lib` and `sample-app` modules.
 - Rust native library packaging via `cargo-ndk` for arm64-v8a, armeabi-v7a, x86_64.
 - BLE permissions (runtime + manifest) and scan/connect/pair UI flows.
-- ETH address and sign-transaction flows in sample app.
+- Android JNI bootstrap for btleplug (`btleplug::platform::init`) to avoid Droidplug init failures during scan.
+- ETH/BTC/SOL address and sample sign-transaction flows in sample app.
+- ETH/BTC message signing flow in sample app.
 - `android/README.md` with build/run instructions.
 - Unified `scripts/sync-bindings.sh` supporting `--android` and `--apple` flags.
+- Added `just run-android`, `just android-devices`, and `just android-logs` for consistent build/install/log flow.
+- Added Android sample lifecycle persistence for UI state and logs across activity recreation.
+- Added Android sample UI tab layout (`Main` / `Config` / `Logs`) and improved controls placement.
+- Added Android-side THP create-channel diagnostics (`hwcore create_channel: ...`) and workflow progress events (`CREATE_CHANNEL_ERROR`).
+
+### Current Blocker (2026-02-22)
+- Real-device Android `connect-ready` stalls at `NEEDS_CHANNEL` / `CREATE_CHANNEL_START` and times out after 60s.
+- Observed app logs repeatedly end at:
+  - `WF PROGRESS/CONNECT_READY_PHASE_NEEDS_CHANNEL`
+  - `WF PROGRESS/CREATE_CHANNEL_START: Creating THP channel`
+  - followed by `Connect failed: Connect-ready flow timed out after 60s`
+- iOS pairing/connect path remains functional, so mismatch is likely Android BLE transport behavior before THP channel response is parsed.
 
 ### Remaining
-- [ ] Add BTC and SOL address/sign paths in sample app.
+- [ ] Isolate Android `create_channel` stall on real device (write path, chunking/MTU assumptions, notification delivery timing, and response parsing).
+- [ ] Correlate Android sample logs with Rust-side create-channel diagnostics to identify whether timeout is on send or receive.
+- [ ] Compare Android BLE session bootstrap sequence with Trezor Suite/native behavior and align where needed.
 - [ ] Add instrumentation smoke test for app launch and core controls.
 
 ### Exit Criteria
-- A contributor can run Android sample happy path locally from repo docs.
+- A contributor can run Android sample happy path locally from repo docs, including real-device `connect-ready` reaching `SESSION_READY`.
 
 ## Workstream E: Validation and CI
 Owner: DevEx
@@ -151,9 +167,11 @@ Status: TODO
 - [ ] BTC signing validates both supported and unsupported advanced request paths clearly.
 - [ ] `just test-ios-ui` and `just test-mac-ui` pass.
 - [x] Android sample launch/build smoke passes (`just build-android`, Gradle assembleDebug).
+- [ ] Android sample real-device `connect-ready` reaches `SESSION_READY` without timing out at `CREATE_CHANNEL`.
 
 ## Risks and Dependencies
 - Advanced BTC firmware request coverage remains the biggest protocol gap.
 - BLE reliability is sensitive to platform adapter behavior and timeout policy.
 - Android sample progress depends on reliable native packaging + device BLE permissions handling.
+- Android BLE transport may diverge from iOS/macOS behavior (GATT write/notify semantics, chunk sizing, callback timing), causing THP channel bootstrap stalls.
 - Trezor Suite behavior remains source of truth for request shapes and UX parity.

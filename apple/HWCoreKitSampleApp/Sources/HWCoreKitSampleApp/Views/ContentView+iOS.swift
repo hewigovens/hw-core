@@ -2,9 +2,8 @@
 import HWCoreKit
 import SwiftUI
 
-struct IOSContentView: View {
+struct MobileContentView: View {
     @ObservedObject var viewModel: ContentViewModel
-    @State private var showLogSheet = false
 
     private let actionColumns = [
         GridItem(.flexible(minimum: 120), spacing: 10),
@@ -17,20 +16,39 @@ struct IOSContentView: View {
     ]
 
     var body: some View {
+        TabView {
+            walletTab
+                .tabItem {
+                    Label("Wallet", systemImage: "wallet.pass")
+                }
+                .accessibilityIdentifier("tab.wallet")
+
+            configTab
+                .tabItem {
+                    Label("Config", systemImage: "slider.horizontal.3")
+                }
+                .accessibilityIdentifier("tab.config")
+
+            logsTab
+                .tabItem {
+                    Label("Logs", systemImage: "doc.text.magnifyingglass")
+                }
+                .accessibilityIdentifier("tab.logs")
+        }
+    }
+
+    private var walletTab: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
                     overviewCard
-                    actionCard
                     if !viewModel.devices.isEmpty {
                         deviceCard
                     }
-                    addressCard
-                    signCard
+                    actionCard
                     if !viewModel.address.isEmpty || !viewModel.signatureSummary.isEmpty {
                         resultCard
                     }
-                    logsCard
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -45,32 +63,51 @@ struct IOSContentView: View {
             )
             .navigationBarTitleDisplayMode(.inline)
             .navigationTitle("HWCoreKit")
-            .sheet(isPresented: $showLogSheet) {
-                NavigationStack {
-                    ScrollView {
-                        Text(viewModel.logs.joined(separator: "\n"))
-                            .font(.system(.footnote, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(16)
-                            .textSelection(.enabled)
-                            .accessibilityLabel("Logs")
-                            .accessibilityIdentifier("logs.text")
+        }
+    }
+
+    private var configTab: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 14) {
+                    addressCard
+                    signCard
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .background(
+                LinearGradient(
+                    colors: [Color(.systemBackground), Color(.secondarySystemBackground)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+            )
+            .navigationTitle("Config")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var logsTab: some View {
+        NavigationStack {
+            ScrollView {
+                Text(logsText)
+                    .font(.system(.footnote, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .textSelection(.enabled)
+                    .accessibilityLabel("Logs")
+                    .accessibilityIdentifier("logs.text")
+            }
+            .navigationTitle("Logs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Copy") {
+                        viewModel.copyLogsToClipboard()
                     }
-                    .navigationTitle("Logs")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Copy") {
-                                viewModel.copyLogsToClipboard()
-                            }
-                            .accessibilityIdentifier("logs.copy")
-                        }
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") {
-                                showLogSheet = false
-                            }
-                        }
-                    }
+                    .accessibilityIdentifier("logs.copy")
                 }
             }
         }
@@ -150,12 +187,42 @@ struct IOSContentView: View {
                 Text("Device")
                     .font(.headline)
 
-                Picker("Device", selection: $viewModel.selectedDeviceIndex) {
-                    ForEach(Array(viewModel.devices.enumerated()), id: \.offset) { index, device in
-                        Text("\(device.name ?? "Unknown") (\(device.id))").tag(index)
+                ForEach(Array(viewModel.devices.enumerated()), id: \.offset) { index, device in
+                    Button {
+                        viewModel.selectedDeviceIndex = index
+                    } label: {
+                        HStack(alignment: .center, spacing: 10) {
+                            Image(systemName: index == viewModel.selectedDeviceIndex ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(index == viewModel.selectedDeviceIndex ? Color.accentColor : Color.secondary)
+                                .font(.title3)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(device.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? device.name! : "Unknown Device")
+                                    .font(.body.weight(.medium))
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                Text(device.id)
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                Text("RSSI: \(device.rssi.map(String.init) ?? "n/a")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("device.row.\(index)")
+
+                    if index < viewModel.devices.count - 1 {
+                        Divider()
                     }
                 }
-                .pickerStyle(.menu)
                 .accessibilityLabel("Device")
                 .accessibilityIdentifier("picker.device")
             }
@@ -219,6 +286,16 @@ struct IOSContentView: View {
                         .textSelection(.enabled)
                         .accessibilityLabel("Address")
                         .accessibilityIdentifier("result.address")
+                    if !viewModel.addressPublicKey.isEmpty {
+                        Text("Public Key")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(viewModel.addressPublicKey)
+                            .font(.system(.footnote, design: .monospaced))
+                            .textSelection(.enabled)
+                            .accessibilityLabel("Public key")
+                            .accessibilityIdentifier("result.address.public_key")
+                    }
                     Button("Copy Address") {
                         viewModel.copyAddressToClipboard()
                     }
@@ -257,42 +334,11 @@ struct IOSContentView: View {
         }
     }
 
-    private var logsCard: some View {
-        card {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("Logs")
-                        .font(.headline)
-                    Spacer()
-                    Button("Open") {
-                        showLogSheet = true
-                    }
-                    .buttonStyle(.bordered)
-                }
-                HStack(spacing: 8) {
-                    Button("Copy Logs") {
-                        viewModel.copyLogsToClipboard()
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("logs.copy")
-                }
-                Text(logPreview)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("Logs")
-                    .accessibilityIdentifier("logs.text")
-            }
-        }
-    }
-
-    private var logPreview: String {
-        let lines = viewModel.logs.suffix(6)
-        if lines.isEmpty {
+    private var logsText: String {
+        if viewModel.logs.isEmpty {
             return "No logs yet."
         }
-        return lines.joined(separator: "\n")
+        return viewModel.logs.joined(separator: "\n")
     }
 
     @ViewBuilder
@@ -427,5 +473,6 @@ struct IOSContentView: View {
                     .fill(Color(.secondarySystemBackground))
             )
     }
+
 }
 #endif

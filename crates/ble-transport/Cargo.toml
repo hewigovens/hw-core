@@ -13,7 +13,7 @@ trezor-safe7 = []
 [dependencies]
 anyhow = { workspace = true }
 # btleplug = { git = "https://github.com/trezor/btleplug", rev = "f66eb37ca293bea1708264a319ec02b14e7935ab", optional = true }
-btleplug = { version = "0.11.8", optional = true }
+btleplug = { workspace = true, optional = true }
 futures = "0.3"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

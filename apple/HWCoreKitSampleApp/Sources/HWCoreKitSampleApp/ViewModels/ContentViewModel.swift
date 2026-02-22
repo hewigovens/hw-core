@@ -22,6 +22,7 @@ final class ContentViewModel: ObservableObject {
     @Published var showPairingAlert = false
     @Published var isBusy = false
     @Published var address = ""
+    @Published var addressPublicKey = ""
     @Published var signatureSummary = ""
     @Published var logs: [String] = []
     @Published var addressPathInput: String
@@ -302,8 +303,12 @@ final class ContentViewModel: ObservableObject {
                 chunkify: addressChunkify
             )
             address = result.address
+            addressPublicKey = result.publicKey ?? ""
             status = "Address received"
             appendLog("address (\(chainLabel(selectedChain))): \(result.address)")
+            if let publicKey = result.publicKey, !publicKey.isEmpty {
+                appendLog("public key (\(chainLabel(selectedChain))): \(publicKey)")
+            }
         }
     }
 

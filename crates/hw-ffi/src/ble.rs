@@ -243,6 +243,7 @@ where
     Ok(AddressResult {
         chain: response.chain,
         address: response.address,
+        public_key: response.public_key,
     })
 }
 

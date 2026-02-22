@@ -14,8 +14,16 @@ final class HWCoreKitSampleAppiOSUITests: XCTestCase {
         XCTAssertTrue(waitForElement(app, identifier: "state.session_phase", timeout: 10))
         XCTAssertTrue(waitForElement(app, identifier: "action.scan", timeout: 10))
         XCTAssertTrue(waitForElement(app, identifier: "action.connect", timeout: 10))
+
+        let configTab = app.tabBars.buttons["Config"]
+        XCTAssertTrue(configTab.waitForExistence(timeout: 10))
+        configTab.tap()
         XCTAssertTrue(waitForElement(app, identifier: "input.address.path", timeout: 10))
         XCTAssertTrue(waitForElement(app, identifier: "input.sign.eth.path", timeout: 10))
+
+        let logsTab = app.tabBars.buttons["Logs"]
+        XCTAssertTrue(logsTab.waitForExistence(timeout: 10))
+        logsTab.tap()
         XCTAssertTrue(waitForElement(app, identifier: "logs.text", timeout: 10))
     }
 

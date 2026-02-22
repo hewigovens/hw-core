@@ -40,7 +40,7 @@ struct ContentView: View {
     @ViewBuilder
     private var platformContent: some View {
         #if os(iOS)
-        IOSContentView(viewModel: viewModel)
+        MobileContentView(viewModel: viewModel)
         #else
         MacContentView(viewModel: viewModel)
         #endif
