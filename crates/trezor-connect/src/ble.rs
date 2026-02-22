@@ -64,6 +64,71 @@ struct FailureProto {
     message: Option<String>,
 }
 
+#[derive(Debug)]
+struct ChunkAccumulator {
+    expected_total: usize,
+    continuation_header: [u8; 3],
+    frame: Vec<u8>,
+}
+
+impl ChunkAccumulator {
+    fn start(chunk: &[u8]) -> Option<Self> {
+        if chunk.len() < 5 {
+            return None;
+        }
+        let expected_total = 5 + u16::from_be_bytes([chunk[3], chunk[4]]) as usize;
+        if expected_total < MIN_THP_FRAME_SIZE {
+            return None;
+        }
+        let mut frame = Vec::with_capacity(expected_total);
+        let first_copy = expected_total.min(chunk.len());
+        frame.extend_from_slice(&chunk[..first_copy]);
+        Some(Self {
+            expected_total,
+            continuation_header: [wire::MAGIC_CONTINUATION, chunk[1], chunk[2]],
+            frame,
+        })
+    }
+}
+
+fn ingest_thp_v2_chunk(pending: &mut Option<ChunkAccumulator>, chunk: &[u8]) -> Option<Vec<u8>> {
+    if let Some(mut state) = pending.take() {
+        if chunk.len() < state.continuation_header.len()
+            || chunk[..state.continuation_header.len()] != state.continuation_header
+        {
+            if let Some(next) = ChunkAccumulator::start(chunk) {
+                if next.frame.len() >= next.expected_total {
+                    return Some(next.frame[..next.expected_total].to_vec());
+                }
+                *pending = Some(next);
+            }
+            return None;
+        }
+
+        let remaining = state.expected_total.saturating_sub(state.frame.len());
+        let payload_available = chunk.len().saturating_sub(state.continuation_header.len());
+        let payload_to_copy = remaining.min(payload_available);
+        let payload_start = state.continuation_header.len();
+        state
+            .frame
+            .extend_from_slice(&chunk[payload_start..payload_start + payload_to_copy]);
+
+        if state.frame.len() >= state.expected_total {
+            return Some(state.frame[..state.expected_total].to_vec());
+        }
+        *pending = Some(state);
+        return None;
+    }
+
+    if let Some(next) = ChunkAccumulator::start(chunk) {
+        if next.frame.len() >= next.expected_total {
+            return Some(next.frame[..next.expected_total].to_vec());
+        }
+        *pending = Some(next);
+    }
+    None
+}
+
 fn decode_failure_reason(payload: &[u8]) -> String {
     match FailureProto::decode(payload) {
         Ok(msg) => match (msg.code, msg.message) {
@@ -245,6 +310,7 @@ pub struct BleBackend {
     state: ThpWireState,
     rx_buffer: Vec<u8>,
     continuation: Vec<u8>,
+    pending_chunk: Option<ChunkAccumulator>,
 }
 
 impl BleBackend {
@@ -257,6 +323,7 @@ impl BleBackend {
             state: ThpWireState::new(),
             rx_buffer: Vec::new(),
             continuation: Vec::new(),
+            pending_chunk: None,
         }
     }
 
@@ -374,6 +441,12 @@ impl BleBackend {
         }
     }
 
+    fn ingest_chunk(&mut self, chunk: &[u8]) {
+        if let Some(frame) = ingest_thp_v2_chunk(&mut self.pending_chunk, chunk) {
+            self.rx_buffer.extend_from_slice(&frame);
+        }
+    }
+
     async fn read_next(&mut self) -> BackendResult<ParsedMessage> {
         loop {
             if let Some(mut parsed) = self.try_parse()? {
@@ -415,15 +488,7 @@ impl BleBackend {
                 chunk.first().copied().unwrap_or(0),
                 chunk.len()
             );
-            if chunk.len() < MIN_THP_FRAME_SIZE {
-                debug!(
-                    "BLE THP ignoring short non-frame chunk len={} first=0x{:02x}",
-                    chunk.len(),
-                    chunk.first().copied().unwrap_or(0)
-                );
-                continue;
-            }
-            self.rx_buffer.extend_from_slice(&chunk);
+            self.ingest_chunk(&chunk);
         }
     }
 

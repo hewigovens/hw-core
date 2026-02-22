@@ -52,9 +52,10 @@ build-android:
 build-android-release:
     ./scripts/sync-bindings.sh --android --release
 
-run-android:
+run-android log_file="target/android-logcat.log":
     #!/usr/bin/env bash
     set -euo pipefail
+    LOG_FILE="{{log_file}}"
     just build-android
     (
       cd android
@@ -87,8 +88,14 @@ run-android:
       fi
     fi
     "$ADB_BIN" -s "$ANDROID_SERIAL" wait-for-device
+    mkdir -p "$(dirname "$LOG_FILE")"
+    "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -c
     "$ADB_BIN" -s "$ANDROID_SERIAL" shell am start -n dev.hewig.hwcore/.MainActivity
     echo "Launched dev.hewig.hwcore on device: $ANDROID_SERIAL"
+    echo "Streaming logs from $ANDROID_SERIAL to $LOG_FILE (Ctrl+C to stop)..."
+    "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -v time \
+      | tee "$LOG_FILE" \
+      | rg --line-buffered "HWCoreSample|HWCoreBtleplug|hwcore-rs|hwcore JNI_OnLoad|BLE THP|THP create_channel|trezor_connect|ble_transport|hw_wallet|WF |AndroidRuntime|JNI DETECTED ERROR|Connect failed|Pair only failed|btleplug droidplug"
 
 android-devices:
     #!/usr/bin/env bash
@@ -139,7 +146,7 @@ android-logs:
     "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -c
     echo "Streaming logs from $ANDROID_SERIAL (Ctrl+C to stop)..."
     "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -v time \
-      | rg --line-buffered "HWCoreSample|hwcore create_channel|WF |AndroidRuntime|JNI DETECTED ERROR|Connect failed|Pair only failed"
+      | rg --line-buffered "HWCoreSample|HWCoreBtleplug|hwcore-rs|hwcore JNI_OnLoad|BLE THP|THP create_channel|trezor_connect|ble_transport|hw_wallet|WF |AndroidRuntime|JNI DETECTED ERROR|Connect failed|Pair only failed|btleplug droidplug"
 
 sample:
     just bindings
@@ -192,9 +199,10 @@ run-ios:
     xcrun simctl launch "$SIM_DEVICE_ID" dev.hewig.hwcorekit.sampleiosapp
     open -a Simulator
 
-run-ios-device:
+run-ios-device log_file="target/ios-device-console.log":
     #!/usr/bin/env bash
     set -euo pipefail
+    LOG_FILE="{{log_file}}"
     just bindings
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     if [[ -z "${DEVICE_ID:-}" ]]; then
@@ -209,10 +217,12 @@ run-ios-device:
             exit 1
         fi
     fi
+    mkdir -p "$(dirname "$LOG_FILE")"
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$DEVICE_ID" -allowProvisioningUpdates -derivedDataPath target/DerivedData/HWCoreKitSampleAppiOSDevice build | xcbeautify
     APP_PATH="target/DerivedData/HWCoreKitSampleAppiOSDevice/Build/Products/Debug-iphoneos/HWCoreKitSampleAppiOS.app"
     xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH"
-    xcrun devicectl device process launch --device "$DEVICE_ID" dev.hewig.hwcorekit.sampleiosapp
+    echo "Streaming iOS app console logs to $LOG_FILE (Ctrl+C to stop)..."
+    xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing --console dev.hewig.hwcorekit.sampleiosapp 2>&1 | tee "$LOG_FILE"
 
 test-mac-ui:
     just build-mac-ui

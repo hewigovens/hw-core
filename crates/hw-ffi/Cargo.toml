@@ -28,6 +28,7 @@ hw-wallet = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+tracing = { workspace = true }
 trezor-connect = { workspace = true, features = ["ble"] }
 uniffi = { version = "0.31.0", features = ["tokio"] }
 uuid = { workspace = true }
@@ -42,3 +43,5 @@ uniffi_bindgen = { version = "0.31.0", features = [
 btleplug = { workspace = true }
 jni = "0.19"
 jni-utils = "0.1.1"
+tracing-android = "0.2.0"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

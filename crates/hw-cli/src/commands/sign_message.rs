@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 use hw_wallet::bip32::parse_bip32_path;
-use hw_wallet::chain::{Chain, DEFAULT_BTC_BIP32_PATH, DEFAULT_ETH_BIP32_PATH};
+use hw_wallet::chain::{Chain, DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32_PATH};
 use hw_wallet::eip712::{build_sign_typed_data_request, normalize_typed_data_signature};
 use hw_wallet::message::{build_sign_message_request, normalize_message_signature};
 use tracing::info;
@@ -30,7 +30,7 @@ async fn run_eth(args: SignMessageEthArgs) -> Result<()> {
     let path = args
         .path
         .as_deref()
-        .unwrap_or(DEFAULT_ETH_BIP32_PATH)
+        .unwrap_or(DEFAULT_ETHEREUM_BIP32_PATH)
         .to_string();
     let path_indices = parse_bip32_path(&path)?;
     let request = build_eth_sign_request(&args, path_indices)
@@ -79,7 +79,7 @@ async fn run_eth(args: SignMessageEthArgs) -> Result<()> {
 async fn run_btc(args: SignMessageBtcArgs) -> Result<()> {
     let path = args
         .path
-        .unwrap_or_else(|| DEFAULT_BTC_BIP32_PATH.to_string());
+        .unwrap_or_else(|| DEFAULT_BITCOIN_BIP32_PATH.to_string());
     let path_indices = parse_bip32_path(&path)?;
     let request = build_sign_message_request(
         Chain::Bitcoin,

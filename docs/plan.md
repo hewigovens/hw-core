@@ -70,7 +70,7 @@ Status: IN_PROGRESS
 
 ## Workstream D: Android Sample App
 Owner: Android/FFI
-Status: BLOCKED
+Status: IN_PROGRESS
 
 ### Scope
 - Create a runnable Android sample app using generated Kotlin bindings.
@@ -88,23 +88,21 @@ Status: BLOCKED
 - Added Android sample lifecycle persistence for UI state and logs across activity recreation.
 - Added Android sample UI tab layout (`Main` / `Config` / `Logs`) and improved controls placement.
 - Added Android-side THP create-channel diagnostics (`hwcore create_channel: ...`) and workflow progress events (`CREATE_CHANNEL_ERROR`).
+- Resolved Android THP create-channel stall by fixing Droidplug queueing around subscribed notification reads.
+- Added explicit Android disconnect hard-close fallback and BLE manager reset on sample-app disconnect/reset for reliable teardown.
 
-### Current Blocker (2026-02-22)
-- Real-device Android `connect-ready` stalls at `NEEDS_CHANNEL` / `CREATE_CHANNEL_START` and times out after 60s.
-- Observed app logs repeatedly end at:
-  - `WF PROGRESS/CONNECT_READY_PHASE_NEEDS_CHANNEL`
-  - `WF PROGRESS/CREATE_CHANNEL_START: Creating THP channel`
-  - followed by `Connect failed: Connect-ready flow timed out after 60s`
-- iOS pairing/connect path remains functional, so mismatch is likely Android BLE transport behavior before THP channel response is parsed.
+### Latest Status (2026-02-22)
+- Real-device Android pair/connect/session-ready now succeeds after Droidplug notification/read queue fixes.
+- Address retrieval now succeeds on Android (`GET_ADDRESS_OK` observed on real device).
+- Disconnect path now invokes BLE teardown reliably from sample app (`disconnect` callback path confirmed).
 
 ### Remaining
-- [ ] Isolate Android `create_channel` stall on real device (write path, chunking/MTU assumptions, notification delivery timing, and response parsing).
-- [ ] Correlate Android sample logs with Rust-side create-channel diagnostics to identify whether timeout is on send or receive.
-- [ ] Compare Android BLE session bootstrap sequence with Trezor Suite/native behavior and align where needed.
+- [ ] Add/verify real-device regression coverage for pair/connect/address/sign/disconnect across repeated runs.
+- [ ] Finalize Android reconnect policy and lifecycle UX parity with iOS sample.
 - [ ] Add instrumentation smoke test for app launch and core controls.
 
 ### Exit Criteria
-- A contributor can run Android sample happy path locally from repo docs, including real-device `connect-ready` reaching `SESSION_READY`.
+- A contributor can run Android sample happy path locally from repo docs, including stable pair/connect/address/sign/disconnect on real device.
 
 ## Workstream E: Validation and CI
 Owner: DevEx
@@ -167,7 +165,7 @@ Status: TODO
 - [ ] BTC signing validates both supported and unsupported advanced request paths clearly.
 - [ ] `just test-ios-ui` and `just test-mac-ui` pass.
 - [x] Android sample launch/build smoke passes (`just build-android`, Gradle assembleDebug).
-- [ ] Android sample real-device `connect-ready` reaches `SESSION_READY` without timing out at `CREATE_CHANNEL`.
+- [x] Android sample real-device `connect-ready` reaches `SESSION_READY` without timing out at `CREATE_CHANNEL`.
 
 ## Risks and Dependencies
 - Advanced BTC firmware request coverage remains the biggest protocol gap.

@@ -117,3 +117,50 @@ fn prev_output_out_of_bounds_is_error() {
             .contains("TxOutput request index 2 out of bounds for previous transaction")
     );
 }
+
+#[test]
+fn thp_v2_chunk_reassembly_roundtrip() {
+    let frame = wire::encode_create_channel_request(&[0xAB; 8]);
+    let chunks = chunk_v2_frame(&frame, 12);
+    assert!(chunks.len() > 1, "expected multi-chunk frame for test");
+
+    let mut pending = None;
+    let mut reassembled = None;
+    for chunk in chunks {
+        if let Some(full) = ingest_thp_v2_chunk(&mut pending, &chunk) {
+            reassembled = Some(full);
+        }
+    }
+
+    assert!(pending.is_none(), "reassembly should complete");
+    assert_eq!(reassembled.as_deref(), Some(frame.as_slice()));
+}
+
+#[test]
+fn thp_v2_chunk_reassembly_recovers_after_bad_continuation() {
+    let frame1 = wire::encode_create_channel_request(&[0x11; 8]);
+    let chunks1 = chunk_v2_frame(&frame1, 12);
+    assert!(chunks1.len() > 1, "expected multi-chunk frame for test");
+
+    let frame2 = wire::encode_create_channel_request(&[0x22; 8]);
+    let chunks2 = chunk_v2_frame(&frame2, 12);
+    assert!(chunks2.len() > 1, "expected multi-chunk frame for test");
+
+    let mut pending = None;
+    assert!(ingest_thp_v2_chunk(&mut pending, &chunks1[0]).is_none());
+    assert!(pending.is_some(), "first chunk should start pending state");
+
+    let mut bad = chunks1[1].clone();
+    bad[1] ^= 0x01; // break channel bytes in continuation header
+    assert!(ingest_thp_v2_chunk(&mut pending, &bad).is_none());
+
+    let mut reassembled = None;
+    for chunk in chunks2 {
+        if let Some(full) = ingest_thp_v2_chunk(&mut pending, &chunk) {
+            reassembled = Some(full);
+        }
+    }
+
+    assert!(pending.is_none(), "reassembly should complete");
+    assert_eq!(reassembled.as_deref(), Some(frame2.as_slice()));
+}
