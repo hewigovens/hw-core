@@ -41,5 +41,3 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Tests
         run: cargo test --workspace
-      - name: Lib tests (excluding hw-cli)
-        run: cargo test --lib --workspace --exclude hw-cli
