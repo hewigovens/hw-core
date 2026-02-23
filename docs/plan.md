@@ -1,6 +1,6 @@
 # hw-core Execution Plan
 
-Last updated: 2026-02-22
+Last updated: 2026-02-23
 Status legend: TODO | IN_PROGRESS | DONE | BLOCKED
 
 ## Objective
@@ -116,7 +116,7 @@ Status: IN_PROGRESS
 - [ ] Add CI checks for Apple sample build + UI smoke jobs (where runner availability allows).
 - [x] Add CI checks for Android sample build (`android-ci.yml`).
 - [ ] Keep smoke command references current in `README.md` and `CONTRIBUTING.md`.
-- [ ] Keep this file and `docs/roadmap.md` as the only active planning docs.
+- [x] Keep this file and `docs/roadmap.md` as the only active planning docs (`docs/code-quality-plan.md` removed).
 
 ### Exit Criteria
 - CI and docs reflect what is actually supported and validated.
@@ -129,12 +129,19 @@ Status: IN_PROGRESS
 - Reduce complexity and duplication across CLI, wallet, FFI, and protocol layers.
 - Improve readability, testability, and maintainability without changing external behavior.
 
-### Tasks
+### Completed
+- Merged `thp-codec` into `thp-crypto` (workspace reduced from 10 to 9 crates).
+- Refactored `AGENTS.md` into modular `skills/` directory with topic-specific docs.
+- Moved BLE scan/connect orchestration from `backend_impl.rs` into `ble.rs`, simplifying backend implementation.
+- Removed dead code and unused error variants across `hw-ffi`, `hw-wallet`, `thp-core`.
+- Fixed `decode_failure_reason` to return structured `BackendError` variants for known firmware error codes, preserving retry-loop classification of `DeviceBusy`/`DeviceFirmwareBusy`.
+- Cleaned up clippy warnings and tightened error handling in crypto and transport layers.
+
+### Remaining
 - [ ] Identify and remove duplicated request-building and validation logic across surfaces.
 - [ ] Break large modules/functions into smaller, focused units with clearer boundaries.
 - [ ] Normalize error mapping and naming conventions at crate boundaries.
 - [ ] Add focused regression tests around refactored paths before and after changes.
-- [ ] Document key architecture decisions and ownership boundaries in code comments/docs.
 
 ### Exit Criteria
 - Lower maintenance cost, clearer module ownership, and no behavior regressions in existing flows.
