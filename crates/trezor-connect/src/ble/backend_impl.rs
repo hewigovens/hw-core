@@ -278,7 +278,7 @@ impl ThpBackend for BleBackend {
         let outcome: ResponseOrReason<SelectMethodResponse> = self
             .parse_encrypted_response(parsed, |message_type, payload| {
                 if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_reason(payload)));
+                    return Ok(Err(decode_failure_as_backend_error(payload)));
                 }
                 let message_type_enum = messages::ThpMessageType::try_from(message_type as i32)
                     .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
@@ -288,7 +288,7 @@ impl ThpBackend for BleBackend {
             .await?;
         let response = match outcome {
             Ok(response) => response,
-            Err(reason) => return Err(BackendError::Device(reason)),
+            Err(err) => return Err(err),
         };
 
         Ok(response)
@@ -310,7 +310,7 @@ impl ThpBackend for BleBackend {
         let outcome: ResponseOrReason<CodeEntryChallengeResponse> = self
             .parse_encrypted_response(parsed, |message_type, payload| {
                 if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_reason(payload)));
+                    return Ok(Err(decode_failure_as_backend_error(payload)));
                 }
                 if message_type != messages::ThpMessageType::ThpCodeEntryCpaceTrezor as i32 as u16 {
                     return Err(ProtoMappingError::UnexpectedMessage(message_type));
@@ -321,8 +321,8 @@ impl ThpBackend for BleBackend {
             .await?;
         let response = match outcome {
             Ok(response) => response,
-            Err(reason) => {
-                return Err(BackendError::Device(reason));
+            Err(err) => {
+                return Err(err);
             }
         };
         debug!(
@@ -352,7 +352,7 @@ impl ThpBackend for BleBackend {
                 let encoded = encode_qr_tag(&hashed_hex).map_err(Self::transport_error)?;
                 let response = self.send_and_receive_tag(encoded).await?;
                 let response = match response {
-                    Err(reason) => return Ok(PairingTagResponse::Retry(reason)),
+                    Err(err) => return Ok(PairingTagResponse::Retry(err.to_string())),
                     Ok(response) => response,
                 };
 
@@ -380,7 +380,7 @@ impl ThpBackend for BleBackend {
                 let encoded = encode_nfc_tag(&hashed_hex).map_err(Self::transport_error)?;
                 let response = self.send_and_receive_tag(encoded).await?;
                 let response = match response {
-                    Err(reason) => return Ok(PairingTagResponse::Retry(reason)),
+                    Err(err) => return Ok(PairingTagResponse::Retry(err.to_string())),
                     Ok(response) => response,
                 };
 
@@ -413,7 +413,7 @@ impl ThpBackend for BleBackend {
                     .map_err(Self::transport_error)?;
                 let response = self.send_and_receive_tag(encoded).await?;
                 let response = match response {
-                    Err(reason) => return Ok(PairingTagResponse::Retry(reason)),
+                    Err(err) => return Ok(PairingTagResponse::Retry(err.to_string())),
                     Ok(response) => response,
                 };
 
@@ -499,7 +499,7 @@ impl ThpBackend for BleBackend {
         let outcome: ResponseOrReason<()> = self
             .parse_encrypted_response(parsed, |message_type, payload| {
                 if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_reason(payload)));
+                    return Ok(Err(decode_failure_as_backend_error(payload)));
                 }
                 if message_type != MESSAGE_TYPE_SUCCESS {
                     return Err(ProtoMappingError::UnexpectedMessage(message_type));
@@ -507,9 +507,7 @@ impl ThpBackend for BleBackend {
                 Ok(Ok(()))
             })
             .await?;
-        if let Err(reason) = outcome {
-            return Err(BackendError::Device(reason));
-        }
+        outcome?;
 
         Ok(CreateSessionResponse)
     }
@@ -525,7 +523,7 @@ impl ThpBackend for BleBackend {
         let response_or_reason: ResponseOrReason<GetAddressResponse> = self
             .parse_encrypted_response(parsed, |message_type, payload| {
                 if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_reason(payload)));
+                    return Ok(Err(decode_failure_as_backend_error(payload)));
                 }
                 let response = decode_get_address_response(request.chain, message_type, payload)?;
                 Ok(Ok(response))
@@ -533,7 +531,7 @@ impl ThpBackend for BleBackend {
             .await?;
         let mut response = match response_or_reason {
             Ok(response) => response,
-            Err(reason) => return Err(BackendError::Device(reason)),
+            Err(err) => return Err(err),
         };
 
         if request.include_public_key {
@@ -547,7 +545,7 @@ impl ThpBackend for BleBackend {
             let public_key_or_reason: ResponseOrReason<String> = self
                 .parse_encrypted_response(parsed, |message_type, payload| {
                     if message_type == MESSAGE_TYPE_FAILURE {
-                        return Ok(Err(decode_failure_reason(payload)));
+                        return Ok(Err(decode_failure_as_backend_error(payload)));
                     }
                     let public_key =
                         decode_get_public_key_response(request.chain, message_type, payload)?;
@@ -556,7 +554,7 @@ impl ThpBackend for BleBackend {
                 .await?;
             let public_key = match public_key_or_reason {
                 Ok(public_key) => public_key,
-                Err(reason) => return Err(BackendError::Device(reason)),
+                Err(err) => return Err(err),
             };
             response.public_key = Some(public_key);
         }
@@ -575,7 +573,7 @@ impl ThpBackend for BleBackend {
         let response_or_reason: ResponseOrReason<SignMessageResponse> = self
             .parse_encrypted_response(parsed, |message_type, payload| {
                 if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_reason(payload)));
+                    return Ok(Err(decode_failure_as_backend_error(payload)));
                 }
                 let response = decode_sign_message_response(request.chain, message_type, payload)?;
                 Ok(Ok(response))
@@ -584,7 +582,7 @@ impl ThpBackend for BleBackend {
 
         match response_or_reason {
             Ok(response) => Ok(response),
-            Err(reason) => Err(BackendError::Device(reason)),
+            Err(err) => Err(err),
         }
     }
 
@@ -603,7 +601,7 @@ impl ThpBackend for BleBackend {
                 let response_or_reason: ResponseOrReason<SignTypedDataResponse> = self
                     .parse_encrypted_response(parsed, |message_type, payload| {
                         if message_type == MESSAGE_TYPE_FAILURE {
-                            return Ok(Err(decode_failure_reason(payload)));
+                            return Ok(Err(decode_failure_as_backend_error(payload)));
                         }
                         let response =
                             decode_sign_typed_data_response(chain, message_type, payload)?;
@@ -612,7 +610,7 @@ impl ThpBackend for BleBackend {
                     .await?;
                 match response_or_reason {
                     Ok(response) => Ok(response),
-                    Err(reason) => Err(BackendError::Device(reason)),
+                    Err(err) => Err(err),
                 }
             }
             SignTypedDataPayload::TypedData(typed_data) => loop {

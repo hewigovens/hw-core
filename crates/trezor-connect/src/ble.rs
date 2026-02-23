@@ -131,17 +131,28 @@ fn ingest_thp_v2_chunk(pending: &mut Option<ChunkAccumulator>, chunk: &[u8]) -> 
     None
 }
 
-fn decode_failure_reason(payload: &[u8]) -> String {
+fn decode_failure_as_backend_error(payload: &[u8]) -> BackendError {
     match FailureProto::decode(payload) {
-        Ok(msg) => match (msg.code, msg.message) {
-            (Some(code), Some(message)) if !message.is_empty() => {
-                format!("firmware failure code={code}: {message}")
+        Ok(msg) => {
+            if let Some(code) = msg.code {
+                match code as u8 {
+                    5 => return BackendError::DeviceBusy,
+                    99 => return BackendError::DeviceFirmwareBusy,
+                    _ => {}
+                }
+                let message = msg.message.unwrap_or_default();
+                BackendError::DeviceError {
+                    code: code as u32,
+                    message,
+                }
+            } else {
+                BackendError::Device(
+                    msg.message
+                        .unwrap_or_else(|| "firmware reported failure".into()),
+                )
             }
-            (Some(code), _) => format!("firmware failure code={code}"),
-            (_, Some(message)) if !message.is_empty() => message,
-            _ => "firmware reported failure".to_string(),
-        },
-        Err(_) => "firmware reported failure".to_string(),
+        }
+        Err(_) => BackendError::Device("firmware reported failure".into()),
     }
 }
 
@@ -302,7 +313,7 @@ fn handle_bitcoin_tx_request(
     }
 }
 
-type ResponseOrReason<T> = std::result::Result<T, String>;
+type ResponseOrReason<T> = std::result::Result<T, BackendError>;
 
 pub struct BleBackend {
     inner: TransportBackend,
@@ -686,7 +697,7 @@ impl BleBackend {
         let parsed = self.read_next().await?;
         self.parse_encrypted_response(parsed, |message_type, payload| {
             if message_type == MESSAGE_TYPE_FAILURE {
-                return Ok(Err(decode_failure_reason(payload)));
+                return Ok(Err(decode_failure_as_backend_error(payload)));
             }
             let message_type_enum = messages::ThpMessageType::try_from(message_type as i32)
                 .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
@@ -734,7 +745,7 @@ impl BleBackend {
                 continue;
             }
             if message_type == MESSAGE_TYPE_FAILURE {
-                return Err(BackendError::Device(decode_failure_reason(&payload)));
+                return Err(decode_failure_as_backend_error(&payload));
             }
             return Ok((message_type, payload));
         }
