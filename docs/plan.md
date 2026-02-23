@@ -116,7 +116,7 @@ Status: IN_PROGRESS
 - [ ] Add CI checks for Apple sample build + UI smoke jobs (where runner availability allows).
 - [x] Add CI checks for Android sample build (`android-ci.yml`).
 - [ ] Keep smoke command references current in `README.md` and `CONTRIBUTING.md`.
-- [x] Keep this file and `docs/roadmap.md` as the only active planning docs (`docs/code-quality-plan.md` removed).
+- [x] Keep this file and `docs/roadmap.md` as the only active planning docs.
 
 ### Exit Criteria
 - CI and docs reflect what is actually supported and validated.
