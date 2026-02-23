@@ -50,7 +50,7 @@ impl MockBackend {
             last_sign_typed_data_request: None,
             last_sign_tx_request: None,
             create_session_responses: VecDeque::from([
-                Err(BackendError::Device("device returned error code 99".into())),
+                Err(BackendError::DeviceFirmwareBusy),
                 Ok(CreateSessionResponse),
             ]),
             get_address_response: None,

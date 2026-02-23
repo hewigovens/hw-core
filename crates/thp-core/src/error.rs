@@ -6,7 +6,7 @@ pub enum ThpError {
     #[error("link_error: {0}")]
     Link(anyhow::Error),
     #[error("codec_error: {0}")]
-    Codec(#[from] thp_codec::ThpCodecError),
+    Codec(#[from] thp_crypto::ThpCodecError),
     #[error("crypto_error: {0}")]
     Crypto(#[from] thp_crypto::CryptoError),
     #[error("noise_error: {0}")]

@@ -5,32 +5,34 @@ use num_bigint::{BigInt, Sign};
 use num_traits::{ToPrimitive, Zero};
 use sha2::{Digest, Sha256};
 
-pub type HmacSha256 = Hmac<Sha256>;
+pub(super) type HmacSha256 = Hmac<Sha256>;
 
-pub fn sha256(data: &[u8]) -> [u8; 32] {
+pub(super) fn sha256(data: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(data);
     hasher.finalize().into()
 }
 
-pub fn hash_of_two(first: &[u8], second: &[u8]) -> [u8; 32] {
+pub(super) fn hash_of_two(first: &[u8], second: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(first);
     hasher.update(second);
     hasher.finalize().into()
 }
 
-pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
-    let mut ctx = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC can take any key size");
+pub(super) fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+    // HMAC-SHA256 accepts any key length per RFC 2104
+    let mut ctx = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC accepts any key size");
     ctx.update(data);
     ctx.finalize().into_bytes().into()
 }
 
-pub fn hkdf(chaining_key: &[u8], input: &[u8]) -> ([u8; 32], [u8; 32]) {
+pub(super) fn hkdf(chaining_key: &[u8], input: &[u8]) -> ([u8; 32], [u8; 32]) {
     let temp_key = hmac_sha256(chaining_key, input);
     let output1 = hmac_sha256(&temp_key, &[0x01]);
+    // HMAC-SHA256 accepts any key length per RFC 2104
     let mut ctx =
-        <HmacSha256 as Mac>::new_from_slice(&temp_key).expect("HMAC can take any key size");
+        <HmacSha256 as Mac>::new_from_slice(&temp_key).expect("HMAC accepts any key size");
     ctx.update(&output1);
     ctx.update(&[0x02]);
     let output2 = ctx.finalize().into_bytes().into();
@@ -44,12 +46,12 @@ pub fn get_iv_from_nonce(nonce: u64) -> [u8; 12] {
 }
 
 pub fn aes256gcm_encrypt(
-    key: &[u8],
+    key: &[u8; 32],
     iv: &[u8; 12],
     aad: &[u8],
     plaintext: &[u8],
 ) -> Result<(Vec<u8>, [u8; 16]), AeadError> {
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| AeadError)?;
+    let cipher = Aes256Gcm::new(key.into());
     let nonce = Nonce::from(*iv);
     let mut buffer = plaintext.to_vec();
     let tag: Tag<Aes256Gcm> = cipher.encrypt_in_place_detached(&nonce, aad, &mut buffer)?;
@@ -59,13 +61,13 @@ pub fn aes256gcm_encrypt(
 }
 
 pub fn aes256gcm_decrypt(
-    key: &[u8],
+    key: &[u8; 32],
     iv: &[u8; 12],
     aad: &[u8],
     ciphertext: &[u8],
     tag: &[u8; 16],
 ) -> Result<Vec<u8>, AeadError> {
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| AeadError)?;
+    let cipher = Aes256Gcm::new(key.into());
     let nonce = Nonce::from(*iv);
     let mut buffer = ciphertext.to_vec();
     let tag_array = Tag::<Aes256Gcm>::from(*tag);
@@ -73,7 +75,7 @@ pub fn aes256gcm_decrypt(
     Ok(buffer)
 }
 
-pub fn big_endian_bytes_to_bigint(bytes: &[u8]) -> BigInt {
+pub(super) fn big_endian_bytes_to_bigint(bytes: &[u8]) -> BigInt {
     let mut result = BigInt::zero();
     for &b in bytes {
         result = (result << 8) + BigInt::from(b);
@@ -81,7 +83,7 @@ pub fn big_endian_bytes_to_bigint(bytes: &[u8]) -> BigInt {
     result
 }
 
-pub fn little_endian_bytes_to_bigint(bytes: &[u8]) -> BigInt {
+pub(super) fn little_endian_bytes_to_bigint(bytes: &[u8]) -> BigInt {
     let mut result = BigInt::zero();
     for (i, &b) in bytes.iter().enumerate() {
         let term = BigInt::from(b) << (8 * i);
@@ -90,20 +92,24 @@ pub fn little_endian_bytes_to_bigint(bytes: &[u8]) -> BigInt {
     result
 }
 
-pub fn bigint_to_little_endian_bytes(mut value: BigInt, length: usize) -> Vec<u8> {
+pub(super) fn bigint_to_little_endian_bytes(
+    mut value: BigInt,
+    length: usize,
+) -> Result<Vec<u8>, &'static str> {
     if value.sign() == Sign::Minus {
-        panic!("negative value not supported");
+        return Err("negative value not supported");
     }
     let mut out = vec![0u8; length];
     for byte in out.iter_mut() {
+        // SAFETY: & 0xFF guarantees value in [0, 255]
         let b = (&value & BigInt::from(0xffu8)).to_u8().unwrap();
         *byte = b;
         value >>= 8;
     }
-    out
+    Ok(out)
 }
 
-pub fn mod_reduce(value: BigInt, modulus: &BigInt) -> BigInt {
+pub(super) fn mod_reduce(value: BigInt, modulus: &BigInt) -> BigInt {
     let mut v = value % modulus;
     if v.sign() == Sign::Minus {
         v += modulus;
@@ -111,6 +117,6 @@ pub fn mod_reduce(value: BigInt, modulus: &BigInt) -> BigInt {
     v
 }
 
-pub fn pow_mod(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
+pub(super) fn pow_mod(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
     base.modpow(exp, modulus)
 }

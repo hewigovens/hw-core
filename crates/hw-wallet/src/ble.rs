@@ -365,10 +365,7 @@ where
             }
             Err(_) => {
                 return Err(WalletError::Workflow(ThpWorkflowError::Backend(
-                    BackendError::Transport(format!(
-                        "timeout waiting for BLE response (create-channel attempt timeout {:?})",
-                        CREATE_CHANNEL_ATTEMPT_TIMEOUT
-                    )),
+                    BackendError::TransportTimeout,
                 )));
             }
             Ok(Ok(())) => {
@@ -449,50 +446,39 @@ where
 }
 
 fn is_transport_timeout(error: &ThpWorkflowError) -> bool {
-    match error {
-        ThpWorkflowError::Backend(BackendError::Transport(msg)) => {
-            msg.contains("timeout waiting for BLE response")
-        }
-        _ => false,
-    }
+    matches!(
+        error,
+        ThpWorkflowError::Backend(BackendError::TransportTimeout)
+    )
 }
 
 fn is_retryable_handshake_error(error: &ThpWorkflowError) -> bool {
-    match error {
-        ThpWorkflowError::Backend(BackendError::Device(message)) => {
-            message.contains("error code 5")
-                || message.contains("ThpTransportBusy")
-                || message.contains("transport busy")
-        }
-        _ => false,
-    }
+    matches!(
+        error,
+        ThpWorkflowError::Backend(BackendError::DeviceBusy | BackendError::TransportBusy)
+    )
 }
 
 fn is_retryable_session_error(error: &ThpWorkflowError) -> bool {
-    match error {
-        ThpWorkflowError::Backend(BackendError::Device(message)) => {
-            message.contains("error code 5")
-                || message.contains("error code 99")
-                || message.contains("ThpTransportBusy")
-                || message.contains("transport busy")
-                || message.contains("session requires connection confirmation")
-        }
-        _ => false,
-    }
+    matches!(
+        error,
+        ThpWorkflowError::Backend(
+            BackendError::DeviceBusy
+                | BackendError::DeviceFirmwareBusy
+                | BackendError::TransportBusy
+                | BackendError::SessionConfirmationRequired
+        )
+    )
 }
 
 fn normalize_session_error(error: ThpWorkflowError) -> WalletError {
     match error {
-        ThpWorkflowError::Backend(BackendError::Device(message))
-            if message.contains("error code 99") =>
-        {
+        ThpWorkflowError::Backend(BackendError::DeviceFirmwareBusy) => {
             WalletError::Workflow(ThpWorkflowError::Backend(BackendError::Device(
                 "device reported firmware busy (error code 99). Ensure the Trezor screen is unlocked and idle, then retry.".into(),
             )))
         }
-        ThpWorkflowError::Backend(BackendError::Device(message))
-            if message.contains("error code 5") =>
-        {
+        ThpWorkflowError::Backend(BackendError::DeviceBusy) => {
             WalletError::Workflow(ThpWorkflowError::Backend(BackendError::Device(
                 "device is not ready yet (error code 5). Wait for the device prompt/unlock and retry.".into(),
             )))

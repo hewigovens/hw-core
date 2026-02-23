@@ -46,9 +46,7 @@ impl ThpBackend for BleBackend {
                 }
             }
             WireResponse::Error(code) => {
-                return Err(BackendError::Device(format!(
-                    "device returned error code {code}"
-                )));
+                return Err(Self::device_error_from_code(code));
             }
             other => {
                 return Err(BackendError::Transport(format!(
@@ -111,9 +109,7 @@ impl ThpBackend for BleBackend {
                 (trezor_ephemeral_pubkey, trezor_encrypted_static_pubkey, tag)
             }
             WireResponse::Error(code) => {
-                return Err(BackendError::Device(format!(
-                    "device returned error code {code}"
-                )));
+                return Err(Self::device_error_from_code(code));
             }
             other => {
                 return Err(BackendError::Transport(format!(
@@ -129,7 +125,10 @@ impl ThpBackend for BleBackend {
                 host_pairing_credential,
             };
             let mut buf = Vec::new();
-            message.encode(&mut buf).expect("encode handshake payload");
+            // prost encode to Vec<u8> is infallible (no I/O, only OOM which panics anyway)
+            message
+                .encode(&mut buf)
+                .expect("encode to Vec is infallible");
             buf
         };
 
@@ -221,9 +220,7 @@ impl ThpBackend for BleBackend {
                 plaintext[0]
             }
             WireResponse::Error(code) => {
-                return Err(BackendError::Device(format!(
-                    "device returned error code {code}"
-                )));
+                return Err(Self::device_error_from_code(code));
             }
             other => {
                 return Err(BackendError::Transport(format!(
@@ -350,27 +347,11 @@ impl ThpBackend for BleBackend {
                 let mut hasher = Sha256::new();
                 hasher.update(&handshake_hash);
                 hasher.update(tag_bytes);
-                let hashed = hasher.finalize();
-                let hashed_hex = hex::encode(hashed);
+                let hashed_hex = hex::encode(hasher.finalize());
 
                 let encoded = encode_qr_tag(&hashed_hex).map_err(Self::transport_error)?;
-                self.send_encrypted_request(encoded).await?;
-
-                let parsed = self.read_next().await?;
-                let outcome: ResponseOrReason<crate::thp::proto::ParsedTagResponse> = self
-                    .parse_encrypted_response(parsed, |message_type, payload| {
-                        if message_type == MESSAGE_TYPE_FAILURE {
-                            return Ok(Err(decode_failure_reason(payload)));
-                        }
-                        let message_type_enum =
-                            messages::ThpMessageType::try_from(message_type as i32)
-                                .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
-                        let parsed = decode_tag_response(message_type_enum, payload)?;
-                        Ok(Ok(parsed))
-                    })
-                    .await?;
-
-                let response = match outcome {
+                let response = self.send_and_receive_tag(encoded).await?;
+                let response = match response {
                     Err(reason) => return Ok(PairingTagResponse::Retry(reason)),
                     Ok(response) => response,
                 };
@@ -394,27 +375,11 @@ impl ThpBackend for BleBackend {
                 hasher.update([messages::ThpPairingMethod::Nfc as u8]);
                 hasher.update(&handshake_hash);
                 hasher.update(&tag_bytes);
-                let hashed = hasher.finalize();
-                let hashed_hex = hex::encode(hashed);
+                let hashed_hex = hex::encode(hasher.finalize());
 
                 let encoded = encode_nfc_tag(&hashed_hex).map_err(Self::transport_error)?;
-                self.send_encrypted_request(encoded).await?;
-
-                let parsed = self.read_next().await?;
-                let outcome: ResponseOrReason<crate::thp::proto::ParsedTagResponse> = self
-                    .parse_encrypted_response(parsed, |message_type, payload| {
-                        if message_type == MESSAGE_TYPE_FAILURE {
-                            return Ok(Err(decode_failure_reason(payload)));
-                        }
-                        let message_type_enum =
-                            messages::ThpMessageType::try_from(message_type as i32)
-                                .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
-                        let parsed = decode_tag_response(message_type_enum, payload)?;
-                        Ok(Ok(parsed))
-                    })
-                    .await?;
-
-                let response = match outcome {
+                let response = self.send_and_receive_tag(encoded).await?;
+                let response = match response {
                     Err(reason) => return Ok(PairingTagResponse::Retry(reason)),
                     Ok(response) => response,
                 };
@@ -446,23 +411,8 @@ impl ThpBackend for BleBackend {
 
                 let encoded = encode_code_entry_tag(&keys.public_key, &shared_secret)
                     .map_err(Self::transport_error)?;
-                self.send_encrypted_request(encoded).await?;
-
-                let parsed = self.read_next().await?;
-                let outcome: ResponseOrReason<crate::thp::proto::ParsedTagResponse> = self
-                    .parse_encrypted_response(parsed, |message_type, payload| {
-                        if message_type == MESSAGE_TYPE_FAILURE {
-                            return Ok(Err(decode_failure_reason(payload)));
-                        }
-                        let message_type_enum =
-                            messages::ThpMessageType::try_from(message_type as i32)
-                                .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
-                        let parsed = decode_tag_response(message_type_enum, payload)?;
-                        Ok(Ok(parsed))
-                    })
-                    .await?;
-
-                let response = match outcome {
+                let response = self.send_and_receive_tag(encoded).await?;
+                let response = match response {
                     Err(reason) => return Ok(PairingTagResponse::Retry(reason)),
                     Ok(response) => response,
                 };
@@ -666,46 +616,7 @@ impl ThpBackend for BleBackend {
                 }
             }
             SignTypedDataPayload::TypedData(typed_data) => loop {
-                let parsed = self.read_next().await?;
-                if self.should_ack(&parsed.header) {
-                    self.send_ack(&parsed.header).await?;
-                }
-
-                let (message_type, payload) = match parsed.response {
-                    WireResponse::Protobuf { payload } => {
-                        let result = self.decrypt_device_message(&payload)?;
-                        self.state.on_receive(parsed.header.magic);
-                        result
-                    }
-                    WireResponse::Error(code) => {
-                        return Err(BackendError::Device(format!(
-                            "device returned error code {code}"
-                        )));
-                    }
-                    other => {
-                        return Err(BackendError::Transport(format!(
-                            "unexpected response type {:?}",
-                            other
-                        )));
-                    }
-                };
-
-                debug!(
-                    "BLE THP sign_typed_data RX message_type={} ({}) payload_len={}",
-                    message_type,
-                    thp_message_name(message_type),
-                    payload.len()
-                );
-
-                if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
-                    debug!("BLE THP sign_typed_data: ButtonRequest; sending ButtonAck");
-                    self.send_button_ack().await?;
-                    continue;
-                }
-
-                if message_type == MESSAGE_TYPE_FAILURE {
-                    return Err(BackendError::Device(decode_failure_reason(&payload)));
-                }
+                let (message_type, payload) = self.read_signing_message().await?;
 
                 match decode_sign_typed_data_message(chain, message_type, &payload)
                     .map_err(Self::transport_error)?
@@ -743,46 +654,7 @@ impl ThpBackend for BleBackend {
                 let mut data_offset = initial_chunk_len;
 
                 loop {
-                    let parsed = self.read_next().await?;
-                    if self.should_ack(&parsed.header) {
-                        self.send_ack(&parsed.header).await?;
-                    }
-
-                    let (message_type, payload) = match parsed.response {
-                        WireResponse::Protobuf { payload } => {
-                            let result = self.decrypt_device_message(&payload)?;
-                            self.state.on_receive(parsed.header.magic);
-                            result
-                        }
-                        WireResponse::Error(code) => {
-                            return Err(BackendError::Device(format!(
-                                "device returned error code {code}"
-                            )));
-                        }
-                        other => {
-                            return Err(BackendError::Transport(format!(
-                                "unexpected response type {:?}",
-                                other
-                            )));
-                        }
-                    };
-
-                    debug!(
-                        "BLE THP sign_tx RX message_type={} ({}) payload_len={}",
-                        message_type,
-                        thp_message_name(message_type),
-                        payload.len()
-                    );
-
-                    if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
-                        debug!("BLE THP sign_tx: ButtonRequest; sending ButtonAck");
-                        self.send_button_ack().await?;
-                        continue;
-                    }
-
-                    if message_type == MESSAGE_TYPE_FAILURE {
-                        return Err(BackendError::Device(decode_failure_reason(&payload)));
-                    }
+                    let (message_type, payload) = self.read_signing_message().await?;
 
                     if message_type != MESSAGE_TYPE_ETHEREUM_TX_REQUEST {
                         return Err(BackendError::Transport(format!(
@@ -825,47 +697,8 @@ impl ThpBackend for BleBackend {
                     ));
                 }
             }
-            Chain::Solana => loop {
-                let parsed = self.read_next().await?;
-                if self.should_ack(&parsed.header) {
-                    self.send_ack(&parsed.header).await?;
-                }
-
-                let (message_type, payload) = match parsed.response {
-                    WireResponse::Protobuf { payload } => {
-                        let result = self.decrypt_device_message(&payload)?;
-                        self.state.on_receive(parsed.header.magic);
-                        result
-                    }
-                    WireResponse::Error(code) => {
-                        return Err(BackendError::Device(format!(
-                            "device returned error code {code}"
-                        )));
-                    }
-                    other => {
-                        return Err(BackendError::Transport(format!(
-                            "unexpected response type {:?}",
-                            other
-                        )));
-                    }
-                };
-
-                debug!(
-                    "BLE THP sign_tx RX message_type={} ({}) payload_len={}",
-                    message_type,
-                    thp_message_name(message_type),
-                    payload.len()
-                );
-
-                if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
-                    debug!("BLE THP sign_tx: ButtonRequest; sending ButtonAck");
-                    self.send_button_ack().await?;
-                    continue;
-                }
-
-                if message_type == MESSAGE_TYPE_FAILURE {
-                    return Err(BackendError::Device(decode_failure_reason(&payload)));
-                }
+            Chain::Solana => {
+                let (message_type, payload) = self.read_signing_message().await?;
 
                 if message_type != MESSAGE_TYPE_SOLANA_TX_SIGNATURE {
                     return Err(BackendError::Transport(format!(
@@ -877,13 +710,13 @@ impl ThpBackend for BleBackend {
                 let signature = decode_solana_tx_signature(message_type, &payload)
                     .map_err(Self::transport_error)?;
                 self.state.set_expected_responses(&[]);
-                return Ok(SignTxResponse {
+                Ok(SignTxResponse {
                     chain,
                     v: 0,
                     r: signature,
                     s: Vec::new(),
-                });
-            },
+                })
+            }
             Chain::Bitcoin => {
                 let btc = request.btc.clone().ok_or_else(|| {
                     BackendError::Transport("missing Bitcoin signing payload".into())
@@ -892,46 +725,7 @@ impl ThpBackend for BleBackend {
                 let mut latest_signature: Option<Vec<u8>> = None;
 
                 loop {
-                    let parsed = self.read_next().await?;
-                    if self.should_ack(&parsed.header) {
-                        self.send_ack(&parsed.header).await?;
-                    }
-
-                    let (message_type, payload) = match parsed.response {
-                        WireResponse::Protobuf { payload } => {
-                            let result = self.decrypt_device_message(&payload)?;
-                            self.state.on_receive(parsed.header.magic);
-                            result
-                        }
-                        WireResponse::Error(code) => {
-                            return Err(BackendError::Device(format!(
-                                "device returned error code {code}"
-                            )));
-                        }
-                        other => {
-                            return Err(BackendError::Transport(format!(
-                                "unexpected response type {:?}",
-                                other
-                            )));
-                        }
-                    };
-
-                    debug!(
-                        "BLE THP sign_tx RX message_type={} ({}) payload_len={}",
-                        message_type,
-                        thp_message_name(message_type),
-                        payload.len()
-                    );
-
-                    if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
-                        debug!("BLE THP sign_tx: ButtonRequest; sending ButtonAck");
-                        self.send_button_ack().await?;
-                        continue;
-                    }
-
-                    if message_type == MESSAGE_TYPE_FAILURE {
-                        return Err(BackendError::Device(decode_failure_reason(&payload)));
-                    }
+                    let (message_type, payload) = self.read_signing_message().await?;
 
                     if message_type != MESSAGE_TYPE_BITCOIN_TX_REQUEST {
                         return Err(BackendError::Transport(format!(
@@ -960,7 +754,6 @@ impl ThpBackend for BleBackend {
                             });
                         }
                         BitcoinTxRequestHandling::Continue => {
-                            // Some responses carry only serialized/signature progress.
                             continue;
                         }
                     }

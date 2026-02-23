@@ -1,13 +1,13 @@
 use std::{
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicU32, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use snow::Builder as NoiseBuilder;
-use thp_codec::{ThpFrame, ThpFrameDecoder, encode_frame};
+use thp_crypto::{ThpFrame, ThpFrameDecoder, encode_frame};
 use tokio::{sync::Mutex, time};
 use tracing::debug;
 
@@ -62,7 +62,14 @@ impl ThpSession {
             app_id,
         } = opts;
 
-        let params = "Noise_XX_25519_AESGCM_SHA256".parse().unwrap();
+        static NOISE_PARAMS: OnceLock<snow::params::NoiseParams> = OnceLock::new();
+        let params = NOISE_PARAMS
+            .get_or_init(|| {
+                "Noise_XX_25519_AESGCM_SHA256"
+                    .parse()
+                    .expect("compile-time constant")
+            })
+            .clone();
         let builder = NoiseBuilder::new(params);
         let host_keys = builder.generate_keypair()?;
         let mut noise = builder

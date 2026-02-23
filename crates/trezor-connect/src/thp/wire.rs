@@ -372,6 +372,7 @@ pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> 
             if message.payload.len() < 8 + 2 {
                 return Err(WireError::ShortPacket);
             }
+            // SAFETY: Length checked above (len >= 10)
             let nonce: [u8; 8] = message.payload[0..8].try_into().unwrap();
             let channel = u16::from_be_bytes(message.payload[8..10].try_into().unwrap());
             let props_buf = &message.payload[10..];
@@ -394,13 +395,10 @@ pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> 
             if message.payload.len() < 32 + 48 + 16 {
                 return Err(WireError::ShortPacket);
             }
-            let trezor_ephemeral_pubkey = message.payload[0..32]
-                .try_into()
-                .expect("slice length checked");
+            // SAFETY: Length checked above (len >= 96)
+            let trezor_ephemeral_pubkey = message.payload[0..32].try_into().unwrap();
             let trezor_encrypted_static_pubkey = message.payload[32..32 + 48].to_vec();
-            let tag = message.payload[32 + 48..32 + 48 + 16]
-                .try_into()
-                .expect("slice length checked");
+            let tag = message.payload[32 + 48..32 + 48 + 16].try_into().unwrap();
             WireResponse::HandshakeInit {
                 trezor_ephemeral_pubkey,
                 trezor_encrypted_static_pubkey,
@@ -411,9 +409,8 @@ pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> 
             if message.payload.len() < 1 + 16 {
                 return Err(WireError::ShortPacket);
             }
-            let tag = message.payload[1..1 + 16]
-                .try_into()
-                .expect("slice length checked");
+            // SAFETY: Length checked above (len >= 17)
+            let tag = message.payload[1..1 + 16].try_into().unwrap();
             WireResponse::HandshakeCompletion {
                 encrypted_state: message.payload[0],
                 tag,

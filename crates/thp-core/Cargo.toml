@@ -12,7 +12,6 @@ parking_lot = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time", "sync"] }
 tracing = { workspace = true }
-thp-codec = { workspace = true }
 thp-crypto = { workspace = true }
 snow = "0.10.0"
 

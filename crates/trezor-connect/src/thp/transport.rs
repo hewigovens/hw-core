@@ -10,6 +10,8 @@ use thp_core::{HandshakeEvent, HandshakeOpts, ThpError, ThpSession};
 pub enum TransportError {
     #[error("handshake failed: {0}")]
     Handshake(#[from] ThpError),
+    #[error("session not established")]
+    NoSession,
 }
 
 /// Maintains a THP session lifecycle for a given link.
@@ -48,7 +50,7 @@ impl ThpTransport {
             let session = ThpSession::handshake(link, opts, on_event).await?;
             self.session = Some(session);
         }
-        Ok(self.session.as_ref().expect("session initialized"))
+        self.session.as_ref().ok_or(TransportError::NoSession)
     }
 
     pub async fn request<L>(
@@ -60,10 +62,7 @@ impl ThpTransport {
     where
         L: Link + Send,
     {
-        let session = self
-            .session
-            .as_ref()
-            .expect("session must be established before request");
+        let session = self.session.as_ref().ok_or(TransportError::NoSession)?;
         let response = session.request(link, payload, timeout).await?;
         Ok(response)
     }
