@@ -17,10 +17,12 @@ use super::types::{
 
 pub use bitcoin::{
     BitcoinTxRequestType, DecodedBitcoinTxRequest, MESSAGE_TYPE_BITCOIN_SIGN_TX,
-    MESSAGE_TYPE_BITCOIN_TX_ACK, MESSAGE_TYPE_BITCOIN_TX_REQUEST, decode_bitcoin_tx_request,
-    encode_bitcoin_tx_ack_input, encode_bitcoin_tx_ack_meta, encode_bitcoin_tx_ack_output,
-    encode_bitcoin_tx_ack_prev_extra_data, encode_bitcoin_tx_ack_prev_input,
-    encode_bitcoin_tx_ack_prev_meta, encode_bitcoin_tx_ack_prev_output,
+    MESSAGE_TYPE_BITCOIN_TX_ACK, MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST,
+    MESSAGE_TYPE_BITCOIN_TX_REQUEST, decode_bitcoin_tx_request, encode_bitcoin_tx_ack_input,
+    encode_bitcoin_tx_ack_meta, encode_bitcoin_tx_ack_output,
+    encode_bitcoin_tx_ack_payment_request, encode_bitcoin_tx_ack_prev_extra_data,
+    encode_bitcoin_tx_ack_prev_input, encode_bitcoin_tx_ack_prev_meta,
+    encode_bitcoin_tx_ack_prev_output,
 };
 pub use ethereum::{
     DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE, EthereumDataTypeProto, EthereumFieldType,
@@ -406,6 +408,7 @@ mod tests {
             inputs: Vec::new(),
             outputs: Vec::new(),
             ref_txs: Vec::new(),
+            payment_reqs: Vec::new(),
             chunkify: false,
         });
         let sol = SignTxRequest::solana(

@@ -39,6 +39,7 @@ fn sample_btc_sign_tx() -> crate::thp::types::BtcSignTx {
             expiry: None,
             branch_id: None,
         }],
+        payment_reqs: Vec::new(),
         chunkify: false,
     }
 }
@@ -134,6 +135,159 @@ fn thp_v2_chunk_reassembly_roundtrip() {
 
     assert!(pending.is_none(), "reassembly should complete");
     assert_eq!(reassembled.as_deref(), Some(frame.as_slice()));
+}
+
+// ── Workstream A: TXORIGINPUT / TXORIGOUTPUT / TXPAYMENTREQ ─────────────────
+
+#[test]
+fn handles_tx_orig_input_request() {
+    // TXORIGINPUT returns the current tx's input at the given index (no tx_hash)
+    let btc = sample_btc_sign_tx();
+    let ref_txs_by_hash = build_ref_txs_index(&btc);
+    let tx_request = DecodedBitcoinTxRequest {
+        request_type: Some(BitcoinTxRequestType::TxOrigInput),
+        request_index: Some(0),
+        tx_hash: None,
+        extra_data_len: None,
+        extra_data_offset: None,
+        signature_index: None,
+        signature: None,
+        serialized_tx: None,
+    };
+
+    let result = handle_bitcoin_tx_request(&btc, &ref_txs_by_hash, &tx_request).unwrap();
+    let BitcoinTxRequestHandling::Ack(ack) = result else {
+        panic!("expected ack");
+    };
+    assert_eq!(ack.message_type, crate::thp::proto::MESSAGE_TYPE_BITCOIN_TX_ACK);
+}
+
+#[test]
+fn handles_tx_orig_output_request() {
+    // TXORIGOUTPUT returns the current tx's output at the given index (no tx_hash)
+    let btc = sample_btc_sign_tx();
+    let ref_txs_by_hash = build_ref_txs_index(&btc);
+    let tx_request = DecodedBitcoinTxRequest {
+        request_type: Some(BitcoinTxRequestType::TxOrigOutput),
+        request_index: Some(0),
+        tx_hash: None,
+        extra_data_len: None,
+        extra_data_offset: None,
+        signature_index: None,
+        signature: None,
+        serialized_tx: None,
+    };
+
+    let result = handle_bitcoin_tx_request(&btc, &ref_txs_by_hash, &tx_request).unwrap();
+    let BitcoinTxRequestHandling::Ack(ack) = result else {
+        panic!("expected ack");
+    };
+    assert_eq!(ack.message_type, crate::thp::proto::MESSAGE_TYPE_BITCOIN_TX_ACK);
+}
+
+#[test]
+fn tx_orig_input_out_of_bounds_is_error() {
+    let btc = sample_btc_sign_tx();
+    let ref_txs_by_hash = build_ref_txs_index(&btc);
+    let tx_request = DecodedBitcoinTxRequest {
+        request_type: Some(BitcoinTxRequestType::TxOrigInput),
+        request_index: Some(99), // out of bounds
+        tx_hash: None,
+        extra_data_len: None,
+        extra_data_offset: None,
+        signature_index: None,
+        signature: None,
+        serialized_tx: None,
+    };
+
+    let err = handle_bitcoin_tx_request(&btc, &ref_txs_by_hash, &tx_request).unwrap_err();
+    assert!(
+        err.to_string().contains("TxOrigInput request index 99 out of bounds"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn tx_orig_output_out_of_bounds_is_error() {
+    let btc = sample_btc_sign_tx();
+    let ref_txs_by_hash = build_ref_txs_index(&btc);
+    let tx_request = DecodedBitcoinTxRequest {
+        request_type: Some(BitcoinTxRequestType::TxOrigOutput),
+        request_index: Some(99), // out of bounds
+        tx_hash: None,
+        extra_data_len: None,
+        extra_data_offset: None,
+        signature_index: None,
+        signature: None,
+        serialized_tx: None,
+    };
+
+    let err = handle_bitcoin_tx_request(&btc, &ref_txs_by_hash, &tx_request).unwrap_err();
+    assert!(
+        err.to_string().contains("TxOrigOutput request index 99 out of bounds"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn handles_tx_payment_req_request() {
+    use crate::thp::types::{BtcPaymentRequest, BtcPaymentRequestMemo};
+
+    let mut btc = sample_btc_sign_tx();
+    btc.payment_reqs = vec![BtcPaymentRequest {
+        nonce: Some(vec![0x01, 0x02, 0x03]),
+        recipient_name: Some("Test Merchant".to_string()),
+        memos: vec![BtcPaymentRequestMemo::Text {
+            text: "Invoice #42".to_string(),
+        }],
+        amount: Some(900),
+        signature: Some(vec![0xde, 0xad]),
+    }];
+
+    let ref_txs_by_hash = build_ref_txs_index(&btc);
+    let tx_request = DecodedBitcoinTxRequest {
+        request_type: Some(BitcoinTxRequestType::TxPaymentReq),
+        request_index: Some(0),
+        tx_hash: None,
+        extra_data_len: None,
+        extra_data_offset: None,
+        signature_index: None,
+        signature: None,
+        serialized_tx: None,
+    };
+
+    let result = handle_bitcoin_tx_request(&btc, &ref_txs_by_hash, &tx_request).unwrap();
+    let BitcoinTxRequestHandling::Ack(ack) = result else {
+        panic!("expected ack");
+    };
+    assert_eq!(
+        ack.message_type,
+        crate::thp::proto::MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST
+    );
+}
+
+#[test]
+fn tx_payment_req_missing_entry_is_error() {
+    // No payment_reqs in BtcSignTx, firmware asks for index 0 → error
+    let btc = sample_btc_sign_tx(); // payment_reqs: Vec::new()
+    let ref_txs_by_hash = build_ref_txs_index(&btc);
+    let tx_request = DecodedBitcoinTxRequest {
+        request_type: Some(BitcoinTxRequestType::TxPaymentReq),
+        request_index: Some(0),
+        tx_hash: None,
+        extra_data_len: None,
+        extra_data_offset: None,
+        signature_index: None,
+        signature: None,
+        serialized_tx: None,
+    };
+
+    let err = handle_bitcoin_tx_request(&btc, &ref_txs_by_hash, &tx_request).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("TxPaymentReq request index 0 out of bounds"),
+        "unexpected error: {err}"
+    );
 }
 
 #[test]

@@ -5,9 +5,9 @@ use prost::Message;
 
 use super::{EncodedMessage, ProtoMappingError};
 use crate::thp::types::{
-    BtcInputScriptType, BtcOutputScriptType, BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput,
-    BtcSignOutput, GetAddressRequest, GetAddressResponse, SignMessageRequest, SignMessageResponse,
-    SignTxRequest,
+    BtcInputScriptType, BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestMemo, BtcRefTx,
+    BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput, GetAddressRequest,
+    GetAddressResponse, SignMessageRequest, SignMessageResponse, SignTxRequest,
 };
 
 const MESSAGE_TYPE_BITCOIN_GET_ADDRESS: u16 = 29;
@@ -19,6 +19,8 @@ pub const MESSAGE_TYPE_BITCOIN_MESSAGE_SIGNATURE: u16 = 40;
 pub const MESSAGE_TYPE_BITCOIN_SIGN_TX: u16 = 15;
 pub const MESSAGE_TYPE_BITCOIN_TX_REQUEST: u16 = 21;
 pub const MESSAGE_TYPE_BITCOIN_TX_ACK: u16 = 22;
+/// `TxAckPaymentRequest` — sent in response to a `TXPAYMENTREQ` firmware request.
+pub const MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST: u16 = 37;
 
 #[derive(Clone, PartialEq, Message)]
 struct BitcoinGetAddress {
@@ -287,6 +289,60 @@ enum BitcoinOutputScriptTypeProto {
     PayToP2ShWitness = 5,
     PayToTaproot = 6,
 }
+
+// ── TxAckPaymentRequest proto structs ────────────────────────────────────────
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoTextMemo {
+    #[prost(string, optional, tag = "1")]
+    text: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoRefundMemo {
+    #[prost(string, optional, tag = "1")]
+    address: Option<String>,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    mac: Option<Vec<u8>>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoCoinPurchaseMemo {
+    #[prost(uint32, optional, tag = "1")]
+    coin_type: Option<u32>,
+    #[prost(string, optional, tag = "2")]
+    amount: Option<String>,
+    #[prost(string, optional, tag = "3")]
+    address: Option<String>,
+    #[prost(bytes = "vec", optional, tag = "4")]
+    mac: Option<Vec<u8>>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoPaymentRequestMemo {
+    #[prost(message, optional, tag = "1")]
+    text_memo: Option<ProtoTextMemo>,
+    #[prost(message, optional, tag = "2")]
+    refund_memo: Option<ProtoRefundMemo>,
+    #[prost(message, optional, tag = "3")]
+    coin_purchase_memo: Option<ProtoCoinPurchaseMemo>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoTxAckPaymentRequest {
+    #[prost(bytes = "vec", optional, tag = "1")]
+    nonce: Option<Vec<u8>>,
+    #[prost(string, optional, tag = "2")]
+    recipient_name: Option<String>,
+    #[prost(message, repeated, tag = "3")]
+    memos: Vec<ProtoPaymentRequestMemo>,
+    #[prost(uint64, optional, tag = "4")]
+    amount: Option<u64>,
+    #[prost(bytes = "vec", optional, tag = "5")]
+    signature: Option<Vec<u8>>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 pub(super) fn encode_get_address_request(
     request: &GetAddressRequest,
@@ -744,6 +800,67 @@ pub fn encode_bitcoin_tx_ack_prev_extra_data(
     })
 }
 
+/// Encodes a `TxAckPaymentRequest` response to a firmware `TXPAYMENTREQ` request.
+///
+/// The firmware sends `TxRequest { type: TXPAYMENTREQ, details.request_index: N }` and
+/// expects the host to reply with the payment-request data at index N from the caller-
+/// supplied list.  Most signing flows have no payment requests; this encoder is only
+/// invoked when the firmware explicitly asks for one.
+pub fn encode_bitcoin_tx_ack_payment_request(
+    pr: &BtcPaymentRequest,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    let memos: Vec<ProtoPaymentRequestMemo> = pr
+        .memos
+        .iter()
+        .map(|m| match m {
+            BtcPaymentRequestMemo::Text { text } => ProtoPaymentRequestMemo {
+                text_memo: Some(ProtoTextMemo {
+                    text: Some(text.clone()),
+                }),
+                refund_memo: None,
+                coin_purchase_memo: None,
+            },
+            BtcPaymentRequestMemo::Refund { address, mac } => ProtoPaymentRequestMemo {
+                text_memo: None,
+                refund_memo: Some(ProtoRefundMemo {
+                    address: Some(address.clone()),
+                    mac: Some(mac.clone()),
+                }),
+                coin_purchase_memo: None,
+            },
+            BtcPaymentRequestMemo::CoinPurchase {
+                coin_type,
+                amount,
+                address,
+                mac,
+            } => ProtoPaymentRequestMemo {
+                text_memo: None,
+                refund_memo: None,
+                coin_purchase_memo: Some(ProtoCoinPurchaseMemo {
+                    coin_type: Some(*coin_type),
+                    amount: Some(amount.clone()),
+                    address: Some(address.clone()),
+                    mac: Some(mac.clone()),
+                }),
+            },
+        })
+        .collect();
+
+    let message = ProtoTxAckPaymentRequest {
+        nonce: pr.nonce.clone(),
+        recipient_name: pr.recipient_name.clone(),
+        memos,
+        amount: pr.amount,
+        signature: pr.signature.clone(),
+    };
+    let mut payload = Vec::new();
+    message.encode(&mut payload)?;
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST,
+        payload,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -865,6 +982,7 @@ mod tests {
                 op_return_data: None,
             }],
             ref_txs: Vec::new(),
+            payment_reqs: Vec::new(),
             chunkify: false,
         });
         let (encoded, offset) = encode_sign_tx_request(&request).unwrap();
