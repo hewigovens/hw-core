@@ -148,6 +148,12 @@ android-logs:
     "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -v time \
       | rg --line-buffered "HWCoreSample|HWCoreBtleplug|hwcore-rs|hwcore JNI_OnLoad|BLE THP|THP create_channel|trezor_connect|ble_transport|hw_wallet|WF |AndroidRuntime|JNI DETECTED ERROR|Connect failed|Pair only failed|btleplug droidplug"
 
+test-android-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd android
+    ./gradlew :sample-app:app:connectedAndroidTest --tests "dev.hewig.hwcore.AppSmokeTest" 2>&1
+
 sample:
     just bindings
     swift run --package-path apple/HWCoreKitSampleApp
