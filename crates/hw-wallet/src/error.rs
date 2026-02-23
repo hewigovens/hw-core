@@ -38,7 +38,7 @@ impl WalletError {
             }
             Self::PeerRemovedPairingInfo => WalletErrorKind::Device,
             Self::Ble(error) => {
-                if contains_timeout(&error.to_string()) {
+                if error.to_string().to_ascii_lowercase().contains("timeout") {
                     WalletErrorKind::Timeout
                 } else {
                     WalletErrorKind::Ble
@@ -61,21 +61,20 @@ impl WalletError {
 
 fn classify_workflow_error(error: &ThpWorkflowError) -> WalletErrorKind {
     match error {
-        ThpWorkflowError::Backend(BackendError::Device(_)) => WalletErrorKind::Device,
-        ThpWorkflowError::Backend(BackendError::Transport(message)) => {
-            if contains_timeout(message) {
-                WalletErrorKind::Timeout
-            } else {
-                WalletErrorKind::Workflow
-            }
-        }
+        ThpWorkflowError::Backend(BackendError::TransportTimeout) => WalletErrorKind::Timeout,
+        ThpWorkflowError::Backend(
+            BackendError::Device(_)
+            | BackendError::DeviceBusy
+            | BackendError::DeviceFirmwareBusy
+            | BackendError::SessionConfirmationRequired
+            | BackendError::DeviceError { .. },
+        ) => WalletErrorKind::Device,
         ThpWorkflowError::Backend(BackendError::UnsupportedPairingMethod) => {
             WalletErrorKind::Validation
         }
+        ThpWorkflowError::Backend(BackendError::Transport(_) | BackendError::TransportBusy) => {
+            WalletErrorKind::Workflow
+        }
         _ => WalletErrorKind::Workflow,
     }
-}
-
-fn contains_timeout(message: &str) -> bool {
-    message.to_ascii_lowercase().contains("timeout")
 }

@@ -40,7 +40,7 @@ flowchart TB
   subgraph L4["Protocol Layer"]
     CONNECT["trezor-connect (THP workflow/backend)"]
     BLE["ble-transport"]
-    THP["thp-core / thp-crypto / thp-codec / thp-proto"]
+    THP["thp-core / thp-crypto / thp-proto"]
   end
 
   subgraph L5["Hardware Layer"]
@@ -77,7 +77,7 @@ flowchart TB
 - `crates/hw-chain`: chain-level config and helpers (paths, SLIP-44, etc.)
 - `crates/trezor-connect`: host-facing THP workflow + backend bridge
 - `crates/ble-transport`: BLE manager and profile-specific transport behavior
-- `crates/thp-*`: protocol primitives (codec, crypto, state machine, protobuf types)
+- `crates/thp-*`: protocol primitives (crypto + framing, state machine, protobuf types)
 
 ## Roadmap
 

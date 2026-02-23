@@ -333,9 +333,7 @@ impl ThpBackend for MockBackend {
         _request: CreateSessionRequest,
     ) -> BackendResult<CreateSessionResponse> {
         if self.require_end_before_session && !*self.end_called.lock() {
-            return Err(BackendError::Device(
-                "session requires connection confirmation".into(),
-            ));
+            return Err(BackendError::SessionConfirmationRequired);
         }
         Ok(CreateSessionResponse)
     }
@@ -544,7 +542,7 @@ async fn paired_handshake_requires_connection_confirmation_flow() {
         .expect_err("session must fail before connection confirmation");
     assert!(matches!(
         err,
-        ThpWorkflowError::Backend(BackendError::Device(_))
+        ThpWorkflowError::Backend(BackendError::SessionConfirmationRequired)
     ));
 
     workflow

@@ -67,13 +67,14 @@ impl From<trezor_connect::thp::BackendError> for HWCoreError {
         use trezor_connect::thp::BackendError;
 
         match error {
-            BackendError::Device(message) => HWCoreError::Device(message),
-            BackendError::Transport(message) => {
-                if message.to_lowercase().contains("timeout") {
-                    HWCoreError::Timeout(message)
-                } else {
-                    HWCoreError::Workflow(message)
-                }
+            BackendError::TransportTimeout => HWCoreError::Timeout(error.to_string()),
+            BackendError::DeviceBusy
+            | BackendError::DeviceFirmwareBusy
+            | BackendError::SessionConfirmationRequired
+            | BackendError::DeviceError { .. }
+            | BackendError::Device(_) => HWCoreError::Device(error.to_string()),
+            BackendError::TransportBusy | BackendError::Transport(_) => {
+                HWCoreError::Workflow(error.to_string())
             }
             BackendError::UnsupportedPairingMethod => {
                 HWCoreError::Validation("unsupported pairing method".to_string())
@@ -84,22 +85,10 @@ impl From<trezor_connect::thp::BackendError> for HWCoreError {
 
 impl From<trezor_connect::thp::ThpWorkflowError> for HWCoreError {
     fn from(error: trezor_connect::thp::ThpWorkflowError) -> Self {
-        use trezor_connect::thp::{BackendError, ThpWorkflowError};
+        use trezor_connect::thp::ThpWorkflowError;
 
         match error {
-            ThpWorkflowError::Backend(BackendError::Device(message)) => {
-                HWCoreError::Device(message)
-            }
-            ThpWorkflowError::Backend(BackendError::Transport(message)) => {
-                if message.to_lowercase().contains("timeout") {
-                    HWCoreError::Timeout(message)
-                } else {
-                    HWCoreError::Workflow(message)
-                }
-            }
-            ThpWorkflowError::Backend(BackendError::UnsupportedPairingMethod) => {
-                HWCoreError::Validation("unsupported pairing method".to_string())
-            }
+            ThpWorkflowError::Backend(backend_err) => HWCoreError::from(backend_err),
             ThpWorkflowError::InvalidPhase
             | ThpWorkflowError::MissingHandshake
             | ThpWorkflowError::MissingHandshakeCredentials

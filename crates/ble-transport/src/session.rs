@@ -15,20 +15,12 @@ use crate::{BleError, BleProfile, BleResult, DeviceInfo};
 const PROOF_OF_CONNECTION: &[u8] = b"Proof of connection";
 
 fn redact_device_id(device_id: &str) -> String {
-    const VISIBLE_SUFFIX_CHARS: usize = 6;
-    let suffix: String = device_id
-        .chars()
-        .rev()
-        .take(VISIBLE_SUFFIX_CHARS)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    if suffix.is_empty() {
-        "<redacted>".to_string()
-    } else {
-        format!("...{suffix}")
+    let chars: Vec<char> = device_id.chars().collect();
+    if chars.is_empty() {
+        return "<redacted>".to_string();
     }
+    let start = chars.len().saturating_sub(6);
+    format!("...{}", chars[start..].iter().collect::<String>())
 }
 
 pub struct BleSession {

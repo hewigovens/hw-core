@@ -1,6 +1,6 @@
 # hw-core Roadmap
 
-Last updated: 2026-02-20
+Last updated: 2026-02-23
 
 ## Product Goal
 Ship a stable, reusable host stack for hardware-wallet communication over THP/BLE, with consistent behavior across CLI and mobile/desktop app surfaces.
@@ -35,7 +35,7 @@ Ship a stable, reusable host stack for hardware-wallet communication over THP/BL
 | M2: Cross-surface parity | In progress | CLI + Apple + Android sample cover scan/pair/connect/address/sign happy path |
 | M3: Reliability and validation | In progress | Deterministic retry/recovery behavior and documented smoke checks across surfaces |
 | M4: CI and release readiness | Planned | CI validates build/test/bindings/sample-app health and docs match shipped behavior |
-| M5: Code health and simplification | In progress | Shared logic is consolidated, modules are easier to reason about, and refactors are regression-tested |
+| M5: Code health and simplification | In progress | Shared logic is consolidated, modules are easier to reason about, and refactors are regression-tested. thp-codec merged into thp-crypto (9 crates). Agent docs modularized into skills/. BLE backend simplified. Dead code removed. |
 
 ## Long-Term Direction
 - Additional transport abstractions beyond BLE.

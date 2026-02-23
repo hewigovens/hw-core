@@ -2133,15 +2133,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "thp-codec"
-version = "0.1.0"
-dependencies = [
- "crc32fast",
- "proptest",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "thp-core"
 version = "0.1.0"
 dependencies = [
@@ -2150,7 +2141,6 @@ dependencies = [
  "parking_lot",
  "snow",
  "thiserror 2.0.18",
- "thp-codec",
  "thp-crypto",
  "tokio",
  "tracing",
@@ -2161,8 +2151,10 @@ name = "thp-crypto"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "crc32fast",
  "hex",
  "hkdf",
+ "proptest",
  "rand",
  "sha2",
  "subtle",

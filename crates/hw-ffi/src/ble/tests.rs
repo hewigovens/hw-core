@@ -197,9 +197,7 @@ impl ThpBackend for MockBackend {
         _request: CreateSessionRequest,
     ) -> BackendResult<CreateSessionResponse> {
         if self.completion_state == HandshakeCompletionState::Paired && !self.confirmed_connection {
-            return Err(BackendError::Device(
-                "session requires connection confirmation".into(),
-            ));
+            return Err(BackendError::SessionConfirmationRequired);
         }
         Ok(CreateSessionResponse)
     }

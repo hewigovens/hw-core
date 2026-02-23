@@ -35,6 +35,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "ci-rust"
+      - name: Format check
+        run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Tests

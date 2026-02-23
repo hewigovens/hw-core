@@ -4,8 +4,20 @@ use super::types::*;
 
 #[derive(Debug, Error)]
 pub enum BackendError {
+    #[error("transport timeout")]
+    TransportTimeout,
+    #[error("transport busy")]
+    TransportBusy,
     #[error("transport error: {0}")]
     Transport(String),
+    #[error("device busy (error code 5)")]
+    DeviceBusy,
+    #[error("device firmware busy (error code 99)")]
+    DeviceFirmwareBusy,
+    #[error("session requires connection confirmation")]
+    SessionConfirmationRequired,
+    #[error("device error: code={code}, {message}")]
+    DeviceError { code: u32, message: String },
     #[error("device error: {0}")]
     Device(String),
     #[error("unsupported pairing method")]

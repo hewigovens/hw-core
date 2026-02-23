@@ -32,7 +32,7 @@ fn constants() -> &'static CurveConstants {
             b"19681161376707505956807079304988542015446066515923890162744021073123829784752",
             10,
         )
-        .expect("invalid constant");
+        .expect("compile-time constant c3");
         let c4 = (&p - BigInt::from(5u8)) >> 3; // (p-5)/8
         let a24 = (&j + BigInt::from(2u8)) >> 2; // (J+2)/4
         CurveConstants { p, j, c3, c4, a24 }
@@ -58,7 +58,8 @@ fn decode_coordinate(coordinate: &[u8]) -> BigInt {
 }
 
 fn encode_coordinate(value: BigInt) -> [u8; 32] {
-    let bytes = bigint_to_little_endian_bytes(value, 32);
+    // SAFETY: Curve25519 coordinates are always non-negative (mod p)
+    let bytes = bigint_to_little_endian_bytes(value, 32).expect("non-negative coordinate");
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes);
     out
@@ -115,6 +116,7 @@ pub fn curve25519(private_key: &[u8; 32], public_key: &[u8; 32]) -> [u8; 32] {
     let mut swap = 0;
 
     for i in (0..255).rev() {
+        // SAFETY: & BigInt::one() produces 0 or 1, always valid u8
         let bit = ((&k >> (i as u32)) & BigInt::one()).to_u8().unwrap();
         swap ^= bit;
         let (nx2, nx3) = conditional_swap(x2, x3, swap != 0);

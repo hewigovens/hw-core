@@ -2,12 +2,13 @@
 name = "thp-crypto"
 version.workspace = true
 edition.workspace = true
-description = "Cryptographic primitives for the Trezor Host Protocol (Noise XX)"
+description = "Cryptographic primitives and transport framing for the Trezor Host Protocol"
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
 aes-gcm = { workspace = true }
+crc32fast = { workspace = true }
 hkdf = "0.12"
 rand = { workspace = true }
 sha2 = { workspace = true }
@@ -17,3 +18,4 @@ x25519-dalek = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
+proptest = "1"
