@@ -61,11 +61,17 @@ impl EmulatorHarness {
 
         eprintln!("[harness] dbus-daemon ready at {bus_address}");
 
-        // 2. Start the T3W1 emulator — headless, SLIP-14 test seed, fresh profile.
+        // 2. Start the T3W1 emulator — headless, fresh profile.
+        //    The binary is a MicroPython executable; headless/animation are
+        //    controlled via environment variables, not CLI flags.
+        let profile_dir = std::env::temp_dir().join(format!("trezor-emu-{}", std::process::id()));
+        std::fs::create_dir_all(&profile_dir).expect("failed to create profile dir");
+
         let emu = Command::new(&emu_bin)
-            .args(["--headless", "--slip0014", "--temporary-profile"])
+            .args(["-O0", "-m", "main"])
             .env("SDL_VIDEODRIVER", "dummy")
             .env("TREZOR_DISABLE_ANIMATION", "1")
+            .env("TREZOR_PROFILE_DIR", &profile_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -73,12 +79,27 @@ impl EmulatorHarness {
 
         eprintln!("[harness] emulator started (pid {})", emu.id());
 
-        // Wait for the emulator to be ready by probing its UDP event port.
-        // The emulator replies with a status command when it receives a ping.
-        wait_for_emulator_ready(21328 + 1, Duration::from_secs(30));
+        // Wait for the emulator to be ready by probing its BLE event port.
+        // BLE event port = TREZOR_UDP_PORT (default 21324) + 5 = 21329.
+        wait_for_emulator_ready(21329, Duration::from_secs(30));
         eprintln!("[harness] emulator ready (UDP responsive)");
 
-        // 3. Bridge: connects emulator UDP ports to the fake BlueZ D-Bus.
+        // 2b. Load the SLIP-14 test seed via debuglink (USB port 21324).
+        let load_seed = Command::new("python3")
+            .arg(format!("{bridge_dir}/load-seed.py"))
+            .arg("21324")
+            .env("PYTHONPATH", &bridge_dir)
+            .output()
+            .expect("load-seed.py failed to execute");
+        assert!(
+            load_seed.status.success(),
+            "load-seed.py failed:\n{}",
+            String::from_utf8_lossy(&load_seed.stderr)
+        );
+        eprintln!("[harness] SLIP-14 seed loaded");
+
+        // 3. Bridge: connects emulator BLE UDP ports to the fake BlueZ D-Bus.
+        //    BLE data port = 21324 + 4 = 21328.
         let mut bridge = Command::new("python3")
             .arg(format!("{bridge_dir}/bluez-emu-bridge.py"))
             .args(["--emulator-port", "21328", "--bus-address", &bus_address])
