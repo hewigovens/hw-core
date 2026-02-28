@@ -145,9 +145,12 @@ impl EmulatorHarness {
         //    and automatically presses YES on every screen change.
         //    This is needed because THP pairing (even SkipPairing) shows
         //    confirmation screens on the device that need a button press.
+        //    The 15s initial delay prevents pressing buttons on the
+        //    homescreen before the BLE connection & pairing dialog appear.
         let auto_confirm = Command::new("python3")
             .arg(format!("{bridge_dir}/auto-confirm.py"))
             .arg("21325")
+            .arg("15") // initial delay (seconds) before first button press
             .env("PYTHONPATH", &bridge_dir)
             .env("PYTHONUNBUFFERED", "1")
             .stdout(Stdio::piped())
