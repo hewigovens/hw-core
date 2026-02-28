@@ -19,7 +19,7 @@ def mac2bytes(mac_str):
 
 
 def bytes2mac(mac_bytes):
-    ":".join(map(hex, mac_bytes))
+    return ":".join(f"{b:02x}" for b in mac_bytes)
 
 
 class Device1(ServiceInterface):
@@ -70,7 +70,7 @@ class Device1(ServiceInterface):
     async def task_scanning_start(self):
         await self.export()
         self.__task_scanning_active = True
-        asyncio.create_task(self._task_scanning_run())
+        self.__scanning_task = asyncio.create_task(self._task_scanning_run())
 
     def task_scanning_stop(self):
         self.__task_scanning_active = False
@@ -82,7 +82,7 @@ class Device1(ServiceInterface):
             # Like random RSSI.
             await self._update_rssi(random.uniform(-90, -60))
         if self.__task_scanning_active:
-            asyncio.create_task(self._task_scanning_run())
+            self.__scanning_task = asyncio.create_task(self._task_scanning_run())
 
     @method()
     async def Connect(self):
