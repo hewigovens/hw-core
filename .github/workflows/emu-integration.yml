@@ -48,11 +48,15 @@ jobs:
 
       - name: Download T3W1 emulator binary
         run: |
+          set -euxo pipefail
           gh release download emu-fixtures \
             --pattern 'trezor-emu-core-T3W1' \
             --repo ${{ github.repository }} \
-            --dir tests/fixtures/
+            --dir tests/fixtures/ \
+            --clobber
+          ls -la tests/fixtures/trezor-emu-core-T3W1
           chmod +x tests/fixtures/trezor-emu-core-T3W1
+          file tests/fixtures/trezor-emu-core-T3W1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
