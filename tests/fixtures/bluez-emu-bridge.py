@@ -104,8 +104,8 @@ class TrezorEmulator:
         self.event_read_task = event_read_task
 
     def close(self) -> None:
-        self.data_transport.close()
-        self.event_transport.close()
+        self._data_transport.close()
+        self._event_transport.close()
 
     @classmethod
     async def create(

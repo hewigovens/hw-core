@@ -36,6 +36,7 @@ jobs:
         run: |
           python3 -m venv .venv
           .venv/bin/pip install trezor dbus-fast click typing-extensions
+          echo "${{ github.workspace }}/.venv/bin" >> $GITHUB_PATH
 
       - name: Run sccache
         uses: mozilla-actions/sccache-action@v0.0.9
@@ -62,5 +63,4 @@ jobs:
         env:
           TREZOR_EMU_BINARY: ${{ github.workspace }}/tests/fixtures/trezor-emu-core-T3W1
           BRIDGE_DIR: ${{ github.workspace }}/tests/fixtures
-          PATH: ${{ github.workspace }}/.venv/bin:$PATH
-        run: cargo test -p hw-cli --test emu_ble -- --ignored --nocapture
+        run: cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
