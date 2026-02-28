@@ -1,0 +1,66 @@
+name: Emulator Integration
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
+jobs:
+  emu-ble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libdbus-1-dev pkg-config dbus \
+            libsdl2-dev libsdl2-image-dev \
+            python3-pip python3-venv
+
+      - name: Install Python deps
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install trezor dbus-fast click typing-extensions
+
+      - name: Run sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Restore cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci-rust"
+
+      - name: Download T3W1 emulator binary
+        run: |
+          gh release download emu-fixtures \
+            --pattern 'trezor-emu-core-T3W1' \
+            --repo ${{ github.repository }} \
+            --dir tests/fixtures/
+          chmod +x tests/fixtures/trezor-emu-core-T3W1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Run emulator integration tests
+        env:
+          TREZOR_EMU_BINARY: ${{ github.workspace }}/tests/fixtures/trezor-emu-core-T3W1
+          BRIDGE_DIR: ${{ github.workspace }}/tests/fixtures
+          PATH: ${{ github.workspace }}/.venv/bin:$PATH
+        run: cargo test -p hw-cli --test emu_ble -- --ignored --nocapture

@@ -15,3 +15,4 @@ android/lib/src/main/java/uniffi/hwcore/hwcore.kt
 android/lib/src/main/java/io/github/gedgygedgy/rust/
 android/lib/src/main/java/com/nonpolynomial/btleplug/
 gradle-daemon-jvm.properties
+tests/fixtures/trezor-emu-core-*
