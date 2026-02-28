@@ -60,10 +60,10 @@ jobs:
 
       - name: Patch emulator binary for Ubuntu
         run: |
-          # Install libjpeg62-turbo from Debian (not in Ubuntu 24.04 repos)
-          wget -q https://ftp.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-3_amd64.deb
-          sudo dpkg -i libjpeg62-turbo_2.1.5-3_amd64.deb
-          rm libjpeg62-turbo_2.1.5-3_amd64.deb
+          # Install libjpeg62-turbo from Debian bookworm (not in Ubuntu 24.04 repos)
+          wget -q http://deb.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb
+          sudo dpkg -i libjpeg62-turbo_2.1.5-2_amd64.deb
+          rm libjpeg62-turbo_2.1.5-2_amd64.deb
           # Rewrite Nix interpreter and rpath to use system libraries
           patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 \
             --set-rpath /usr/lib/x86_64-linux-gnu \
