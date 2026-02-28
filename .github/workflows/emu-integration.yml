@@ -31,7 +31,7 @@ jobs:
             libdbus-1-dev pkg-config dbus \
             libsdl2-dev libsdl2-image-dev \
             python3-pip python3-venv \
-            patchelf libjpeg62-turbo
+            patchelf
 
       - name: Install Python deps
         run: |
@@ -62,6 +62,7 @@ jobs:
         run: |
           patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 \
             --set-rpath /usr/lib/x86_64-linux-gnu \
+            --replace-needed libjpeg.so.62 libjpeg.so.8 \
             tests/fixtures/trezor-emu-core-T3W1
           ldd tests/fixtures/trezor-emu-core-T3W1
 
