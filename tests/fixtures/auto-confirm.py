@@ -2,8 +2,12 @@
 """Auto-confirm emulator button prompts via the debug link.
 
 Connects to the emulator's debug link (UDP base_port + 1) and automatically
-presses YES on every screen change.  Designed to run as a background process
-during headless integration tests.
+presses YES whenever a layout is visible.  Designed to run as a background
+process during headless integration tests.
+
+Uses read_layout(wait=True) which returns the CURRENT layout (or waits for
+one to appear).  This avoids the pitfall of wait_layout() which waits for
+the NEXT layout *change* and blocks forever if a screen is already displayed.
 
 Usage:
     python3 auto-confirm.py <debug_port>
@@ -29,13 +33,12 @@ def main() -> None:
     debug_port = int(sys.argv[1]) if len(sys.argv) > 1 else 21325
     transport = UdpTransport(f"127.0.0.1:{debug_port}")
     debug = DebugLink(transport=transport, auto_interact=True)
-    debug.watch_layout(True)
     LOG.info("auto-confirm ready on port %d", debug_port)
 
     while True:
         try:
-            layout = debug.wait_layout()
-            LOG.info("layout changed, pressing YES")
+            layout = debug.read_layout(wait=True)
+            LOG.info("layout visible, pressing YES")
             debug.press_yes()
         except KeyboardInterrupt:
             break
