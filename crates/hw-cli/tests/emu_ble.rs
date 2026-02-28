@@ -12,9 +12,13 @@
 
 use std::io::{BufRead, BufReader, Read};
 use std::net::UdpSocket;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
+
+static HARNESS_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// Manages the lifecycle of dbus-daemon + emulator + bridge processes.
 struct EmulatorHarness {
@@ -22,6 +26,7 @@ struct EmulatorHarness {
     emu: Child,
     bridge: Child,
     bus_address: String,
+    profile_dir: PathBuf,
 }
 
 impl EmulatorHarness {
@@ -64,7 +69,15 @@ impl EmulatorHarness {
         // 2. Start the T3W1 emulator — headless, fresh profile.
         //    The binary is a MicroPython executable; headless/animation are
         //    controlled via environment variables, not CLI flags.
-        let profile_dir = std::env::temp_dir().join(format!("trezor-emu-{}", std::process::id()));
+        //    Each harness gets a unique profile dir so tests don't share state.
+        let id = HARNESS_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let profile_dir = std::env::temp_dir().join(format!(
+            "trezor-emu-{}-{}",
+            std::process::id(),
+            id
+        ));
+        // Remove any stale profile from a previous run, then create fresh.
+        let _ = std::fs::remove_dir_all(&profile_dir);
         std::fs::create_dir_all(&profile_dir).expect("failed to create profile dir");
 
         let emu = Command::new(&emu_bin)
@@ -104,6 +117,7 @@ impl EmulatorHarness {
             .arg(format!("{bridge_dir}/bluez-emu-bridge.py"))
             .args(["--emulator-port", "21328", "--bus-address", &bus_address])
             .env("PYTHONPATH", &bridge_dir)
+            .env("PYTHONUNBUFFERED", "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -111,7 +125,7 @@ impl EmulatorHarness {
 
         // Wait for the bridge to log its first message to stderr, indicating
         // it has connected to D-Bus and the emulator.
-        wait_for_output(&mut bridge, Duration::from_secs(10));
+        wait_for_output(&mut bridge, Duration::from_secs(30));
         eprintln!("[harness] bridge ready");
 
         Self {
@@ -119,6 +133,7 @@ impl EmulatorHarness {
             emu,
             bridge,
             bus_address,
+            profile_dir,
         }
     }
 
@@ -155,6 +170,7 @@ impl Drop for EmulatorHarness {
         let _ = self.bridge.wait();
         let _ = self.emu.wait();
         let _ = self.dbus.wait();
+        let _ = std::fs::remove_dir_all(&self.profile_dir);
     }
 }
 

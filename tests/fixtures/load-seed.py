@@ -13,6 +13,8 @@ port = int(sys.argv[1]) if len(sys.argv) > 1 else 21324
 transport = UdpTransport(f"127.0.0.1:{port}")
 ctx = TrezorTestContext(transport, auto_interact=True)
 
+ctx.wipe_device(reseed=False)
+
 mnemonic = " ".join(["all"] * 12)
 load_device(
     ctx.get_session(passphrase=None),
