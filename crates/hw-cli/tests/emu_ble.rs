@@ -75,12 +75,7 @@ impl EmulatorHarness {
         // 3. Bridge: connects emulator UDP ports to the fake BlueZ D-Bus.
         let bridge = Command::new("python3")
             .arg(format!("{bridge_dir}/bluez-emu-bridge.py"))
-            .args([
-                "--emulator-port",
-                "21328",
-                "--bus-address",
-                &bus_address,
-            ])
+            .args(["--emulator-port", "21328", "--bus-address", &bus_address])
             .env("PYTHONPATH", &bridge_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
