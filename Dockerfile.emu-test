@@ -1,0 +1,57 @@
+# Docker image for running emulator BLE integration tests locally.
+# Mirrors the CI workflow in .github/workflows/emu-integration.yml.
+#
+# Usage:
+#   ./scripts/test-emu-docker.sh
+#
+# Or manually:
+#   docker build --platform linux/amd64 -f Dockerfile.emu-test -t hw-core-emu-test .
+#   docker run --platform linux/amd64 --rm hw-core-emu-test
+
+FROM --platform=linux/amd64 ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System dependencies (matching CI)
+RUN apt-get update && apt-get install -y \
+    build-essential curl git wget \
+    libdbus-1-dev pkg-config dbus \
+    libsdl2-dev libsdl2-image-dev \
+    python3-pip python3-venv \
+    patchelf \
+    && rm -rf /var/lib/apt/lists/*
+
+# libjpeg62-turbo (required by T3W1 emulator, not in Ubuntu 24.04 repos)
+RUN wget -q http://deb.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb \
+    && dpkg -i libjpeg62-turbo_2.1.5-2_amd64.deb \
+    && rm libjpeg62-turbo_2.1.5-2_amd64.deb
+
+# Rust toolchain
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Python virtual environment with trezorlib + bridge deps
+RUN python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir trezor dbus-fast click typing-extensions
+ENV PATH="/opt/venv/bin:${PATH}"
+
+WORKDIR /workspace
+
+# Copy the full project
+COPY . .
+
+# Patch the emulator binary if present
+RUN if [ -f tests/fixtures/trezor-emu-core-T3W1 ]; then \
+      patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 \
+        --set-rpath /usr/lib/x86_64-linux-gnu \
+        tests/fixtures/trezor-emu-core-T3W1 && \
+      chmod +x tests/fixtures/trezor-emu-core-T3W1; \
+    fi
+
+# Build the workspace
+RUN cargo build --workspace
+
+# Run the emulator integration tests
+ENV TREZOR_EMU_BINARY=/workspace/tests/fixtures/trezor-emu-core-T3W1
+ENV BRIDGE_DIR=/workspace/tests/fixtures
+CMD ["cargo", "test", "-p", "hw-cli", "--test", "emu_ble", "--", "--ignored", "--nocapture", "--test-threads=1"]

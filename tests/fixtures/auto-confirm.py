@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Auto-confirm emulator button prompts via the debug link.
 
-Calls press_yes(wait=False) every 0.5 seconds.  The `wait=False` flag
+Calls press_yes(wait=False) every 2 seconds.  The `wait=False` flag
 uses IMMEDIATE ack mode so each call completes quickly (no blocking
-wait for the next layout).  The 0.5 s sleep prevents flooding the
-emulator's cooperative event loop.
+wait for the next layout).  The 2 s sleep prevents flooding the
+emulator's cooperative event loop — shorter intervals (e.g. 0.5 s)
+can starve the BLE handler and cause create_channel timeouts.
 
 Usage:
     python3 auto-confirm.py <debug_port>
@@ -39,7 +40,7 @@ def main() -> None:
             break
         except Exception:
             pass
-        time.sleep(0.5)
+        time.sleep(2)
 
 
 if __name__ == "__main__":
