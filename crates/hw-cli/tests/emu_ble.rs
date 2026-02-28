@@ -92,12 +92,35 @@ impl EmulatorHarness {
 
         eprintln!("[harness] emulator started (pid {})", emu.id());
 
+        // 3. Bridge: connects emulator BLE UDP ports to the fake BlueZ D-Bus.
+        //    BLE data port = 21324 + 4 = 21328.
+        //    Started early so it can initialize while we wait for the emulator.
+        let bridge = Command::new("python3")
+            .arg(format!("{bridge_dir}/bluez-emu-bridge.py"))
+            .args(["--emulator-port", "21328", "--bus-address", &bus_address])
+            .env("PYTHONPATH", &bridge_dir)
+            .env("PYTHONUNBUFFERED", "1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("bluez-emu-bridge failed to start");
+
+        // Build the harness struct now so that Drop cleans up all processes
+        // if any of the readiness checks below panic.
+        let mut harness = Self {
+            dbus,
+            emu,
+            bridge,
+            bus_address,
+            profile_dir,
+        };
+
         // Wait for the emulator to be ready by probing its BLE event port.
         // BLE event port = TREZOR_UDP_PORT (default 21324) + 5 = 21329.
         wait_for_emulator_ready(21329, Duration::from_secs(30));
         eprintln!("[harness] emulator ready (UDP responsive)");
 
-        // 2b. Load the SLIP-14 test seed via debuglink (USB port 21324).
+        // Load the SLIP-14 test seed via debuglink (USB port 21324).
         let load_seed = Command::new("python3")
             .arg(format!("{bridge_dir}/load-seed.py"))
             .arg("21324")
@@ -111,30 +134,11 @@ impl EmulatorHarness {
         );
         eprintln!("[harness] SLIP-14 seed loaded");
 
-        // 3. Bridge: connects emulator BLE UDP ports to the fake BlueZ D-Bus.
-        //    BLE data port = 21324 + 4 = 21328.
-        let mut bridge = Command::new("python3")
-            .arg(format!("{bridge_dir}/bluez-emu-bridge.py"))
-            .args(["--emulator-port", "21328", "--bus-address", &bus_address])
-            .env("PYTHONPATH", &bridge_dir)
-            .env("PYTHONUNBUFFERED", "1")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("bluez-emu-bridge failed to start");
-
-        // Wait for the bridge to log its first message to stderr, indicating
-        // it has connected to D-Bus and the emulator.
-        wait_for_output(&mut bridge, Duration::from_secs(30));
+        // Wait for the bridge to log its ready message to stderr.
+        wait_for_output(&mut harness.bridge, Duration::from_secs(30));
         eprintln!("[harness] bridge ready");
 
-        Self {
-            dbus,
-            emu,
-            bridge,
-            bus_address,
-            profile_dir,
-        }
+        harness
     }
 
     /// Run hw-cli with the given args against this harness, returning (stdout, stderr).

@@ -170,6 +170,7 @@ async def emulator_main(bus_address: str, emulator_port: int) -> None:
     emulator = await TrezorEmulator.create(emulator_port, device, char_tx, char_rx)
 
     await bus.request_name("org.bluez")
+    LOG.info(f"Bridge ready: bus={bus_address} emulator_port={emulator_port}")
     await bus.wait_for_disconnect()
     emulator.close()
     LOG.info("End emulator_main")
