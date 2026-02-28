@@ -72,11 +72,8 @@ impl EmulatorHarness {
         //    controlled via environment variables, not CLI flags.
         //    Each harness gets a unique profile dir so tests don't share state.
         let id = HARNESS_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let profile_dir = std::env::temp_dir().join(format!(
-            "trezor-emu-{}-{}",
-            std::process::id(),
-            id
-        ));
+        let profile_dir =
+            std::env::temp_dir().join(format!("trezor-emu-{}-{}", std::process::id(), id));
         // Remove any stale profile from a previous run, then create fresh.
         let _ = std::fs::remove_dir_all(&profile_dir);
         std::fs::create_dir_all(&profile_dir).expect("failed to create profile dir");
