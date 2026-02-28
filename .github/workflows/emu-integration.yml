@@ -30,7 +30,8 @@ jobs:
           sudo apt-get install -y \
             libdbus-1-dev pkg-config dbus \
             libsdl2-dev libsdl2-image-dev \
-            python3-pip python3-venv
+            python3-pip python3-venv \
+            patchelf
 
       - name: Install Python deps
         run: |
@@ -48,17 +49,21 @@ jobs:
 
       - name: Download T3W1 emulator binary
         run: |
-          set -euxo pipefail
           gh release download emu-fixtures \
             --pattern 'trezor-emu-core-T3W1' \
             --repo ${{ github.repository }} \
             --dir tests/fixtures/ \
             --clobber
-          ls -la tests/fixtures/trezor-emu-core-T3W1
           chmod +x tests/fixtures/trezor-emu-core-T3W1
-          file tests/fixtures/trezor-emu-core-T3W1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Patch emulator binary for Ubuntu
+        run: |
+          patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 \
+            --set-rpath /usr/lib/x86_64-linux-gnu \
+            tests/fixtures/trezor-emu-core-T3W1
+          ldd tests/fixtures/trezor-emu-core-T3W1
 
       - name: Build
         run: cargo build --workspace
