@@ -30,6 +30,9 @@ from trezorlib.transport.ble import (
     TREZOR_SERVICE_UUID,
 )
 
+# Push/notification characteristic — not defined in trezorlib but required by hw-core.
+TREZOR_CHARACTERISTIC_PUSH = "8c000004-a59b-4d58-a9ad-073df69fa1b1"
+
 HERE = Path(__file__).parent.resolve()
 
 logging.basicConfig(
@@ -160,9 +163,13 @@ async def emulator_main(bus_address: str, emulator_port: int) -> None:
         TREZOR_CHARACTERISTIC_RX,
         flags=["write", "write-without-response"],
     )
+    char_push = GattCharacteristic1(
+        bus, service.path, 2, TREZOR_CHARACTERISTIC_PUSH, flags=["read", "notify"]
+    )
 
     service.add_characteristic(char_tx)
     service.add_characteristic(char_rx)
+    service.add_characteristic(char_push)
     device.add_service(service)
     hci0.add_device(device)
     hci0.export()
