@@ -296,9 +296,12 @@ where
         'pairing_flow: loop {
             match select_response {
                 super::types::SelectMethodResponse::End => {
+                    // The firmware already sent ThpEndResponse and exited the
+                    // pairing context (e.g. SkipPairing).  No need to send
+                    // ThpEndRequest — doing so would hit a Failure because the
+                    // pairing handler is no longer running.
                     self.state.set_is_paired(true);
                     self.state.set_phase(Phase::Paired);
-                    self.backend.end_request().await?;
                     return Ok(());
                 }
                 super::types::SelectMethodResponse::CodeEntryCommitment { ref commitment } => {

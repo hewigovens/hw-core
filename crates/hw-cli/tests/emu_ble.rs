@@ -86,8 +86,10 @@ impl EmulatorHarness {
             .env("SDL_VIDEODRIVER", "dummy")
             .env("TREZOR_DISABLE_ANIMATION", "1")
             .env("TREZOR_PROFILE_DIR", &profile_dir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            // Use inherit so emulator output is visible for debugging AND
+            // the process never blocks on a full pipe buffer.
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
             .spawn()
             .expect("emulator failed to start");
 
@@ -101,7 +103,7 @@ impl EmulatorHarness {
             .args(["--emulator-port", "21328", "--bus-address", &bus_address])
             .env("PYTHONPATH", &bridge_dir)
             .env("PYTHONUNBUFFERED", "1")
-            .stdout(Stdio::piped())
+            .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .expect("bluez-emu-bridge failed to start");
@@ -153,7 +155,7 @@ impl EmulatorHarness {
             .arg("15") // initial delay (seconds) before first button press
             .env("PYTHONPATH", &bridge_dir)
             .env("PYTHONUNBUFFERED", "1")
-            .stdout(Stdio::piped())
+            .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .expect("auto-confirm.py failed to start");
@@ -234,17 +236,27 @@ fn wait_for_emulator_ready(event_port: u16, timeout: Duration) {
     }
 }
 
-/// Wait until a child process produces at least one byte on stderr,
-/// indicating it has started up and is logging.
+/// Wait until a child process produces at least one line on stderr,
+/// indicating it has started up and is logging.  The drainer thread
+/// keeps reading so the child never blocks on a full pipe buffer.
 fn wait_for_output(child: &mut Child, timeout: Duration) {
     let stderr = child.stderr.take().expect("child has no stderr");
     let (tx, rx) = mpsc::channel();
 
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stderr);
-        let mut buf = [0u8; 1];
-        if reader.read(&mut buf).is_ok() {
+        let mut line = String::new();
+        if reader.read_line(&mut line).is_ok() && !line.is_empty() {
             let _ = tx.send(());
+        }
+        // Keep draining stderr so the child process never blocks on a
+        // full pipe buffer.
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
         }
     });
 
