@@ -10,7 +10,7 @@
 //! Run with:
 //!   cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
 
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader};
 use std::net::UdpSocket;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
