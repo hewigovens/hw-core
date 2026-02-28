@@ -75,7 +75,7 @@ impl EmulatorHarness {
 
         // Wait for the emulator to be ready by probing its UDP event port.
         // The emulator replies with a status command when it receives a ping.
-        wait_for_emulator_ready(21328 + 1, Duration::from_secs(10));
+        wait_for_emulator_ready(21328 + 1, Duration::from_secs(30));
         eprintln!("[harness] emulator ready (UDP responsive)");
 
         // 3. Bridge: connects emulator UDP ports to the fake BlueZ D-Bus.
@@ -90,7 +90,7 @@ impl EmulatorHarness {
 
         // Wait for the bridge to log its first message to stderr, indicating
         // it has connected to D-Bus and the emulator.
-        wait_for_output(&mut bridge, Duration::from_secs(5));
+        wait_for_output(&mut bridge, Duration::from_secs(10));
         eprintln!("[harness] bridge ready");
 
         Self {

@@ -31,7 +31,7 @@ jobs:
             libdbus-1-dev pkg-config dbus \
             libsdl2-dev libsdl2-image-dev \
             python3-pip python3-venv \
-            patchelf
+            patchelf libjpeg62-turbo
 
       - name: Install Python deps
         run: |
