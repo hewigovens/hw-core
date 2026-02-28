@@ -229,6 +229,7 @@ fn emu_ble_get_eth_address() {
 
     let (stdout, _) = harness.run_hw_cli(&[
         "-vv",
+        "--skip-pairing",
         "address",
         "--chain",
         "eth",
@@ -255,6 +256,7 @@ fn emu_ble_sign_eth_tx() {
 
     harness.run_hw_cli(&[
         "-vv",
+        "--skip-pairing",
         "sign",
         "eth",
         "--path",

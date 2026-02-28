@@ -6,7 +6,7 @@ use trezor_connect::thp::{GetAddressRequest, ThpBackend, ThpWorkflow};
 use crate::cli::AddressArgs;
 use crate::commands::common::{ConnectWorkflowOptions, connect_ready_workflow};
 
-pub async fn run(args: AddressArgs) -> Result<()> {
+pub async fn run(args: AddressArgs, skip_pairing: bool) -> Result<()> {
     let resolved = ResolvedAddressTarget::from_args(&args)?;
     info!(
         "address command started: chain={:?} path='{}' scan_timeout_secs={} thp_timeout_secs={} show_on_device={} include_public_key={} chunkify={}",
@@ -27,6 +27,7 @@ pub async fn run(args: AddressArgs) -> Result<()> {
             storage_path: args.storage_path.clone(),
             host_name: args.host_name.clone(),
             app_name: args.app_name.clone(),
+            skip_pairing,
         },
         "address",
         "Remove this Trezor from macOS Bluetooth settings, then pair again.",

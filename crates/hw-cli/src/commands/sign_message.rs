@@ -19,14 +19,14 @@ enum EthSignMessageRequestKind {
     Eip712(SignTypedDataRequest),
 }
 
-pub async fn run(args: SignMessageArgs) -> Result<()> {
+pub async fn run(args: SignMessageArgs, skip_pairing: bool) -> Result<()> {
     match args.command {
-        SignMessageCommand::Eth(args) => run_eth(args).await,
-        SignMessageCommand::Btc(args) => run_btc(args).await,
+        SignMessageCommand::Eth(args) => run_eth(args, skip_pairing).await,
+        SignMessageCommand::Btc(args) => run_btc(args, skip_pairing).await,
     }
 }
 
-async fn run_eth(args: SignMessageEthArgs) -> Result<()> {
+async fn run_eth(args: SignMessageEthArgs, skip_pairing: bool) -> Result<()> {
     let path = args
         .path
         .as_deref()
@@ -44,6 +44,7 @@ async fn run_eth(args: SignMessageEthArgs) -> Result<()> {
             storage_path: args.storage_path.clone(),
             host_name: args.host_name.clone(),
             app_name: args.app_name.clone(),
+            skip_pairing,
         },
         "sign-message",
         "Remove this Trezor from macOS Bluetooth settings, then pair again.",
@@ -76,7 +77,7 @@ async fn run_eth(args: SignMessageEthArgs) -> Result<()> {
     Ok(())
 }
 
-async fn run_btc(args: SignMessageBtcArgs) -> Result<()> {
+async fn run_btc(args: SignMessageBtcArgs, skip_pairing: bool) -> Result<()> {
     let path = args
         .path
         .unwrap_or_else(|| DEFAULT_BITCOIN_BIP32_PATH.to_string());
@@ -103,6 +104,7 @@ async fn run_btc(args: SignMessageBtcArgs) -> Result<()> {
             storage_path: args.storage_path.clone(),
             host_name: args.host_name.clone(),
             app_name: args.app_name.clone(),
+            skip_pairing,
         },
         "sign-message",
         "Remove this Trezor from macOS Bluetooth settings, then pair again.",

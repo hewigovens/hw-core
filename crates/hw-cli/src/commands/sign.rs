@@ -11,15 +11,15 @@ use trezor_connect::thp::{SignTxRequest, ThpBackend, ThpWorkflow};
 use crate::cli::{SignArgs, SignBtcArgs, SignCommand, SignEthArgs, SignSolArgs};
 use crate::commands::common::{ConnectWorkflowOptions, connect_ready_workflow};
 
-pub async fn run(args: SignArgs) -> Result<()> {
+pub async fn run(args: SignArgs, skip_pairing: bool) -> Result<()> {
     match args.command {
-        SignCommand::Eth(args) => run_eth(args).await,
-        SignCommand::Btc(args) => run_btc(args).await,
-        SignCommand::Sol(args) => run_sol(args).await,
+        SignCommand::Eth(args) => run_eth(args, skip_pairing).await,
+        SignCommand::Btc(args) => run_btc(args, skip_pairing).await,
+        SignCommand::Sol(args) => run_sol(args, skip_pairing).await,
     }
 }
 
-async fn run_eth(args: SignEthArgs) -> Result<()> {
+async fn run_eth(args: SignEthArgs, skip_pairing: bool) -> Result<()> {
     let path = parse_bip32_path(&args.path)?;
     let tx_json = read_tx_argument(&args.tx)?;
 
@@ -38,6 +38,7 @@ async fn run_eth(args: SignEthArgs) -> Result<()> {
             storage_path: args.storage_path.clone(),
             host_name: args.host_name.clone(),
             app_name: args.app_name.clone(),
+            skip_pairing,
         },
         "sign",
         "Remove this Trezor from macOS Bluetooth settings, then pair again.",
@@ -57,7 +58,7 @@ async fn run_eth(args: SignEthArgs) -> Result<()> {
     Ok(())
 }
 
-async fn run_sol(args: SignSolArgs) -> Result<()> {
+async fn run_sol(args: SignSolArgs, skip_pairing: bool) -> Result<()> {
     let path = parse_bip32_path(&args.path)?;
     let tx = read_tx_argument(&args.tx)?;
     let serialized_tx = decode_hex(&tx).context("failed to decode Solana tx bytes")?;
@@ -78,6 +79,7 @@ async fn run_sol(args: SignSolArgs) -> Result<()> {
             storage_path: args.storage_path.clone(),
             host_name: args.host_name.clone(),
             app_name: args.app_name.clone(),
+            skip_pairing,
         },
         "sign",
         "Remove this Trezor from macOS Bluetooth settings, then pair again.",
@@ -90,7 +92,7 @@ async fn run_sol(args: SignSolArgs) -> Result<()> {
     Ok(())
 }
 
-async fn run_btc(args: SignBtcArgs) -> Result<()> {
+async fn run_btc(args: SignBtcArgs, skip_pairing: bool) -> Result<()> {
     let tx_json = read_tx_argument(&args.tx)?;
     let tx = parse_btc_tx_json(&tx_json).context("failed to parse btc tx JSON")?;
     let request = build_btc_sign_tx_request(tx).context("failed to build BTC sign request")?;
@@ -107,6 +109,7 @@ async fn run_btc(args: SignBtcArgs) -> Result<()> {
             storage_path: args.storage_path.clone(),
             host_name: args.host_name.clone(),
             app_name: args.app_name.clone(),
+            skip_pairing,
         },
         "sign",
         "Remove this Trezor from macOS Bluetooth settings, then pair again.",
