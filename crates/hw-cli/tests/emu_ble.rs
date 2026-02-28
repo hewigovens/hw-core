@@ -20,11 +20,12 @@ use std::time::{Duration, Instant};
 
 static HARNESS_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// Manages the lifecycle of dbus-daemon + emulator + bridge processes.
+/// Manages the lifecycle of dbus-daemon + emulator + bridge + auto-confirm processes.
 struct EmulatorHarness {
     dbus: Child,
     emu: Child,
     bridge: Child,
+    auto_confirm: Child,
     bus_address: String,
     profile_dir: PathBuf,
 }
@@ -105,12 +106,18 @@ impl EmulatorHarness {
             .spawn()
             .expect("bluez-emu-bridge failed to start");
 
+        // Placeholder auto-confirm — replaced after seed loading.
+        let auto_confirm_placeholder = Command::new("true")
+            .spawn()
+            .expect("placeholder spawn failed");
+
         // Build the harness struct now so that Drop cleans up all processes
         // if any of the readiness checks below panic.
         let mut harness = Self {
             dbus,
             emu,
             bridge,
+            auto_confirm: auto_confirm_placeholder,
             bus_address,
             profile_dir,
         };
@@ -133,6 +140,25 @@ impl EmulatorHarness {
             String::from_utf8_lossy(&load_seed.stderr)
         );
         eprintln!("[harness] SLIP-14 seed loaded");
+
+        // 4. Auto-confirm: connects to the emulator's debug link (port 21325)
+        //    and automatically presses YES on every screen change.
+        //    This is needed because THP pairing (even SkipPairing) shows
+        //    confirmation screens on the device that need a button press.
+        let auto_confirm = Command::new("python3")
+            .arg(format!("{bridge_dir}/auto-confirm.py"))
+            .arg("21325")
+            .env("PYTHONPATH", &bridge_dir)
+            .env("PYTHONUNBUFFERED", "1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("auto-confirm.py failed to start");
+        harness.auto_confirm = auto_confirm;
+
+        // Wait for auto-confirm to log its ready message.
+        wait_for_output(&mut harness.auto_confirm, Duration::from_secs(10));
+        eprintln!("[harness] auto-confirm ready");
 
         // Wait for the bridge to log its ready message to stderr.
         wait_for_output(&mut harness.bridge, Duration::from_secs(30));
@@ -168,9 +194,11 @@ impl EmulatorHarness {
 impl Drop for EmulatorHarness {
     fn drop(&mut self) {
         eprintln!("[harness] tearing down...");
+        let _ = self.auto_confirm.kill();
         let _ = self.bridge.kill();
         let _ = self.emu.kill();
         let _ = self.dbus.kill();
+        let _ = self.auto_confirm.wait();
         let _ = self.bridge.wait();
         let _ = self.emu.wait();
         let _ = self.dbus.wait();
