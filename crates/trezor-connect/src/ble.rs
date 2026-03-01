@@ -32,8 +32,9 @@ use crate::thp::proto::{
     decode_sign_message_response, decode_sign_typed_data_message, decode_sign_typed_data_response,
     decode_solana_tx_signature, decode_tag_response, decode_tx_request,
     encode_bitcoin_tx_ack_input, encode_bitcoin_tx_ack_meta, encode_bitcoin_tx_ack_output,
-    encode_bitcoin_tx_ack_prev_extra_data, encode_bitcoin_tx_ack_prev_input,
-    encode_bitcoin_tx_ack_prev_meta, encode_bitcoin_tx_ack_prev_output,
+    encode_bitcoin_tx_ack_payment_request, encode_bitcoin_tx_ack_prev_extra_data,
+    encode_bitcoin_tx_ack_prev_input, encode_bitcoin_tx_ack_prev_meta,
+    encode_bitcoin_tx_ack_prev_output,
     encode_code_entry_challenge, encode_code_entry_tag, encode_credential_request,
     encode_end_request, encode_get_address_request, encode_get_public_key_request, encode_nfc_tag,
     encode_pairing_request, encode_qr_tag, encode_select_method, encode_sign_message_request,
@@ -304,11 +305,57 @@ fn handle_bitcoin_tx_request(
             Ok(BitcoinTxRequestHandling::Ack(ack))
         }
         Some(BitcoinTxRequestType::TxFinished) => Ok(BitcoinTxRequestHandling::Finished),
-        Some(BitcoinTxRequestType::TxOrigInput)
-        | Some(BitcoinTxRequestType::TxOrigOutput)
-        | Some(BitcoinTxRequestType::TxPaymentReq) => Err(BackendError::Transport(
-            "Bitcoin request type is not implemented yet for this flow; only TXMETA/TXINPUT/TXOUTPUT/TXEXTRADATA are supported for previous transactions in v1".into(),
-        )),
+        // ── RBF (Replace-By-Fee) request types ─────────────────────────────
+        //
+        // The firmware sends TXORIGINPUT / TXORIGOUTPUT when it needs to re-
+        // examine an input or output of the *current* (being signed) transaction
+        // — for example to verify the original spending amounts before allowing
+        // a fee bump.  The response is the same ack shape as for TXINPUT /
+        // TXOUTPUT but always indexes into the *current* transaction (no tx_hash
+        // is expected on these requests).
+        Some(BitcoinTxRequestType::TxOrigInput) => {
+            let index = request_index(tx_request, "TxOrigInput")?;
+            let input = btc.inputs.get(index).ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "TxOrigInput request index {} out of bounds (inputs={})",
+                    index,
+                    btc.inputs.len()
+                ))
+            })?;
+            let ack = encode_bitcoin_tx_ack_input(input).map_err(BleBackend::transport_error)?;
+            Ok(BitcoinTxRequestHandling::Ack(ack))
+        }
+        Some(BitcoinTxRequestType::TxOrigOutput) => {
+            let index = request_index(tx_request, "TxOrigOutput")?;
+            let output = btc.outputs.get(index).ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "TxOrigOutput request index {} out of bounds (outputs={})",
+                    index,
+                    btc.outputs.len()
+                ))
+            })?;
+            let ack = encode_bitcoin_tx_ack_output(output).map_err(BleBackend::transport_error)?;
+            Ok(BitcoinTxRequestHandling::Ack(ack))
+        }
+        // ── Payment request ─────────────────────────────────────────────────
+        //
+        // The firmware sends TXPAYMENTREQ when the transaction outputs include a
+        // recognised payment-protocol recipient and the host must supply the
+        // signed payment-request blob.  The `request_index` field identifies
+        // which entry in `btc.payment_reqs` to return.
+        Some(BitcoinTxRequestType::TxPaymentReq) => {
+            let index = request_index(tx_request, "TxPaymentReq")?;
+            let pr = btc.payment_reqs.get(index).ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "TxPaymentReq request index {} out of bounds (payment_reqs={})",
+                    index,
+                    btc.payment_reqs.len()
+                ))
+            })?;
+            let ack =
+                encode_bitcoin_tx_ack_payment_request(pr).map_err(BleBackend::transport_error)?;
+            Ok(BitcoinTxRequestHandling::Ack(ack))
+        }
         None => Ok(BitcoinTxRequestHandling::Continue),
     }
 }
