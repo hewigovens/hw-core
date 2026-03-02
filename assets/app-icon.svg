@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="canvas" cx="50%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#0f5f96" />
+      <stop offset="55%" stop-color="#093e6c" />
+      <stop offset="100%" stop-color="#041f3e" />
+    </radialGradient>
+    <radialGradient id="badge" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#124d84" />
+      <stop offset="100%" stop-color="#06284d" />
+    </radialGradient>
+    <linearGradient id="shell" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f2bc8e" />
+      <stop offset="45%" stop-color="#c78052" />
+      <stop offset="100%" stop-color="#93512f" />
+    </linearGradient>
+    <linearGradient id="shellHi" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffd9b9" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#ffd9b9" stop-opacity="0" />
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#9df6ff" />
+      <stop offset="55%" stop-color="#2ab9ff" />
+      <stop offset="100%" stop-color="#0075d8" />
+    </radialGradient>
+    <style>
+      .outline { fill: none; stroke: #0a2b49; stroke-linecap: round; stroke-linejoin: round; }
+      .shell-stroke { fill: none; stroke: url(#shell); stroke-linecap: round; stroke-linejoin: round; }
+      .accent { fill: none; stroke: #51dfff; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+    <g id="left-side">
+      <path class="outline" stroke-width="46" d="M420 468 C350 432 299 405 240 368" />
+      <path class="shell-stroke" stroke-width="30" d="M420 468 C350 432 299 405 240 368" />
+      <path class="outline" stroke-width="46" d="M241 367 C210 333 186 293 180 246" />
+      <path class="shell-stroke" stroke-width="30" d="M241 367 C210 333 186 293 180 246" />
+      <path class="outline" stroke-width="46" d="M239 369 C198 404 169 446 156 495" />
+      <path class="shell-stroke" stroke-width="30" d="M239 369 C198 404 169 446 156 495" />
+      <path class="outline" stroke-width="46" d="M158 497 C182 530 221 552 267 563" />
+      <path class="shell-stroke" stroke-width="30" d="M158 497 C182 530 221 552 267 563" />
+      <path class="outline" stroke-width="30" d="M406 574 C335 585 279 607 228 642" />
+      <path class="shell-stroke" stroke-width="18" d="M406 574 C335 585 279 607 228 642" />
+      <path class="outline" stroke-width="26" d="M386 628 C325 650 282 687 251 729" />
+      <path class="shell-stroke" stroke-width="16" d="M386 628 C325 650 282 687 251 729" />
+      <path class="outline" stroke-width="24" d="M360 674 C313 709 286 750 278 796" />
+      <path class="shell-stroke" stroke-width="14" d="M360 674 C313 709 286 750 278 796" />
+      <path class="accent" stroke-width="10" d="M327 425 C300 407 274 389 250 371" />
+      <path class="accent" stroke-width="8" d="M339 611 C316 618 293 628 270 643" />
+    </g>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#canvas)" />
+  <circle cx="512" cy="512" r="430" fill="url(#badge)" />
+
+  <circle cx="714" cy="268" r="44" fill="#37d8ff" opacity="0.16" />
+  <circle cx="306" cy="626" r="28" fill="#37d8ff" opacity="0.12" />
+  <circle cx="512" cy="560" r="78" fill="#37d8ff" opacity="0.10" />
+
+  <use href="#left-side" />
+  <use href="#left-side" transform="translate(1024 0) scale(-1 1)" />
+
+  <path
+    d="M342 430
+       C381 380 444 354 512 354
+       C580 354 643 380 682 430
+       L682 572
+       C647 651 586 712 512 752
+       C438 712 377 651 342 572
+       Z"
+    fill="url(#shell)"
+    stroke="#0a2b49"
+    stroke-width="16"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M372 456
+       C403 418 454 398 512 398
+       C570 398 621 418 652 456
+       L652 566
+       C621 632 572 682 512 716
+       C452 682 403 632 372 566
+       Z"
+    fill="url(#shellHi)"
+    opacity="0.7"
+  />
+  <path
+    d="M404 474
+       C432 447 470 432 512 432
+       C554 432 592 447 620 474
+       L620 586
+       C592 628 554 662 512 690
+       C470 662 432 628 404 586
+       Z"
+    fill="#10385d"
+    stroke="#f0bf98"
+    stroke-width="10"
+    stroke-linejoin="round"
+  />
+  <circle cx="512" cy="550" r="54" fill="url(#core)" />
+  <circle cx="512" cy="550" r="27" fill="#9df6ff" opacity="0.55" />
+
+  <path class="outline" stroke-width="20" d="M458 398 L447 342" />
+  <path class="outline" stroke-width="20" d="M566 398 L577 342" />
+  <path class="shell-stroke" stroke-width="10" d="M458 398 L447 342" />
+  <path class="shell-stroke" stroke-width="10" d="M566 398 L577 342" />
+  <ellipse cx="444" cy="334" rx="24" ry="30" fill="#a96a48" stroke="#0a2b49" stroke-width="8" />
+  <ellipse cx="580" cy="334" rx="24" ry="30" fill="#a96a48" stroke="#0a2b49" stroke-width="8" />
+  <circle cx="440" cy="328" r="10" fill="#baf6ff" />
+  <circle cx="576" cy="328" r="10" fill="#baf6ff" />
+
+  <rect
+    x="688"
+    y="200"
+    width="104"
+    height="146"
+    rx="20"
+    ry="20"
+    fill="#1299ff"
+    stroke="#54e5ff"
+    stroke-width="8"
+    transform="rotate(-28 740 273)"
+  />
+  <rect
+    x="710"
+    y="220"
+    width="16"
+    height="34"
+    rx="4"
+    fill="#80ecff"
+    opacity="0.95"
+    transform="rotate(-28 718 237)"
+  />
+  <rect
+    x="736"
+    y="206"
+    width="16"
+    height="34"
+    rx="4"
+    fill="#80ecff"
+    opacity="0.95"
+    transform="rotate(-28 744 223)"
+  />
+  <rect
+    x="706"
+    y="276"
+    width="72"
+    height="8"
+    rx="4"
+    fill="#80ecff"
+    opacity="0.55"
+    transform="rotate(-28 742 280)"
+  />
+</svg>
