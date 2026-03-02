@@ -28,6 +28,7 @@ pub struct ConnectWorkflowOptions {
     pub storage_path: Option<PathBuf>,
     pub host_name: Option<String>,
     pub app_name: String,
+    pub skip_pairing: bool,
 }
 
 pub fn select_device(
@@ -193,7 +194,11 @@ pub async fn connect_workflow(
     let storage_path = options.storage_path.unwrap_or_else(default_storage_path);
     let host_name = options.host_name.unwrap_or_else(default_host_name);
     let mut config = HostConfig::new(host_name, options.app_name);
-    config.pairing_methods = vec![ThpPairingMethod::CodeEntry];
+    config.pairing_methods = if options.skip_pairing {
+        vec![ThpPairingMethod::SkipPairing]
+    } else {
+        vec![ThpPairingMethod::CodeEntry]
+    };
     let storage = Arc::new(FileStorage::new(storage_path.clone()));
     let workflow = workflow_with_storage(backend, config, storage)
         .await

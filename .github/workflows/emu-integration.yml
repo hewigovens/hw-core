@@ -1,0 +1,80 @@
+name: Emulator Integration
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
+jobs:
+  emu-ble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libdbus-1-dev pkg-config dbus \
+            libsdl2-dev libsdl2-image-dev \
+            python3-pip python3-venv \
+            patchelf
+
+      - name: Install Python deps
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install trezor dbus-fast click typing-extensions
+          echo "${{ github.workspace }}/.venv/bin" >> $GITHUB_PATH
+
+      - name: Run sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Restore cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci-rust"
+
+      - name: Download T3W1 emulator binary
+        run: |
+          gh release download emu-fixtures \
+            --pattern 'trezor-emu-core-T3W1' \
+            --repo ${{ github.repository }} \
+            --dir tests/fixtures/ \
+            --clobber
+          chmod +x tests/fixtures/trezor-emu-core-T3W1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Patch emulator binary for Ubuntu
+        run: |
+          # Install libjpeg62-turbo from Debian bookworm (not in Ubuntu 24.04 repos)
+          wget -q http://deb.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb
+          sudo dpkg -i libjpeg62-turbo_2.1.5-2_amd64.deb
+          rm libjpeg62-turbo_2.1.5-2_amd64.deb
+          # Rewrite Nix interpreter and rpath to use system libraries
+          patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 \
+            --set-rpath /usr/lib/x86_64-linux-gnu \
+            tests/fixtures/trezor-emu-core-T3W1
+          ldd tests/fixtures/trezor-emu-core-T3W1
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Run emulator integration tests
+        env:
+          TREZOR_EMU_BINARY: ${{ github.workspace }}/tests/fixtures/trezor-emu-core-T3W1
+          BRIDGE_DIR: ${{ github.workspace }}/tests/fixtures
+        run: cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1

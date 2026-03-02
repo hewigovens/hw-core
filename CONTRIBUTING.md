@@ -62,6 +62,59 @@ Manual generation:
 cargo run -p hw-ffi --features bindings-cli --bin generate-bindings --auto target/bindings/swift target/bindings/kotlin
 ```
 
+## Emulator integration tests
+
+CI runs the T3W1 emulator to test the full BLE→THP stack end-to-end.
+These tests are `#[ignore]`d and only run when the harness env vars are set.
+
+### Running locally (Linux only)
+
+```bash
+# 1. Install system deps
+sudo apt-get install -y libdbus-1-dev pkg-config dbus libsdl2-dev libsdl2-image-dev
+
+# 2. Install Python deps
+pip install trezor dbus-fast click typing-extensions
+
+# 3. Download or build the emulator binary (see below)
+# Place it at tests/fixtures/trezor-emu-core-T3W1
+
+# 4. Run the tests
+TREZOR_EMU_BINARY=./tests/fixtures/trezor-emu-core-T3W1 \
+BRIDGE_DIR=./tests/fixtures \
+  cargo test -p hw-cli --test emu_ble -- --ignored --nocapture
+```
+
+### Building the emulator binary
+
+The T3W1 emulator must be built from [trezor-firmware](https://github.com/trezor/trezor-firmware).
+CI downloads it from the `emu-fixtures` GitHub release.
+
+To rebuild (requires Nix):
+
+```bash
+git clone --recursive https://github.com/trezor/trezor-firmware
+cd trezor-firmware
+TREZOR_MODEL=T3W1 PYOPT=0 nix-shell --run "UV_PYTHON=3.13 uv run make -C core build_unix_frozen"
+# Output: core/build/unix/trezor-emu-core
+```
+
+The binary must match the CI runner architecture (Linux x86_64 for `ubuntu-latest`).
+On Apple Silicon, build inside Docker with `--platform linux/amd64`.
+
+Upload a new binary:
+
+```bash
+gh release upload emu-fixtures core/build/unix/trezor-emu-core#trezor-emu-core-T3W1 \
+  --repo hewigovens/hw-core --clobber
+```
+
+### Updating the bluez-emu-bridge
+
+The vendored bridge at `tests/fixtures/bluez_emu_bridge/` comes from
+`trezor-firmware/core/tools/`. To update, copy the files from a newer commit
+and update the SHA in `tests/fixtures/README.md`.
+
 ## Documentation map
 
 - Project roadmap: `docs/roadmap.md`

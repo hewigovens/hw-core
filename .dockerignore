@@ -1,0 +1,9 @@
+target/
+.build/
+.swiftpm/
+*.xcuserstate
+xcuserdata/
+*.xcodeproj/
+build/
+jniLibs/
+.git/

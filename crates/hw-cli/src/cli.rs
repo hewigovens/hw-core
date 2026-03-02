@@ -9,6 +9,9 @@ use hw_wallet::chain::Chain;
 pub struct Cli {
     #[arg(short, long, action = ArgAction::Count, global = true)]
     pub verbose: u8,
+    /// Skip interactive pairing (for headless/CI use with emulator).
+    #[arg(long, global = true, default_value_t = false)]
+    pub skip_pairing: bool,
     #[command(subcommand)]
     pub command: Command,
 }

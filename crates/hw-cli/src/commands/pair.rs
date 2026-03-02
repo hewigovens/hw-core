@@ -7,7 +7,7 @@ use crate::commands::common::{ConnectWorkflowOptions, connect_workflow};
 use crate::config::default_storage_path;
 use crate::pairing::CliPairingController;
 
-pub async fn run(args: PairArgs) -> Result<()> {
+pub async fn run(args: PairArgs, skip_pairing: bool) -> Result<()> {
     info!(
         "pair command started: pairing_method={:?}, scan_timeout_secs={}, thp_timeout_secs={}, force={}",
         args.pairing_method, args.timeout_secs, args.thp_timeout_secs, args.force
@@ -35,6 +35,7 @@ pub async fn run(args: PairArgs) -> Result<()> {
             storage_path: Some(storage_path),
             host_name: args.host_name.clone(),
             app_name: args.app_name.clone(),
+            skip_pairing,
         },
         "pair",
         "Remove this Trezor from macOS Bluetooth settings, then re-run `hw-cli pair --force`.",
