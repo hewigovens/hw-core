@@ -218,6 +218,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
         inputs,
         outputs,
         ref_txs,
+        payment_reqs: Vec::new(),
         chunkify,
     }))
 }

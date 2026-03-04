@@ -468,6 +468,43 @@ pub struct BtcRefTx {
     pub branch_id: Option<u32>,
 }
 
+/// A single memo attached to a payment request.
+#[derive(Debug, Clone)]
+pub enum BtcPaymentRequestMemo {
+    /// Plain-text human-readable note shown to the user.
+    Text { text: String },
+    /// Refund address in case the payment cannot be fulfilled.
+    Refund { address: String, mac: Vec<u8> },
+    /// Coin-purchase details (exchange / swap flows).
+    CoinPurchase {
+        coin_type: u32,
+        amount: String,
+        address: String,
+        mac: Vec<u8>,
+    },
+}
+
+/// Represents a `TxAckPaymentRequest` value carried by the caller and returned
+/// to the firmware when it sends a `TxRequest` with type `TXPAYMENTREQ`.
+///
+/// Payment requests implement a Trezor-internal BIP-70 successor protocol.
+/// For most signing flows this list will be empty; the field exists so that
+/// callers who do need payment-request support can supply the data without a
+/// separate API change.
+#[derive(Debug, Clone)]
+pub struct BtcPaymentRequest {
+    /// Random nonce supplied by the recipient (anti-replay).
+    pub nonce: Option<Vec<u8>>,
+    /// Human-readable merchant / recipient name.
+    pub recipient_name: Option<String>,
+    /// Optional structured memos (text, refund, coin-purchase).
+    pub memos: Vec<BtcPaymentRequestMemo>,
+    /// Total payment amount in satoshis.
+    pub amount: Option<u64>,
+    /// Recipient's signature over the serialised request.
+    pub signature: Option<Vec<u8>>,
+}
+
 #[derive(Debug, Clone)]
 pub struct BtcSignTx {
     pub version: u32,
@@ -475,6 +512,9 @@ pub struct BtcSignTx {
     pub inputs: Vec<BtcSignInput>,
     pub outputs: Vec<BtcSignOutput>,
     pub ref_txs: Vec<BtcRefTx>,
+    /// Payment requests indexed by the `request_index` field in `TxRequest`.
+    /// Most signing flows leave this empty.
+    pub payment_reqs: Vec<BtcPaymentRequest>,
     pub chunkify: bool,
 }
 
