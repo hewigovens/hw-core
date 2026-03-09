@@ -18,10 +18,11 @@ pub use storage::{FileStorage, HostSnapshot, StorageError, ThpStorage};
 pub use thp_proto::hw::trezor::messages::thp as messages;
 pub use transport::{ThpTransport, TransportError};
 pub use types::{
-    BtcInputScriptType, BtcOutputScriptType, BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput,
-    BtcSignOutput, BtcSignTx, CreateSessionRequest, Eip712StructMember, Eip712TypedData,
-    EthAccessListEntry, GetAddressRequest, GetAddressResponse, HostConfig, PairingController,
-    PairingDecision, PairingMethod, SignMessageRequest, SignMessageResponse, SignTxRequest,
-    SignTxResponse, SignTypedDataPayload, SignTypedDataRequest, SignTypedDataResponse,
+    BtcInputScriptType, BtcOrigTx, BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestAmount,
+    BtcPaymentRequestMemo, BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput,
+    BtcSignTx, CreateSessionRequest, Eip712StructMember, Eip712TypedData, EthAccessListEntry,
+    GetAddressRequest, GetAddressResponse, HostConfig, PairingController, PairingDecision,
+    PairingMethod, SignMessageRequest, SignMessageResponse, SignTxRequest, SignTxResponse,
+    SignTypedDataPayload, SignTypedDataRequest, SignTypedDataResponse,
 };
 pub use workflow::ThpWorkflow;

@@ -168,6 +168,16 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
+    public func getNonce(timeout: TimeInterval? = nil) async throws -> String {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "getNonce") {
+                try await self.workflow.getNonce()
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
     public func signTx(
         _ request: SignTxRequest,
         timeout: TimeInterval? = nil

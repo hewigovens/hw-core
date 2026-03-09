@@ -17,10 +17,12 @@ use super::types::{
 
 pub use bitcoin::{
     BitcoinTxRequestType, DecodedBitcoinTxRequest, MESSAGE_TYPE_BITCOIN_SIGN_TX,
-    MESSAGE_TYPE_BITCOIN_TX_ACK, MESSAGE_TYPE_BITCOIN_TX_REQUEST, decode_bitcoin_tx_request,
-    encode_bitcoin_tx_ack_input, encode_bitcoin_tx_ack_meta, encode_bitcoin_tx_ack_output,
-    encode_bitcoin_tx_ack_prev_extra_data, encode_bitcoin_tx_ack_prev_input,
-    encode_bitcoin_tx_ack_prev_meta, encode_bitcoin_tx_ack_prev_output,
+    MESSAGE_TYPE_BITCOIN_TX_ACK, MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST,
+    MESSAGE_TYPE_BITCOIN_TX_REQUEST, decode_bitcoin_tx_request, encode_bitcoin_tx_ack_input,
+    encode_bitcoin_tx_ack_meta, encode_bitcoin_tx_ack_orig_meta, encode_bitcoin_tx_ack_output,
+    encode_bitcoin_tx_ack_payment_request, encode_bitcoin_tx_ack_prev_extra_data,
+    encode_bitcoin_tx_ack_prev_input, encode_bitcoin_tx_ack_prev_meta,
+    encode_bitcoin_tx_ack_prev_output,
 };
 pub use ethereum::{
     DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE, EthereumDataTypeProto, EthereumFieldType,
@@ -50,9 +52,22 @@ pub enum ProtoMappingError {
     UnexpectedMessage(u16),
 }
 
+#[derive(Debug)]
 pub struct EncodedMessage {
     pub message_type: u16,
     pub payload: Vec<u8>,
+}
+
+const MESSAGE_TYPE_GET_NONCE: u16 = 31;
+const MESSAGE_TYPE_NONCE: u16 = 33;
+
+#[derive(Clone, PartialEq, Message)]
+struct GetNonce {}
+
+#[derive(Clone, PartialEq, Message)]
+struct Nonce {
+    #[prost(bytes = "vec", required, tag = "1")]
+    nonce: Vec<u8>,
 }
 
 fn encode_message<M: Message>(
@@ -245,6 +260,25 @@ pub fn encode_end_request() -> Result<EncodedMessage, ProtoMappingError> {
     )
 }
 
+pub fn encode_get_nonce_request() -> Result<EncodedMessage, ProtoMappingError> {
+    let mut payload = Vec::new();
+    GetNonce {}.encode(&mut payload)?;
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_GET_NONCE,
+        payload,
+    })
+}
+
+pub fn decode_get_nonce_response(
+    message_type: u16,
+    payload: &[u8],
+) -> Result<Vec<u8>, ProtoMappingError> {
+    if message_type != MESSAGE_TYPE_NONCE {
+        return Err(ProtoMappingError::UnexpectedMessage(message_type));
+    }
+    Ok(Nonce::decode(payload)?.nonce)
+}
+
 pub fn decode_device_properties(payload: &[u8]) -> Result<ThpProperties, ProtoMappingError> {
     let msg = messages::ThpDeviceProperties::decode(payload)?;
     let pairing_methods = proto_to_pairing_methods(&msg.pairing_methods)?;
@@ -406,6 +440,8 @@ mod tests {
             inputs: Vec::new(),
             outputs: Vec::new(),
             ref_txs: Vec::new(),
+            orig_txs: Vec::new(),
+            payment_reqs: Vec::new(),
             chunkify: false,
         });
         let sol = SignTxRequest::solana(
@@ -436,5 +472,21 @@ mod tests {
         assert_eq!(eth_msg.message_type, 56);
         assert_eq!(btc_msg.message_type, 29);
         assert_eq!(sol_msg.message_type, 902);
+    }
+
+    #[test]
+    fn encodes_and_decodes_get_nonce() {
+        let encoded = encode_get_nonce_request().unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_GET_NONCE);
+
+        let mut payload = Vec::new();
+        Nonce {
+            nonce: vec![0xAA; 32],
+        }
+        .encode(&mut payload)
+        .unwrap();
+
+        let decoded = decode_get_nonce_response(MESSAGE_TYPE_NONCE, &payload).unwrap();
+        assert_eq!(decoded, vec![0xAA; 32]);
     }
 }

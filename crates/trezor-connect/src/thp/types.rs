@@ -429,6 +429,10 @@ pub struct BtcSignInput {
     pub amount: u64,
     pub sequence: u32,
     pub script_type: BtcInputScriptType,
+    pub script_sig: Option<Vec<u8>>,
+    pub witness: Option<Vec<u8>>,
+    pub orig_hash: Option<Vec<u8>>,
+    pub orig_index: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -438,6 +442,9 @@ pub struct BtcSignOutput {
     pub amount: u64,
     pub script_type: BtcOutputScriptType,
     pub op_return_data: Option<Vec<u8>>,
+    pub orig_hash: Option<Vec<u8>>,
+    pub orig_index: Option<u32>,
+    pub payment_req_index: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -469,12 +476,87 @@ pub struct BtcRefTx {
 }
 
 #[derive(Debug, Clone)]
+pub struct BtcOrigTx {
+    pub hash: Vec<u8>,
+    pub version: u32,
+    pub lock_time: u32,
+    pub inputs: Vec<BtcSignInput>,
+    pub outputs: Vec<BtcSignOutput>,
+    pub extra_data: Option<Vec<u8>>,
+    pub timestamp: Option<u32>,
+    pub version_group_id: Option<u32>,
+    pub expiry: Option<u32>,
+    pub branch_id: Option<u32>,
+}
+
+/// A single memo attached to a payment request.
+#[derive(Debug, Clone)]
+pub enum BtcPaymentRequestMemo {
+    /// Plain-text human-readable note shown to the user.
+    Text { text: String },
+    /// Plain-text heading and details shown together.
+    TextDetails { title: String, text: String },
+    /// Refund address in case the payment cannot be fulfilled.
+    Refund {
+        address: String,
+        path: Vec<u32>,
+        mac: Vec<u8>,
+    },
+    /// Coin-purchase details (exchange / swap flows).
+    CoinPurchase {
+        coin_type: u32,
+        amount: String,
+        address: String,
+        path: Vec<u32>,
+        mac: Vec<u8>,
+    },
+}
+
+/// Encoded SLIP-24 payment request amount.
+///
+/// The firmware expects little-endian bytes, typically 8 bytes for Bitcoin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BtcPaymentRequestAmount(pub Vec<u8>);
+
+impl BtcPaymentRequestAmount {
+    /// Encodes a Bitcoin amount as 8-byte little-endian satoshis.
+    pub fn from_sats(amount: u64) -> Self {
+        Self(amount.to_le_bytes().to_vec())
+    }
+}
+
+/// Represents a `TxAckPaymentRequest` value carried by the caller and returned
+/// to the firmware when it sends a `TxRequest` with type `TXPAYMENTREQ`.
+///
+/// Payment requests implement a Trezor-internal BIP-70 successor protocol.
+/// For most signing flows this list will be empty; the field exists so that
+/// callers who do need payment-request support can supply the data without a
+/// separate API change.
+#[derive(Debug, Clone)]
+pub struct BtcPaymentRequest {
+    /// Random nonce supplied by the recipient (anti-replay).
+    pub nonce: Option<Vec<u8>>,
+    /// Human-readable merchant / recipient name.
+    pub recipient_name: String,
+    /// Optional structured memos (text, refund, coin-purchase).
+    pub memos: Vec<BtcPaymentRequestMemo>,
+    /// Encoded payment amount bytes as defined by SLIP-24.
+    pub amount: Option<BtcPaymentRequestAmount>,
+    /// Recipient's signature over the serialised request.
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
 pub struct BtcSignTx {
     pub version: u32,
     pub lock_time: u32,
     pub inputs: Vec<BtcSignInput>,
     pub outputs: Vec<BtcSignOutput>,
     pub ref_txs: Vec<BtcRefTx>,
+    pub orig_txs: Vec<BtcOrigTx>,
+    /// Payment requests indexed by the `request_index` field in `TxRequest`.
+    /// Most signing flows leave this empty.
+    pub payment_reqs: Vec<BtcPaymentRequest>,
     pub chunkify: bool,
 }
 

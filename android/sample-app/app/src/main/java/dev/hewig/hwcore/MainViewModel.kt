@@ -135,6 +135,147 @@ private const val DEFAULT_BITCOIN_TX_JSON = """
 }
 """
 
+private const val ADVANCED_BITCOIN_TX_JSON = """
+{
+  "description": "RBF fee-bump scenario with original tx data for real-device testing.",
+  "version": 2,
+  "lock_time": 831400,
+  "inputs": [
+    {
+      "path": "m/84'/0'/0'/0/3",
+      "prev_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "prev_index": 0,
+      "amount": "50000",
+      "sequence": 4294967293,
+      "script_type": "spendwitness",
+      "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "orig_index": 0
+    },
+    {
+      "path": "m/84'/0'/0'/0/7",
+      "prev_hash": "0xa665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+      "prev_index": 1,
+      "amount": "30000",
+      "sequence": 4294967293,
+      "script_type": "spendwitness",
+      "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "orig_index": 1
+    }
+  ],
+  "outputs": [
+    {
+      "address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+      "amount": "60000",
+      "script_type": "paytowitness",
+      "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "orig_index": 0
+    },
+    {
+      "path": "m/84'/0'/0'/1/2",
+      "amount": "18500",
+      "script_type": "paytowitness",
+      "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "orig_index": 1
+    }
+  ],
+  "ref_txs": [
+    {
+      "hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "version": 2,
+      "lock_time": 831200,
+      "inputs": [
+        {
+          "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "prev_index": 0,
+          "script_sig": "",
+          "sequence": 4294967293
+        }
+      ],
+      "bin_outputs": [
+        {
+          "amount": "50000",
+          "script_pubkey": "00149d5e0fb75d36c7b94c0dc4c03e3c8f0b68e23e71"
+        },
+        {
+          "amount": "49000",
+          "script_pubkey": "0014d85c2b71d0060b09c9886aeb815e50991dda124d"
+        }
+      ]
+    },
+    {
+      "hash": "0xa665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+      "version": 2,
+      "lock_time": 831100,
+      "inputs": [
+        {
+          "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000002",
+          "prev_index": 0,
+          "script_sig": "",
+          "sequence": 4294967293
+        },
+        {
+          "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000003",
+          "prev_index": 2,
+          "script_sig": "483045022100abcdef",
+          "sequence": 4294967293
+        }
+      ],
+      "bin_outputs": [
+        {
+          "amount": "10000",
+          "script_pubkey": "0014a11ce08a1b5c4b1f1b8e3ea8dbb7f26f60e2c1a0"
+        },
+        {
+          "amount": "30000",
+          "script_pubkey": "001425e03ad0c5c96b45920de82fc2e2e84c72e3f5ab"
+        }
+      ]
+    }
+  ],
+  "orig_txs": [
+    {
+      "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "version": 2,
+      "lock_time": 831350,
+      "inputs": [
+        {
+          "path": "m/84'/0'/0'/0/3",
+          "prev_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "prev_index": 0,
+          "amount": "50000",
+          "sequence": 4294967293,
+          "script_type": "spendwitness",
+          "script_sig": "",
+          "witness": "0x024730"
+        },
+        {
+          "path": "m/84'/0'/0'/0/7",
+          "prev_hash": "0xa665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+          "prev_index": 1,
+          "amount": "30000",
+          "sequence": 4294967293,
+          "script_type": "spendwitness",
+          "script_sig": "",
+          "witness": "0x034731"
+        }
+      ],
+      "outputs": [
+        {
+          "address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+          "amount": "60000",
+          "script_type": "paytowitness"
+        },
+        {
+          "path": "m/84'/0'/0'/1/2",
+          "amount": "19000",
+          "script_type": "paytowitness"
+        }
+      ]
+    }
+  ]
+}
+"""
+
 class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
 
     private var uiState by mutableStateOf(UiState())
@@ -983,6 +1124,8 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     fun setSolChunkify(value: Boolean) { ui = ui.copy(solChunkify = value) }
 
     fun updateBitcoinTxJson(value: String) { ui = ui.copy(btcTxJsonInput = value) }
+    fun loadBitcoinBasicPreset() { ui = ui.copy(btcTxJsonInput = DEFAULT_BITCOIN_TX_JSON.trimIndent()) }
+    fun loadBitcoinAdvancedPreset() { ui = ui.copy(btcTxJsonInput = ADVANCED_BITCOIN_TX_JSON.trimIndent()) }
 
     fun signPreview(): String {
         val state = ui
@@ -1208,7 +1351,9 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             val inputs = obj.optJSONArray("inputs")?.length() ?: 0
             val outputs = obj.optJSONArray("outputs")?.length() ?: 0
             val refTxs = obj.optJSONArray("ref_txs")?.length() ?: 0
-            "inputs=$inputs outputs=$outputs ref_txs=$refTxs"
+            val origTxs = obj.optJSONArray("orig_txs")?.length() ?: 0
+            val paymentReqs = obj.optJSONArray("payment_reqs")?.length() ?: 0
+            "inputs=$inputs outputs=$outputs ref_txs=$refTxs orig_txs=$origTxs payment_reqs=$paymentReqs"
         } catch (_: Exception) {
             null
         }

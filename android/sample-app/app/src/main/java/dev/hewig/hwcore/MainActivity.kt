@@ -619,6 +619,25 @@ fun MainScreen(
                         }
 
                         Chain.BITCOIN -> {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                OutlinedButton(
+                                    onClick = vm::loadBitcoinBasicPreset,
+                                    enabled = !ui.isBusy,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("Load Basic")
+                                }
+                                OutlinedButton(
+                                    onClick = vm::loadBitcoinAdvancedPreset,
+                                    enabled = !ui.isBusy,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("Load RBF Preset")
+                                }
+                            }
                             OutlinedTextField(
                                 value = ui.btcTxJsonInput,
                                 onValueChange = vm::updateBitcoinTxJson,
@@ -632,7 +651,7 @@ fun MainScreen(
                                 textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             )
                             Text(
-                                text = "BTC signing requires ref_txs that match each input prev_hash/prev_index.",
+                                text = "BTC signing accepts basic ref_txs plus advanced orig_txs for RBF. Real Bitcoin payment requests need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in preset.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

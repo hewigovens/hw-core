@@ -23,6 +23,7 @@ final class ContentViewModel: ObservableObject {
     @Published var isBusy = false
     @Published var address = ""
     @Published var addressPublicKey = ""
+    @Published var nonceResult = ""
     @Published var signatureSummary = ""
     @Published var logs: [String] = []
     @Published var addressPathInput: String
@@ -116,6 +117,146 @@ final class ContentViewModel: ObservableObject {
             {
               "amount": "1000",
               "script_pubkey": "001400112233445566778899aabbccddeeff00112233"
+            }
+          ]
+        }
+      ]
+    }
+    """
+    private static let advancedBitcoinTxJson = """
+    {
+      "description": "RBF fee-bump scenario with original tx data for real-device testing.",
+      "version": 2,
+      "lock_time": 831400,
+      "inputs": [
+        {
+          "path": "m/84'/0'/0'/0/3",
+          "prev_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "prev_index": 0,
+          "amount": "50000",
+          "sequence": 4294967293,
+          "script_type": "spendwitness",
+          "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "orig_index": 0
+        },
+        {
+          "path": "m/84'/0'/0'/0/7",
+          "prev_hash": "0xa665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+          "prev_index": 1,
+          "amount": "30000",
+          "sequence": 4294967293,
+          "script_type": "spendwitness",
+          "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "orig_index": 1
+        }
+      ],
+      "outputs": [
+        {
+          "address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+          "amount": "60000",
+          "script_type": "paytowitness",
+          "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "orig_index": 0
+        },
+        {
+          "path": "m/84'/0'/0'/1/2",
+          "amount": "18500",
+          "script_type": "paytowitness",
+          "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "orig_index": 1
+        }
+      ],
+      "ref_txs": [
+        {
+          "hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": 2,
+          "lock_time": 831200,
+          "inputs": [
+            {
+              "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000001",
+              "prev_index": 0,
+              "script_sig": "",
+              "sequence": 4294967293
+            }
+          ],
+          "bin_outputs": [
+            {
+              "amount": "50000",
+              "script_pubkey": "00149d5e0fb75d36c7b94c0dc4c03e3c8f0b68e23e71"
+            },
+            {
+              "amount": "49000",
+              "script_pubkey": "0014d85c2b71d0060b09c9886aeb815e50991dda124d"
+            }
+          ]
+        },
+        {
+          "hash": "0xa665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+          "version": 2,
+          "lock_time": 831100,
+          "inputs": [
+            {
+              "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000002",
+              "prev_index": 0,
+              "script_sig": "",
+              "sequence": 4294967293
+            },
+            {
+              "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000003",
+              "prev_index": 2,
+              "script_sig": "483045022100abcdef",
+              "sequence": 4294967293
+            }
+          ],
+          "bin_outputs": [
+            {
+              "amount": "10000",
+              "script_pubkey": "0014a11ce08a1b5c4b1f1b8e3ea8dbb7f26f60e2c1a0"
+            },
+            {
+              "amount": "30000",
+              "script_pubkey": "001425e03ad0c5c96b45920de82fc2e2e84c72e3f5ab"
+            }
+          ]
+        }
+      ],
+      "orig_txs": [
+        {
+          "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "version": 2,
+          "lock_time": 831350,
+          "inputs": [
+            {
+              "path": "m/84'/0'/0'/0/3",
+              "prev_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "prev_index": 0,
+              "amount": "50000",
+              "sequence": 4294967293,
+              "script_type": "spendwitness",
+              "script_sig": "",
+              "witness": "0x024730"
+            },
+            {
+              "path": "m/84'/0'/0'/0/7",
+              "prev_hash": "0xa665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+              "prev_index": 1,
+              "amount": "30000",
+              "sequence": 4294967293,
+              "script_type": "spendwitness",
+              "script_sig": "",
+              "witness": "0x034731"
+            }
+          ],
+          "outputs": [
+            {
+              "address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+              "amount": "60000",
+              "script_type": "paytowitness"
+            },
+            {
+              "path": "m/84'/0'/0'/1/2",
+              "amount": "19000",
+              "script_type": "paytowitness"
             }
           ]
         }
@@ -326,6 +467,24 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func fetchNonce() async {
+        await runAction(prefix: "getNonce") { [self] in
+            guard let session else {
+                status = "Connect first"
+                return
+            }
+            guard sessionState?.canGetAddress == true else {
+                status = "Connect first"
+                return
+            }
+
+            let nonce = try await session.getNonce()
+            nonceResult = nonce
+            status = "Nonce received"
+            appendLog("nonce: \(nonce)")
+        }
+    }
+
     func signSampleTransaction() async {
         await runAction(prefix: "signTx") { [self] in
             guard let session else {
@@ -375,6 +534,7 @@ final class ContentViewModel: ObservableObject {
     func selectedChainDidChange() {
         addressPathInput = defaultPath(for: selectedChain)
         messageSignPathInput = defaultPath(for: selectedChain)
+        nonceResult = ""
         status = "Selected chain: \(chainLabel(selectedChain))"
     }
 
@@ -405,6 +565,10 @@ final class ContentViewModel: ObservableObject {
 
     func copyAddressToClipboard() {
         copyToClipboard(address, emptyMessage: "No address to copy", successLabel: "address")
+    }
+
+    func copyNonceToClipboard() {
+        copyToClipboard(nonceResult, emptyMessage: "No nonce to copy", successLabel: "nonce")
     }
 
     func copySignatureToClipboard() {
@@ -464,6 +628,7 @@ final class ContentViewModel: ObservableObject {
             shouldRecoverOnActive = false
             address = ""
             addressPublicKey = ""
+            nonceResult = ""
             signatureSummary = ""
             logs.removeAll()
 
@@ -652,6 +817,14 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func loadBitcoinBasicPreset() {
+        btcTxJsonInput = Self.defaultBitcoinTxJson
+    }
+
+    func loadBitcoinAdvancedPreset() {
+        btcTxJsonInput = Self.advancedBitcoinTxJson
+    }
+
     private func buildSignRequest(
         chain: Chain,
         session: WalletSession
@@ -800,7 +973,9 @@ final class ContentViewModel: ObservableObject {
         let inputs = (dictionary["inputs"] as? [Any])?.count ?? 0
         let outputs = (dictionary["outputs"] as? [Any])?.count ?? 0
         let refTxs = (dictionary["ref_txs"] as? [Any])?.count ?? 0
-        return "inputs=\(inputs) outputs=\(outputs) ref_txs=\(refTxs)"
+        let origTxs = (dictionary["orig_txs"] as? [Any])?.count ?? 0
+        let paymentReqs = (dictionary["payment_reqs"] as? [Any])?.count ?? 0
+        return "inputs=\(inputs) outputs=\(outputs) ref_txs=\(refTxs) orig_txs=\(origTxs) payment_reqs=\(paymentReqs)"
     }
 
     private func copyToClipboard(_ value: String, emptyMessage: String, successLabel: String) {

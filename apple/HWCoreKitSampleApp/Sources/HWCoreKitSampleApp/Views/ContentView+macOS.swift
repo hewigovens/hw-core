@@ -93,6 +93,13 @@ struct MacContentView: View {
                 .accessibilityLabel("Get address")
                 .accessibilityIdentifier("action.address")
 
+                Button("Nonce") {
+                    Task { await viewModel.fetchNonce() }
+                }
+                .disabled(!viewModel.canGetAddress)
+                .accessibilityLabel("Get nonce")
+                .accessibilityIdentifier("action.nonce")
+
                 Button("Sign") {
                     Task { await viewModel.signSampleTransaction() }
                 }
@@ -200,6 +207,22 @@ struct MacContentView: View {
                     }
                 }
 
+                if !viewModel.nonceResult.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Text("Nonce: \(viewModel.nonceResult)")
+                                .font(.system(.body, design: .monospaced))
+                                .textSelection(.enabled)
+                                .accessibilityLabel("Nonce")
+                                .accessibilityIdentifier("result.nonce")
+                            Button("Copy") {
+                                viewModel.copyNonceToClipboard()
+                            }
+                            .accessibilityIdentifier("result.nonce.copy")
+                        }
+                    }
+                }
+
                 if !viewModel.signatureSummary.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         ScrollView(.horizontal) {
@@ -302,11 +325,22 @@ struct MacContentView: View {
             Text("Transaction JSON")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Load Basic") {
+                    viewModel.loadBitcoinBasicPreset()
+                }
+                .accessibilityIdentifier("button.sign.btc.load_basic")
+
+                Button("Load RBF Preset") {
+                    viewModel.loadBitcoinAdvancedPreset()
+                }
+                .accessibilityIdentifier("button.sign.btc.load_advanced")
+            }
             TextEditor(text: $viewModel.btcTxJsonInput)
                 .font(.system(.footnote, design: .monospaced))
                 .frame(minHeight: 140)
                 .accessibilityIdentifier("input.sign.btc.tx_json")
-            Text("BTC signing requires ref_txs that match each input prev_hash/prev_index.")
+            Text("BTC signing requires ref_txs that match each input prev_hash/prev_index. The RBF preset covers orig_txs for real-device testing. Real Bitcoin payment requests also need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in preset.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

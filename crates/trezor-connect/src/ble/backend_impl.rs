@@ -562,6 +562,27 @@ impl ThpBackend for BleBackend {
         Ok(response)
     }
 
+    async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {
+        let encoded = encode_get_nonce_request().map_err(Self::transport_error)?;
+        self.send_encrypted_request(encoded).await?;
+
+        let parsed = self.read_next().await?;
+        let response_or_reason: ResponseOrReason<Vec<u8>> = self
+            .parse_encrypted_response(parsed, |message_type, payload| {
+                if message_type == MESSAGE_TYPE_FAILURE {
+                    return Ok(Err(decode_failure_as_backend_error(payload)));
+                }
+                let response = decode_get_nonce_response(message_type, payload)?;
+                Ok(Ok(response))
+            })
+            .await?;
+
+        match response_or_reason {
+            Ok(response) => Ok(response),
+            Err(err) => Err(err),
+        }
+    }
+
     async fn sign_message(
         &mut self,
         request: SignMessageRequest,
@@ -720,6 +741,7 @@ impl ThpBackend for BleBackend {
                     BackendError::Transport("missing Bitcoin signing payload".into())
                 })?;
                 let ref_txs_by_hash = build_ref_txs_index(&btc);
+                let orig_txs_by_hash = build_orig_txs_index(&btc);
                 let mut latest_signature: Option<Vec<u8>> = None;
 
                 loop {
@@ -738,7 +760,12 @@ impl ThpBackend for BleBackend {
                         latest_signature = Some(signature.clone());
                     }
 
-                    match handle_bitcoin_tx_request(&btc, &ref_txs_by_hash, &tx_request)? {
+                    match handle_bitcoin_tx_request(
+                        &btc,
+                        &ref_txs_by_hash,
+                        &orig_txs_by_hash,
+                        &tx_request,
+                    )? {
                         BitcoinTxRequestHandling::Ack(ack) => {
                             self.send_encrypted_request(ack).await?;
                         }

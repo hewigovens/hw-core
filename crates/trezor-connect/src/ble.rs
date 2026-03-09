@@ -28,14 +28,16 @@ use crate::thp::proto::{
     EncodedMessage, MESSAGE_TYPE_BITCOIN_TX_REQUEST, MESSAGE_TYPE_ETHEREUM_TX_REQUEST,
     MESSAGE_TYPE_SOLANA_TX_SIGNATURE, ProtoMappingError, decode_bitcoin_tx_request,
     decode_code_entry_cpace_response, decode_credential_response, decode_get_address_response,
-    decode_get_public_key_response, decode_pairing_request_approved, decode_select_method_response,
-    decode_sign_message_response, decode_sign_typed_data_message, decode_sign_typed_data_response,
-    decode_solana_tx_signature, decode_tag_response, decode_tx_request,
-    encode_bitcoin_tx_ack_input, encode_bitcoin_tx_ack_meta, encode_bitcoin_tx_ack_output,
-    encode_bitcoin_tx_ack_prev_extra_data, encode_bitcoin_tx_ack_prev_input,
-    encode_bitcoin_tx_ack_prev_meta, encode_bitcoin_tx_ack_prev_output,
-    encode_code_entry_challenge, encode_code_entry_tag, encode_credential_request,
-    encode_end_request, encode_get_address_request, encode_get_public_key_request, encode_nfc_tag,
+    decode_get_nonce_response, decode_get_public_key_response, decode_pairing_request_approved,
+    decode_select_method_response, decode_sign_message_response, decode_sign_typed_data_message,
+    decode_sign_typed_data_response, decode_solana_tx_signature, decode_tag_response,
+    decode_tx_request, encode_bitcoin_tx_ack_input, encode_bitcoin_tx_ack_meta,
+    encode_bitcoin_tx_ack_orig_meta, encode_bitcoin_tx_ack_output,
+    encode_bitcoin_tx_ack_payment_request, encode_bitcoin_tx_ack_prev_extra_data,
+    encode_bitcoin_tx_ack_prev_input, encode_bitcoin_tx_ack_prev_meta,
+    encode_bitcoin_tx_ack_prev_output, encode_code_entry_challenge, encode_code_entry_tag,
+    encode_credential_request, encode_end_request, encode_get_address_request,
+    encode_get_nonce_request, encode_get_public_key_request, encode_nfc_tag,
     encode_pairing_request, encode_qr_tag, encode_select_method, encode_sign_message_request,
     encode_sign_tx_request, encode_sign_typed_data_request, encode_tx_ack,
     encode_typed_data_struct_ack, encode_typed_data_value_ack,
@@ -156,6 +158,7 @@ fn decode_failure_as_backend_error(payload: &[u8]) -> BackendError {
     }
 }
 
+#[derive(Debug)]
 enum BitcoinTxRequestHandling {
     Ack(EncodedMessage),
     Finished,
@@ -180,6 +183,15 @@ fn build_ref_txs_index(
         .collect()
 }
 
+fn build_orig_txs_index(
+    btc: &crate::thp::types::BtcSignTx,
+) -> HashMap<&[u8], &crate::thp::types::BtcOrigTx> {
+    btc.orig_txs
+        .iter()
+        .map(|tx| (tx.hash.as_slice(), tx))
+        .collect()
+}
+
 fn find_ref_tx<'a>(
     ref_txs_by_hash: &'a HashMap<&'a [u8], &'a crate::thp::types::BtcRefTx>,
     tx_hash: &[u8],
@@ -193,9 +205,23 @@ fn find_ref_tx<'a>(
     })
 }
 
+fn find_orig_tx<'a>(
+    orig_txs_by_hash: &'a HashMap<&'a [u8], &'a crate::thp::types::BtcOrigTx>,
+    tx_hash: &[u8],
+    request_name: &str,
+) -> BackendResult<&'a crate::thp::types::BtcOrigTx> {
+    orig_txs_by_hash.get(tx_hash).copied().ok_or_else(|| {
+        BackendError::Transport(format!(
+            "{request_name} request references unknown original transaction hash {}",
+            hex::encode(tx_hash)
+        ))
+    })
+}
+
 fn handle_bitcoin_tx_request(
     btc: &crate::thp::types::BtcSignTx,
     ref_txs_by_hash: &HashMap<&[u8], &crate::thp::types::BtcRefTx>,
+    orig_txs_by_hash: &HashMap<&[u8], &crate::thp::types::BtcOrigTx>,
     tx_request: &DecodedBitcoinTxRequest,
 ) -> BackendResult<BitcoinTxRequestHandling> {
     match tx_request.request_type {
@@ -253,8 +279,12 @@ fn handle_bitcoin_tx_request(
         }
         Some(BitcoinTxRequestType::TxMeta) => {
             let ack = if let Some(ref_tx_hash) = tx_request.tx_hash.as_ref() {
-                let ref_tx = find_ref_tx(ref_txs_by_hash, ref_tx_hash, "TxMeta")?;
-                encode_bitcoin_tx_ack_prev_meta(ref_tx)
+                if let Some(orig_tx) = orig_txs_by_hash.get(ref_tx_hash.as_slice()).copied() {
+                    encode_bitcoin_tx_ack_orig_meta(orig_tx)
+                } else {
+                    let ref_tx = find_ref_tx(ref_txs_by_hash, ref_tx_hash, "TxMeta")?;
+                    encode_bitcoin_tx_ack_prev_meta(ref_tx)
+                }
             } else {
                 encode_bitcoin_tx_ack_meta(
                     btc.version,
@@ -272,19 +302,25 @@ fn handle_bitcoin_tx_request(
                     "TxExtraData request missing tx_hash for previous transaction".into(),
                 )
             })?;
-            let ref_tx = find_ref_tx(ref_txs_by_hash, ref_tx_hash, "TxExtraData")?;
             let extra_data_len = tx_request.extra_data_len.ok_or_else(|| {
                 BackendError::Transport("TxExtraData request missing extra_data_len".into())
             })? as usize;
             let extra_data_offset = tx_request.extra_data_offset.ok_or_else(|| {
                 BackendError::Transport("TxExtraData request missing extra_data_offset".into())
             })? as usize;
-            let extra_data = ref_tx.extra_data.as_deref().ok_or_else(|| {
-                BackendError::Transport(format!(
-                    "TxExtraData requested for previous transaction {} without extra_data",
-                    hex::encode(ref_tx_hash)
-                ))
-            })?;
+            let extra_data =
+                if let Some(orig_tx) = orig_txs_by_hash.get(ref_tx_hash.as_slice()).copied() {
+                    orig_tx.extra_data.as_deref()
+                } else {
+                    let ref_tx = find_ref_tx(ref_txs_by_hash, ref_tx_hash, "TxExtraData")?;
+                    ref_tx.extra_data.as_deref()
+                }
+                .ok_or_else(|| {
+                    BackendError::Transport(format!(
+                        "TxExtraData requested for transaction {} without extra_data",
+                        hex::encode(ref_tx_hash)
+                    ))
+                })?;
             let end = extra_data_offset
                 .checked_add(extra_data_len)
                 .ok_or_else(|| {
@@ -304,11 +340,53 @@ fn handle_bitcoin_tx_request(
             Ok(BitcoinTxRequestHandling::Ack(ack))
         }
         Some(BitcoinTxRequestType::TxFinished) => Ok(BitcoinTxRequestHandling::Finished),
-        Some(BitcoinTxRequestType::TxOrigInput)
-        | Some(BitcoinTxRequestType::TxOrigOutput)
-        | Some(BitcoinTxRequestType::TxPaymentReq) => Err(BackendError::Transport(
-            "Bitcoin request type is not implemented yet for this flow; only TXMETA/TXINPUT/TXOUTPUT/TXEXTRADATA are supported for previous transactions in v1".into(),
-        )),
+        Some(BitcoinTxRequestType::TxOrigInput) => {
+            let orig_tx_hash = tx_request.tx_hash.as_ref().ok_or_else(|| {
+                BackendError::Transport("TxOrigInput request missing tx_hash".into())
+            })?;
+            let orig_tx = find_orig_tx(orig_txs_by_hash, orig_tx_hash, "TxOrigInput")?;
+            let index = request_index(tx_request, "TxOrigInput")?;
+            let input = orig_tx.inputs.get(index).ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "TxOrigInput request index {} out of bounds for original transaction {} (inputs={})",
+                    index,
+                    hex::encode(orig_tx_hash),
+                    orig_tx.inputs.len()
+                ))
+            })?;
+            let ack = encode_bitcoin_tx_ack_input(input).map_err(BleBackend::transport_error)?;
+            Ok(BitcoinTxRequestHandling::Ack(ack))
+        }
+        Some(BitcoinTxRequestType::TxOrigOutput) => {
+            let orig_tx_hash = tx_request.tx_hash.as_ref().ok_or_else(|| {
+                BackendError::Transport("TxOrigOutput request missing tx_hash".into())
+            })?;
+            let orig_tx = find_orig_tx(orig_txs_by_hash, orig_tx_hash, "TxOrigOutput")?;
+            let index = request_index(tx_request, "TxOrigOutput")?;
+            let output = orig_tx.outputs.get(index).ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "TxOrigOutput request index {} out of bounds for original transaction {} (outputs={})",
+                    index,
+                    hex::encode(orig_tx_hash),
+                    orig_tx.outputs.len()
+                ))
+            })?;
+            let ack = encode_bitcoin_tx_ack_output(output).map_err(BleBackend::transport_error)?;
+            Ok(BitcoinTxRequestHandling::Ack(ack))
+        }
+        Some(BitcoinTxRequestType::TxPaymentReq) => {
+            let index = request_index(tx_request, "TxPaymentReq")?;
+            let pr = btc.payment_reqs.get(index).ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "TxPaymentReq request index {} out of bounds (payment_reqs={})",
+                    index,
+                    btc.payment_reqs.len()
+                ))
+            })?;
+            let ack =
+                encode_bitcoin_tx_ack_payment_request(pr).map_err(BleBackend::transport_error)?;
+            Ok(BitcoinTxRequestHandling::Ack(ack))
+        }
         None => Ok(BitcoinTxRequestHandling::Continue),
     }
 }

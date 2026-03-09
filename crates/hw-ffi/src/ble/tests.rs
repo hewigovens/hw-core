@@ -221,6 +221,10 @@ impl ThpBackend for MockBackend {
         })
     }
 
+    async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {
+        Ok(vec![0xAA; 32])
+    }
+
     async fn sign_message(
         &mut self,
         request: BackendSignMessageRequest,
@@ -353,6 +357,10 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
     assert_eq!(
         address.address,
         "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE"
+    );
+    assert_eq!(
+        address.mac.as_deref(),
+        Some("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     );
     assert_eq!(address.public_key.as_deref(), Some("xpub-test"));
 

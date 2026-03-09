@@ -224,6 +224,7 @@ pub struct GetAddressRequest {
 pub struct AddressResult {
     pub chain: Chain,
     pub address: String,
+    pub mac: Option<String>,
     pub public_key: Option<String>,
 }
 
