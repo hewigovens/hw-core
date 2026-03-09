@@ -20,6 +20,7 @@ pub struct MockCounters {
     pub credential_calls: usize,
     pub create_session_calls: usize,
     pub get_address_calls: usize,
+    pub get_nonce_calls: usize,
     pub sign_message_calls: usize,
     pub sign_typed_data_calls: usize,
     pub sign_tx_calls: usize,
@@ -218,6 +219,11 @@ impl ThpBackend for MockBackend {
         self.get_address_response.clone().ok_or_else(|| {
             BackendError::Transport("unexpected get_address without canned response".into())
         })
+    }
+
+    async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {
+        self.counters.get_nonce_calls += 1;
+        Ok(vec![0xAA; 32])
     }
 
     async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse> {

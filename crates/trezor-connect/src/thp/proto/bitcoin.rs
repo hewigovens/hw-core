@@ -5,9 +5,9 @@ use prost::Message;
 
 use super::{EncodedMessage, ProtoMappingError};
 use crate::thp::types::{
-    BtcInputScriptType, BtcOutputScriptType, BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput,
-    BtcSignOutput, GetAddressRequest, GetAddressResponse, SignMessageRequest, SignMessageResponse,
-    SignTxRequest,
+    BtcInputScriptType, BtcOrigTx, BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestMemo,
+    BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput, GetAddressRequest,
+    GetAddressResponse, SignMessageRequest, SignMessageResponse, SignTxRequest,
 };
 
 const MESSAGE_TYPE_BITCOIN_GET_ADDRESS: u16 = 29;
@@ -19,6 +19,8 @@ pub const MESSAGE_TYPE_BITCOIN_MESSAGE_SIGNATURE: u16 = 40;
 pub const MESSAGE_TYPE_BITCOIN_SIGN_TX: u16 = 15;
 pub const MESSAGE_TYPE_BITCOIN_TX_REQUEST: u16 = 21;
 pub const MESSAGE_TYPE_BITCOIN_TX_ACK: u16 = 22;
+/// `TxAckPaymentRequest` — sent in response to a `TXPAYMENTREQ` firmware request.
+pub const MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST: u16 = 37;
 
 #[derive(Clone, PartialEq, Message)]
 struct BitcoinGetAddress {
@@ -241,6 +243,12 @@ struct BitcoinTxInput {
     script_type: Option<i32>,
     #[prost(uint64, optional, tag = "8")]
     amount: Option<u64>,
+    #[prost(bytes = "vec", optional, tag = "13")]
+    witness: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "16")]
+    orig_hash: Option<Vec<u8>>,
+    #[prost(uint32, optional, tag = "17")]
+    orig_index: Option<u32>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -274,6 +282,12 @@ struct BitcoinTxOutput {
     script_type: Option<i32>,
     #[prost(bytes = "vec", optional, tag = "6")]
     op_return_data: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "10")]
+    orig_hash: Option<Vec<u8>>,
+    #[prost(uint32, optional, tag = "11")]
+    orig_index: Option<u32>,
+    #[prost(uint32, optional, tag = "12")]
+    payment_req_index: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
@@ -287,6 +301,74 @@ enum BitcoinOutputScriptTypeProto {
     PayToP2ShWitness = 5,
     PayToTaproot = 6,
 }
+
+// ── TxAckPaymentRequest proto structs ────────────────────────────────────────
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoTextMemo {
+    #[prost(string, optional, tag = "1")]
+    text: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoRefundMemo {
+    #[prost(string, required, tag = "1")]
+    address: String,
+    #[prost(uint32, repeated, packed = "false", tag = "2")]
+    address_n: Vec<u32>,
+    #[prost(bytes = "vec", required, tag = "3")]
+    mac: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoCoinPurchaseMemo {
+    #[prost(uint32, required, tag = "1")]
+    coin_type: u32,
+    #[prost(string, required, tag = "2")]
+    amount: String,
+    #[prost(string, required, tag = "3")]
+    address: String,
+    #[prost(uint32, repeated, packed = "false", tag = "4")]
+    address_n: Vec<u32>,
+    #[prost(bytes = "vec", required, tag = "5")]
+    mac: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoTextDetailsMemo {
+    #[prost(string, required, tag = "1")]
+    title: String,
+    #[prost(string, required, tag = "2")]
+    text: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoPaymentRequestMemo {
+    #[prost(message, optional, tag = "1")]
+    text_memo: Option<ProtoTextMemo>,
+    #[prost(message, optional, tag = "2")]
+    refund_memo: Option<ProtoRefundMemo>,
+    #[prost(message, optional, tag = "3")]
+    coin_purchase_memo: Option<ProtoCoinPurchaseMemo>,
+    #[prost(message, optional, tag = "4")]
+    text_details_memo: Option<ProtoTextDetailsMemo>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProtoTxAckPaymentRequest {
+    #[prost(bytes = "vec", optional, tag = "1")]
+    nonce: Option<Vec<u8>>,
+    #[prost(string, required, tag = "2")]
+    recipient_name: String,
+    #[prost(message, repeated, tag = "3")]
+    memos: Vec<ProtoPaymentRequestMemo>,
+    #[prost(bytes = "vec", optional, tag = "6")]
+    amount: Option<Vec<u8>>,
+    #[prost(bytes = "vec", required, tag = "5")]
+    signature: Vec<u8>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 pub(super) fn encode_get_address_request(
     request: &GetAddressRequest,
@@ -547,6 +629,35 @@ pub fn encode_bitcoin_tx_ack_meta(
     })
 }
 
+pub fn encode_bitcoin_tx_ack_orig_meta(
+    tx: &BtcOrigTx,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    let message = BitcoinTxAck {
+        tx: Some(BitcoinTxAckTransaction {
+            version: Some(tx.version),
+            inputs: Vec::new(),
+            bin_outputs: Vec::new(),
+            lock_time: Some(tx.lock_time),
+            outputs: Vec::new(),
+            inputs_cnt: Some(tx.inputs.len() as u32),
+            outputs_cnt: Some(tx.outputs.len() as u32),
+            extra_data: None,
+            extra_data_len: tx.extra_data.as_ref().map(|data| data.len() as u32),
+            expiry: tx.expiry,
+            overwintered: None,
+            version_group_id: tx.version_group_id,
+            timestamp: tx.timestamp,
+            branch_id: tx.branch_id,
+        }),
+    };
+    let mut payload = Vec::new();
+    message.encode(&mut payload)?;
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_BITCOIN_TX_ACK,
+        payload,
+    })
+}
+
 pub fn encode_bitcoin_tx_ack_input(
     input: &BtcSignInput,
 ) -> Result<EncodedMessage, ProtoMappingError> {
@@ -557,10 +668,13 @@ pub fn encode_bitcoin_tx_ack_input(
                 address_n: input.path.clone(),
                 prev_hash: input.prev_hash.clone(),
                 prev_index: input.prev_index,
-                script_sig: None,
+                script_sig: input.script_sig.clone(),
                 sequence: Some(input.sequence),
                 script_type: Some(bitcoin_input_script_type_to_proto(input.script_type)),
                 amount: Some(input.amount),
+                witness: input.witness.clone(),
+                orig_hash: input.orig_hash.clone(),
+                orig_index: input.orig_index,
             }],
             bin_outputs: Vec::new(),
             lock_time: None,
@@ -599,6 +713,9 @@ pub fn encode_bitcoin_tx_ack_output(
                 amount: output.amount,
                 script_type: Some(bitcoin_output_script_type_to_proto(output.script_type)),
                 op_return_data: output.op_return_data.clone(),
+                orig_hash: output.orig_hash.clone(),
+                orig_index: output.orig_index,
+                payment_req_index: output.payment_req_index,
             }],
             inputs_cnt: None,
             outputs_cnt: None,
@@ -660,6 +777,9 @@ pub fn encode_bitcoin_tx_ack_prev_input(
                 sequence: Some(input.sequence),
                 script_type: None,
                 amount: None,
+                witness: None,
+                orig_hash: None,
+                orig_index: None,
             }],
             bin_outputs: Vec::new(),
             lock_time: None,
@@ -744,10 +864,89 @@ pub fn encode_bitcoin_tx_ack_prev_extra_data(
     })
 }
 
+/// Encodes a `TxAckPaymentRequest` response to a firmware `TXPAYMENTREQ` request.
+///
+/// The firmware sends `TxRequest { type: TXPAYMENTREQ, details.request_index: N }` and
+/// expects the host to reply with the payment-request data at index N from the caller-
+/// supplied list.  Most signing flows have no payment requests; this encoder is only
+/// invoked when the firmware explicitly asks for one.
+pub fn encode_bitcoin_tx_ack_payment_request(
+    pr: &BtcPaymentRequest,
+) -> Result<EncodedMessage, ProtoMappingError> {
+    let memos: Vec<ProtoPaymentRequestMemo> = pr
+        .memos
+        .iter()
+        .map(|m| match m {
+            BtcPaymentRequestMemo::Text { text } => ProtoPaymentRequestMemo {
+                text_memo: Some(ProtoTextMemo {
+                    text: Some(text.clone()),
+                }),
+                refund_memo: None,
+                coin_purchase_memo: None,
+                text_details_memo: None,
+            },
+            BtcPaymentRequestMemo::TextDetails { title, text } => ProtoPaymentRequestMemo {
+                text_memo: None,
+                refund_memo: None,
+                coin_purchase_memo: None,
+                text_details_memo: Some(ProtoTextDetailsMemo {
+                    title: title.clone(),
+                    text: text.clone(),
+                }),
+            },
+            BtcPaymentRequestMemo::Refund { address, path, mac } => ProtoPaymentRequestMemo {
+                text_memo: None,
+                refund_memo: Some(ProtoRefundMemo {
+                    address: address.clone(),
+                    address_n: path.clone(),
+                    mac: mac.clone(),
+                }),
+                coin_purchase_memo: None,
+                text_details_memo: None,
+            },
+            BtcPaymentRequestMemo::CoinPurchase {
+                coin_type,
+                amount,
+                address,
+                path,
+                mac,
+            } => ProtoPaymentRequestMemo {
+                text_memo: None,
+                refund_memo: None,
+                coin_purchase_memo: Some(ProtoCoinPurchaseMemo {
+                    coin_type: *coin_type,
+                    amount: amount.clone(),
+                    address: address.clone(),
+                    address_n: path.clone(),
+                    mac: mac.clone(),
+                }),
+                text_details_memo: None,
+            },
+        })
+        .collect();
+
+    let message = ProtoTxAckPaymentRequest {
+        nonce: pr.nonce.clone(),
+        recipient_name: pr.recipient_name.clone(),
+        memos,
+        amount: pr.amount.as_ref().map(|amount| amount.0.clone()),
+        signature: pr.signature.clone(),
+    };
+    let mut payload = Vec::new();
+    message.encode(&mut payload)?;
+    Ok(EncodedMessage {
+        message_type: MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST,
+        payload,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::thp::types::{BtcSignTx, GetAddressRequest, SignMessageRequest};
+    use crate::thp::types::{
+        BtcPaymentRequest, BtcPaymentRequestAmount, BtcPaymentRequestMemo, BtcSignTx,
+        GetAddressRequest, SignMessageRequest,
+    };
 
     #[test]
     fn encodes_bitcoin_get_address_request() {
@@ -856,6 +1055,10 @@ mod tests {
                 amount: 1234,
                 sequence: 0xffff_fffd,
                 script_type: BtcInputScriptType::SpendWitness,
+                script_sig: None,
+                witness: None,
+                orig_hash: None,
+                orig_index: None,
             }],
             outputs: vec![BtcSignOutput {
                 address: Some("bc1qtest".to_string()),
@@ -863,8 +1066,13 @@ mod tests {
                 amount: 1000,
                 script_type: BtcOutputScriptType::PayToAddress,
                 op_return_data: None,
+                orig_hash: None,
+                orig_index: None,
+                payment_req_index: Some(0),
             }],
             ref_txs: Vec::new(),
+            orig_txs: Vec::new(),
+            payment_reqs: Vec::new(),
             chunkify: false,
         });
         let (encoded, offset) = encode_sign_tx_request(&request).unwrap();
@@ -875,6 +1083,81 @@ mod tests {
         assert_eq!(decoded.inputs_count, 1);
         assert_eq!(decoded.outputs_count, 1);
         assert_eq!(decoded.version, Some(2));
+    }
+
+    #[test]
+    fn encodes_bitcoin_output_ack_payment_request_index() {
+        let output = BtcSignOutput {
+            address: Some("bc1qtest".to_string()),
+            path: Vec::new(),
+            amount: 1000,
+            script_type: BtcOutputScriptType::PayToAddress,
+            op_return_data: None,
+            orig_hash: None,
+            orig_index: None,
+            payment_req_index: Some(0),
+        };
+
+        let encoded = encode_bitcoin_tx_ack_output(&output).unwrap();
+        let decoded = BitcoinTxAck::decode(encoded.payload.as_slice()).unwrap();
+        assert_eq!(decoded.tx.unwrap().outputs[0].payment_req_index, Some(0));
+    }
+
+    #[test]
+    fn encodes_payment_request_with_full_schema() {
+        let request = BtcPaymentRequest {
+            nonce: Some(vec![0x01, 0x02, 0x03]),
+            recipient_name: "Test Merchant".to_string(),
+            memos: vec![
+                BtcPaymentRequestMemo::Text {
+                    text: "Invoice #42".to_string(),
+                },
+                BtcPaymentRequestMemo::TextDetails {
+                    title: "Details".to_string(),
+                    text: "Extra context".to_string(),
+                },
+                BtcPaymentRequestMemo::Refund {
+                    address: "tb1qrefund".to_string(),
+                    path: vec![0x8000_0001, 0x8000_0000, 0x8000_0000, 1, 0],
+                    mac: vec![0xaa, 0xbb],
+                },
+                BtcPaymentRequestMemo::CoinPurchase {
+                    coin_type: 1,
+                    amount: "0.025 BTC".to_string(),
+                    address: "tb1qcoinpurchase".to_string(),
+                    path: vec![0x8000_0001, 0x8000_0000, 0x8000_0000, 1, 1],
+                    mac: vec![0xcc, 0xdd],
+                },
+            ],
+            amount: Some(BtcPaymentRequestAmount::from_sats(900)),
+            signature: vec![0xde, 0xad],
+        };
+
+        let encoded = encode_bitcoin_tx_ack_payment_request(&request).unwrap();
+        assert_eq!(
+            encoded.message_type,
+            MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST
+        );
+
+        let decoded = ProtoTxAckPaymentRequest::decode(encoded.payload.as_slice()).unwrap();
+        assert_eq!(decoded.nonce, Some(vec![0x01, 0x02, 0x03]));
+        assert_eq!(decoded.recipient_name, "Test Merchant");
+        assert_eq!(decoded.amount, Some(900u64.to_le_bytes().to_vec()));
+        assert_eq!(decoded.signature, vec![0xde, 0xad]);
+        assert!(decoded.memos[0].text_memo.is_some());
+        assert!(decoded.memos[1].text_details_memo.is_some());
+        assert_eq!(
+            decoded.memos[2].refund_memo.as_ref().unwrap().address_n,
+            vec![0x8000_0001, 0x8000_0000, 0x8000_0000, 1, 0]
+        );
+        assert_eq!(
+            decoded.memos[3]
+                .coin_purchase_memo
+                .as_ref()
+                .unwrap()
+                .address_n,
+            vec![0x8000_0001, 0x8000_0000, 0x8000_0000, 1, 1]
+        );
     }
 
     #[test]

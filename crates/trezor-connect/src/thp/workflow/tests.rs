@@ -350,6 +350,10 @@ impl ThpBackend for MockBackend {
         })
     }
 
+    async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {
+        Ok(vec![0xAA; 32])
+    }
+
     async fn sign_message(
         &mut self,
         request: SignMessageRequest,
@@ -809,6 +813,27 @@ async fn get_address_requires_paired_phase() {
             0,
             0,
         ]))
+        .await
+        .expect_err("should fail before pairing");
+    assert!(matches!(err, ThpWorkflowError::InvalidPhase));
+}
+
+#[tokio::test]
+async fn get_nonce_requires_paired_phase() {
+    let backend = MockBackend::autopair();
+    let mut workflow = ThpWorkflow::new(
+        backend,
+        HostConfig {
+            pairing_methods: vec![PairingMethod::SkipPairing],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        },
+    );
+
+    let err = workflow
+        .get_nonce()
         .await
         .expect_err("should fail before pairing");
     assert!(matches!(err, ThpWorkflowError::InvalidPhase));

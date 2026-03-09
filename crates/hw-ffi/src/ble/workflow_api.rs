@@ -424,6 +424,35 @@ impl BleWorkflowHandle {
     }
 
     #[uniffi::method]
+    pub async fn get_nonce(&self) -> Result<String, HWCoreError> {
+        self.push_event(WorkflowEvent {
+            kind: WorkflowEventKind::Progress,
+            code: "GET_NONCE_START".to_string(),
+            message: "Requesting payment-request nonce from device".to_string(),
+        })
+        .await;
+        let mut workflow = self.workflow.lock().await;
+        let result = get_nonce_for_workflow(&mut workflow).await;
+        drop(workflow);
+
+        match result {
+            Ok(response) => {
+                self.push_event(WorkflowEvent {
+                    kind: WorkflowEventKind::Progress,
+                    code: "GET_NONCE_OK".to_string(),
+                    message: "Payment-request nonce received".to_string(),
+                })
+                .await;
+                Ok(response)
+            }
+            Err(err) => {
+                self.push_error_event(&err).await;
+                Err(err)
+            }
+        }
+    }
+
+    #[uniffi::method]
     pub async fn sign_tx(&self, request: SignTxRequest) -> Result<SignTxResult, HWCoreError> {
         self.push_event(WorkflowEvent {
             kind: WorkflowEventKind::Progress,

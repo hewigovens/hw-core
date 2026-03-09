@@ -80,6 +80,8 @@ pub trait ThpBackend: Send {
         request: GetAddressRequest,
     ) -> BackendResult<GetAddressResponse>;
 
+    async fn get_nonce(&mut self) -> BackendResult<Vec<u8>>;
+
     async fn sign_message(
         &mut self,
         request: SignMessageRequest,

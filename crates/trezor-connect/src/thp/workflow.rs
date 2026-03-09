@@ -605,6 +605,13 @@ where
         self.backend.get_address(request).await.map_err(Into::into)
     }
 
+    pub async fn get_nonce(&mut self) -> Result<Vec<u8>> {
+        if self.state.phase() != Phase::Paired {
+            return Err(ThpWorkflowError::InvalidPhase);
+        }
+        self.backend.get_nonce().await.map_err(Into::into)
+    }
+
     pub async fn sign_tx(&mut self, request: SignTxRequest) -> Result<SignTxResponse> {
         if self.state.phase() != Phase::Paired {
             return Err(ThpWorkflowError::InvalidPhase);

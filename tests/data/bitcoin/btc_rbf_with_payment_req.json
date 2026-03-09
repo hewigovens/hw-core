@@ -1,0 +1,183 @@
+{
+  "description": "RBF fee-bump scenario: 2-input/2-output native SegWit tx with a payment request. Exercises TXORIGINPUT, TXORIGOUTPUT, and TXPAYMENTREQ firmware request types.",
+  "version": 2,
+  "lock_time": 831400,
+  "inputs": [
+    {
+      "path": "m/84'/0'/0'/0/3",
+      "prev_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "prev_index": 0,
+      "amount": "50000",
+      "sequence": 4294967293,
+      "script_type": "spendwitness",
+      "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "orig_index": 0
+    },
+    {
+      "path": "m/84'/0'/0'/0/7",
+      "prev_hash": "0xa665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+      "prev_index": 1,
+      "amount": "30000",
+      "sequence": 4294967293,
+      "script_type": "spendwitness",
+      "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "orig_index": 1
+    }
+  ],
+  "outputs": [
+    {
+      "address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+      "amount": "60000",
+      "script_type": "paytowitness",
+      "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "orig_index": 0,
+      "payment_req_index": 0
+    },
+    {
+      "path": "m/84'/0'/0'/1/2",
+      "amount": "18500",
+      "script_type": "paytowitness",
+      "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "orig_index": 1
+    }
+  ],
+  "ref_txs": [
+    {
+      "hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "version": 2,
+      "lock_time": 831200,
+      "inputs": [
+        {
+          "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "prev_index": 0,
+          "script_sig": "",
+          "sequence": 4294967293
+        }
+      ],
+      "bin_outputs": [
+        {
+          "amount": "50000",
+          "script_pubkey": "00149d5e0fb75d36c7b94c0dc4c03e3c8f0b68e23e71"
+        },
+        {
+          "amount": "49000",
+          "script_pubkey": "0014d85c2b71d0060b09c9886aeb815e50991dda124d"
+        }
+      ]
+    },
+    {
+      "hash": "0xa665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+      "version": 2,
+      "lock_time": 831100,
+      "inputs": [
+        {
+          "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000002",
+          "prev_index": 0,
+          "script_sig": "",
+          "sequence": 4294967293
+        },
+        {
+          "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000003",
+          "prev_index": 2,
+          "script_sig": "483045022100abcdef",
+          "sequence": 4294967293
+        }
+      ],
+      "bin_outputs": [
+        {
+          "amount": "10000",
+          "script_pubkey": "0014a11ce08a1b5c4b1f1b8e3ea8dbb7f26f60e2c1a0"
+        },
+        {
+          "amount": "30000",
+          "script_pubkey": "001425e03ad0c5c96b45920de82fc2e2e84c72e3f5ab"
+        }
+      ]
+    }
+  ],
+  "orig_txs": [
+    {
+      "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "version": 2,
+      "lock_time": 831350,
+      "inputs": [
+        {
+          "path": "m/84'/0'/0'/0/3",
+          "prev_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "prev_index": 0,
+          "amount": "50000",
+          "sequence": 4294967293,
+          "script_type": "spendwitness",
+          "script_sig": "",
+          "witness": "0x024730"
+        },
+        {
+          "path": "m/84'/0'/0'/0/7",
+          "prev_hash": "0xa665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+          "prev_index": 1,
+          "amount": "30000",
+          "sequence": 4294967293,
+          "script_type": "spendwitness",
+          "script_sig": "",
+          "witness": "0x034731"
+        }
+      ],
+      "outputs": [
+        {
+          "address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+          "amount": "60000",
+          "script_type": "paytowitness",
+          "payment_req_index": 0
+        },
+        {
+          "path": "m/84'/0'/0'/1/2",
+          "amount": "19000",
+          "script_type": "paytowitness"
+        }
+      ]
+    }
+  ],
+  "payment_reqs": [
+    {
+      "nonce": "0x48656c6c6f",
+      "recipient_name": "Acme Coffee Co.",
+      "memos": [
+        { "type": "text", "text": "Order #1337 — 2 espresso" },
+        { "type": "text_details", "title": "Pickup", "text": "Thank you for your purchase" },
+        {
+          "type": "refund",
+          "address": "tb1qrefundexample0000000000000000000000000",
+          "path": "m/84'/1'/0'/1/0",
+          "mac": "0x01020304"
+        },
+        {
+          "type": "coin_purchase",
+          "coin_type": 0,
+          "amount": "0.001 BTC",
+          "address": "bc1qcoinpurchase0000000000000000000000000",
+          "path": "m/84'/0'/0'/1/1",
+          "mac": "0x05060708"
+        }
+      ],
+      "amount": "60000",
+      "signature": "0x304402207a8e4bdc3be50b8544ec76476ed7813942c5e0dd74298691e3a0c3a77a90c60c02202e94e8e6ffc99ccd35f7ab3e4a7a52d2e2c8e3f8f4a5c6b7d8e9f0a1b2c3d4e5"
+    }
+  ],
+  "firmware_request_sequence": [
+    { "type": "TXINPUT", "index": 0 },
+    { "type": "TXINPUT", "index": 1 },
+    { "type": "TXMETA", "tx_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+    { "type": "TXINPUT", "index": 0, "tx_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+    { "type": "TXOUTPUT", "index": 0, "tx_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+    { "type": "TXOUTPUT", "index": 1, "tx_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+    { "type": "TXPAYMENTREQ", "index": 0 },
+    { "type": "TXOUTPUT", "index": 0 },
+    { "type": "TXOUTPUT", "index": 1 },
+    { "type": "TXMETA", "tx_hash": "0x1111111111111111111111111111111111111111111111111111111111111111" },
+    { "type": "TXORIGINPUT", "index": 0, "tx_hash": "0x1111111111111111111111111111111111111111111111111111111111111111" },
+    { "type": "TXORIGINPUT", "index": 1, "tx_hash": "0x1111111111111111111111111111111111111111111111111111111111111111" },
+    { "type": "TXORIGOUTPUT", "index": 0, "tx_hash": "0x1111111111111111111111111111111111111111111111111111111111111111" },
+    { "type": "TXORIGOUTPUT", "index": 1, "tx_hash": "0x1111111111111111111111111111111111111111111111111111111111111111" },
+    { "type": "TXFINISHED" }
+  ]
+}

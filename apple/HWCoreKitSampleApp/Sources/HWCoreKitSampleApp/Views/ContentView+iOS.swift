@@ -46,7 +46,7 @@ struct MobileContentView: View {
                         deviceCard
                     }
                     actionCard
-                    if !viewModel.address.isEmpty || !viewModel.signatureSummary.isEmpty {
+                    if !viewModel.address.isEmpty || !viewModel.nonceResult.isEmpty || !viewModel.signatureSummary.isEmpty {
                         resultCard
                     }
                 }
@@ -166,6 +166,9 @@ struct MobileContentView: View {
                     }
                     iosActionButton("Address", systemImage: "location.viewfinder", isProminent: false, disabled: !viewModel.canGetAddress, accessibilityID: "action.address") {
                         Task { await viewModel.fetchAddress() }
+                    }
+                    iosActionButton("Nonce", systemImage: "number.square", isProminent: false, disabled: !viewModel.canGetAddress, accessibilityID: "action.nonce") {
+                        Task { await viewModel.fetchNonce() }
                     }
                     iosActionButton("Sign", systemImage: "signature", isProminent: false, disabled: !viewModel.canSign, accessibilityID: "action.sign") {
                         Task { await viewModel.signSampleTransaction() }
@@ -306,8 +309,27 @@ struct MobileContentView: View {
                     .accessibilityIdentifier("result.address.copy")
                 }
 
-                if !viewModel.signatureSummary.isEmpty {
+                if !viewModel.nonceResult.isEmpty {
                     if !viewModel.address.isEmpty {
+                        Divider()
+                    }
+                    Text("Nonce")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(viewModel.nonceResult)
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                        .accessibilityLabel("Nonce")
+                        .accessibilityIdentifier("result.nonce")
+                    Button("Copy Nonce") {
+                        viewModel.copyNonceToClipboard()
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("result.nonce.copy")
+                }
+
+                if !viewModel.signatureSummary.isEmpty {
+                    if !viewModel.address.isEmpty || !viewModel.nonceResult.isEmpty {
                         Divider()
                     }
                     Text("Signature")
@@ -381,6 +403,19 @@ struct MobileContentView: View {
             Text("Transaction JSON")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Button("Load Basic") {
+                    viewModel.loadBitcoinBasicPreset()
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("button.sign.btc.load_basic")
+
+                Button("Load RBF Preset") {
+                    viewModel.loadBitcoinAdvancedPreset()
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("button.sign.btc.load_advanced")
+            }
             TextEditor(text: $viewModel.btcTxJsonInput)
                 .font(.system(.footnote, design: .monospaced))
                 .frame(minHeight: 180)
@@ -390,7 +425,7 @@ struct MobileContentView: View {
                         .fill(Color(.secondarySystemBackground))
                 )
                 .accessibilityIdentifier("input.sign.btc.tx_json")
-            Text("BTC signing requires ref_txs that match each input prev_hash/prev_index.")
+            Text("BTC signing requires ref_txs that match each input prev_hash/prev_index. The RBF preset covers orig_txs for real-device testing. Real Bitcoin payment requests also need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in preset.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

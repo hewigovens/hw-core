@@ -1,6 +1,6 @@
 # hw-core Execution Plan
 
-Last updated: 2026-02-23
+Last updated: 2026-03-09
 Status legend: TODO | IN_PROGRESS | DONE | BLOCKED
 
 ## Objective
@@ -18,12 +18,15 @@ Status: IN_PROGRESS
 - `ref_txs` request model, validation, and prev-tx payload support.
 - Implemented handling for `TXMETA`, `TXINPUT`, `TXOUTPUT`, `TXEXTRADATA`.
 - Added proto/wallet/backend tests for prev-tx and bounds validation.
+- Implemented `TXORIGINPUT` handling (RBF fee-bump: returns current tx input at index).
+- Implemented `TXORIGOUTPUT` handling (RBF: returns current tx output at index).
+- Implemented `TXPAYMENTREQ` handling: added `BtcPaymentRequest` / `BtcPaymentRequestMemo` types,
+  `TxAckPaymentRequest` proto encoder, and handler in `ble.rs`.
+- Added unit tests for all three new request types including bounds-check error cases.
 
 ### Remaining
-- [ ] Implement `TXORIGINPUT` handling.
-- [ ] Implement `TXORIGOUTPUT` handling.
-- [ ] Implement `TXPAYMENTREQ` handling.
-- [ ] Add integration tests for mixed `TX*` request sequences.
+- [ ] Add integration tests for mixed `TX*` request sequences (e.g. Input → OrigInput → PaymentReq).
+- [ ] Validate on real device with a server-signed SLIP-24 payment request using live nonce and authenticated address MACs (not fixture data).
 
 ### Exit Criteria
 - BTC signing no longer fails on advanced firmware request variants.
@@ -99,7 +102,7 @@ Status: IN_PROGRESS
 ### Remaining
 - [ ] Add/verify real-device regression coverage for pair/connect/address/sign/disconnect across repeated runs.
 - [ ] Finalize Android reconnect policy and lifecycle UX parity with iOS sample.
-- [ ] Add instrumentation smoke test for app launch and core controls.
+- [x] Add instrumentation smoke test for app launch and core controls (PR #19: AppSmokeTest.kt).
 
 ### Exit Criteria
 - A contributor can run Android sample happy path locally from repo docs, including stable pair/connect/address/sign/disconnect on real device.
@@ -170,6 +173,7 @@ Status: TODO
 - [ ] `just cli-pair` succeeds on first pairing and reuse path.
 - [ ] `just cli-address-eth` and `just cli-sign-eth` succeed on paired device.
 - [ ] BTC signing validates both supported and unsupported advanced request paths clearly.
+- [ ] BTC SLIP-24 payment-request signing is exercised against a real signing backend/server on hardware (fresh nonce, authenticated MACs, server signature).
 - [ ] `just test-ios-ui` and `just test-mac-ui` pass.
 - [x] Android sample launch/build smoke passes (`just build-android`, Gradle assembleDebug).
 - [x] Android sample real-device `connect-ready` reaches `SESSION_READY` without timing out at `CREATE_CHANNEL`.
