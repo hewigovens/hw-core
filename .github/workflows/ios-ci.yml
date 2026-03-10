@@ -42,6 +42,9 @@ jobs:
           just bindings
           just generate-apple-projects
 
+      - name: Run HWCoreKit Swift package tests
+        run: swift test --package-path apple/HWCoreKit
+
       - name: Build iOS sample app
         run: xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build | xcbeautify
       - name: Build macOS sample app
