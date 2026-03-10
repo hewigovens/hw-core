@@ -1,4 +1,8 @@
 use super::*;
+use hw_wallet::ble::{advance_session_bootstrap, advance_to_paired_with_policy};
+use std::time::Duration;
+use tokio::time::timeout;
+use trezor_connect::thp::ThpWorkflowError;
 
 #[uniffi::export(async_runtime = "tokio")]
 impl BleWorkflowHandle {

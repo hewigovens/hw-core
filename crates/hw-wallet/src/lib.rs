@@ -7,5 +7,6 @@ pub mod error;
 pub mod eth;
 pub mod hex;
 pub mod message;
+pub mod message_signing;
 
 pub use error::{WalletError, WalletErrorKind, WalletResult};

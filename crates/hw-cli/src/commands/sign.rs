@@ -1,15 +1,18 @@
 use anyhow::{Context, Result};
-use hw_wallet::bip32::parse_bip32_path;
-use hw_wallet::btc::{
-    build_sign_tx_request as build_btc_sign_tx_request, parse_tx_json as parse_btc_tx_json,
-};
-use hw_wallet::eth::{build_sign_tx_request, parse_tx_json, verify_sign_tx_response};
-use hw_wallet::hex::decode as decode_hex;
+use hw_wallet::eth::verify_sign_tx_response;
 use tracing::info;
 use trezor_connect::thp::{SignTxRequest, ThpBackend, ThpWorkflow};
 
+use self::request::{
+    build_btc_sign_request_from_args, build_eth_sign_request_from_args,
+    build_sol_sign_request_from_args,
+};
 use crate::cli::{SignArgs, SignBtcArgs, SignCommand, SignEthArgs, SignSolArgs};
-use crate::commands::common::{ConnectWorkflowOptions, connect_ready_workflow};
+use crate::commands::common::{
+    connect_ready_command_workflow, print_eth_sign_tx_response, print_hex_field, print_requesting,
+};
+
+mod request;
 
 pub async fn run(args: SignArgs, skip_pairing: bool) -> Result<()> {
     match args.command {
@@ -20,114 +23,48 @@ pub async fn run(args: SignArgs, skip_pairing: bool) -> Result<()> {
 }
 
 async fn run_eth(args: SignEthArgs, skip_pairing: bool) -> Result<()> {
-    let path = parse_bip32_path(&args.path)?;
-    let tx_json = read_tx_argument(&args.tx)?;
-
-    let tx = parse_tx_json(&tx_json).context("failed to parse tx JSON")?;
+    let request = build_eth_sign_request_from_args(&args)?;
     info!(
         "sign command started: chain=ethereum path='{}' to={} chain_id={} scan_timeout_secs={} thp_timeout_secs={}",
-        args.path, tx.to, tx.chain_id, args.timeout_secs, args.thp_timeout_secs
+        args.path, request.to, request.chain_id, args.timeout_secs, args.thp_timeout_secs
     );
-    let request = build_sign_tx_request(path, tx).context("failed to build sign request")?;
+    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign").await?;
 
-    let mut workflow = connect_ready_workflow(
-        ConnectWorkflowOptions {
-            scan_timeout_secs: args.timeout_secs,
-            thp_timeout_secs: args.thp_timeout_secs,
-            device_id: args.device_id.clone(),
-            storage_path: args.storage_path.clone(),
-            host_name: args.host_name.clone(),
-            app_name: args.app_name.clone(),
-            skip_pairing,
-        },
-        "sign",
-        "Remove this Trezor from macOS Bluetooth settings, then pair again.",
-    )
-    .await?;
-
-    println!("Requesting ETH transaction signature from device...");
-    let response = sign_tx_with_workflow(&mut workflow, request.clone()).await?;
-    println!("v: {}", response.v);
-    println!("r: 0x{}", hex::encode(&response.r));
-    println!("s: 0x{}", hex::encode(&response.s));
-    if let Ok(verification) = verify_sign_tx_response(&request, &response) {
-        println!("tx_hash: 0x{}", hex::encode(verification.tx_hash));
-        println!("recovered_address: {}", verification.recovered_address);
-    }
+    print_requesting("ETH transaction signature");
+    let response = sign_tx_with_workflow(&mut workflow, request.request.clone()).await?;
+    let verification = verify_sign_tx_response(&request.request, &response).ok();
+    print_eth_sign_tx_response(&response, verification.as_ref());
 
     Ok(())
 }
 
 async fn run_sol(args: SignSolArgs, skip_pairing: bool) -> Result<()> {
-    let path = parse_bip32_path(&args.path)?;
-    let tx = read_tx_argument(&args.tx)?;
-    let serialized_tx = decode_hex(&tx).context("failed to decode Solana tx bytes")?;
+    let request = build_sol_sign_request_from_args(&args)?;
     info!(
         "sign command started: chain=solana path='{}' tx_bytes={} scan_timeout_secs={} thp_timeout_secs={}",
-        args.path,
-        serialized_tx.len(),
-        args.timeout_secs,
-        args.thp_timeout_secs
+        args.path, request.tx_bytes, args.timeout_secs, args.thp_timeout_secs
     );
-    let request = SignTxRequest::solana(path, serialized_tx);
+    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign").await?;
 
-    let mut workflow = connect_ready_workflow(
-        ConnectWorkflowOptions {
-            scan_timeout_secs: args.timeout_secs,
-            thp_timeout_secs: args.thp_timeout_secs,
-            device_id: args.device_id.clone(),
-            storage_path: args.storage_path.clone(),
-            host_name: args.host_name.clone(),
-            app_name: args.app_name.clone(),
-            skip_pairing,
-        },
-        "sign",
-        "Remove this Trezor from macOS Bluetooth settings, then pair again.",
-    )
-    .await?;
-
-    println!("Requesting SOL transaction signature from device...");
-    let response = sign_tx_with_workflow(&mut workflow, request).await?;
-    println!("signature: 0x{}", hex::encode(&response.r));
+    print_requesting("SOL transaction signature");
+    let response = sign_tx_with_workflow(&mut workflow, request.request).await?;
+    print_hex_field("signature", &response.r);
     Ok(())
 }
 
 async fn run_btc(args: SignBtcArgs, skip_pairing: bool) -> Result<()> {
-    let tx_json = read_tx_argument(&args.tx)?;
-    let tx = parse_btc_tx_json(&tx_json).context("failed to parse btc tx JSON")?;
-    let request = build_btc_sign_tx_request(tx).context("failed to build BTC sign request")?;
+    let request = build_btc_sign_request_from_args(&args)?;
     info!(
         "sign command started: chain=bitcoin scan_timeout_secs={} thp_timeout_secs={}",
         args.timeout_secs, args.thp_timeout_secs
     );
 
-    let mut workflow = connect_ready_workflow(
-        ConnectWorkflowOptions {
-            scan_timeout_secs: args.timeout_secs,
-            thp_timeout_secs: args.thp_timeout_secs,
-            device_id: args.device_id.clone(),
-            storage_path: args.storage_path.clone(),
-            host_name: args.host_name.clone(),
-            app_name: args.app_name.clone(),
-            skip_pairing,
-        },
-        "sign",
-        "Remove this Trezor from macOS Bluetooth settings, then pair again.",
-    )
-    .await?;
+    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign").await?;
 
-    println!("Requesting BTC transaction signature from device...");
+    print_requesting("BTC transaction signature");
     let response = sign_tx_with_workflow(&mut workflow, request).await?;
-    println!("signature: 0x{}", hex::encode(&response.r));
+    print_hex_field("signature", &response.r);
     Ok(())
-}
-
-fn read_tx_argument(value: &str) -> Result<String> {
-    if let Some(path) = value.strip_prefix('@') {
-        Ok(std::fs::read_to_string(path).with_context(|| format!("reading tx file: {path}"))?)
-    } else {
-        Ok(value.to_string())
-    }
 }
 
 async fn sign_tx_with_workflow<B>(
@@ -146,11 +83,12 @@ mod tests {
 
     use crate::commands::test_support::{
         MockBackend, canned_btc_sign_response, canned_eth_sign_response, canned_sol_sign_response,
-        default_test_host_config,
+        ready_workflow_with_mock,
     };
-    use hw_wallet::ble::{SessionBootstrapOptions, SessionPhase, advance_session_bootstrap};
-    use std::time::Duration;
-    use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
+    use hw_wallet::btc::{
+        build_sign_tx_request as build_btc_sign_tx_request, parse_tx_json as parse_btc_tx_json,
+    };
+    use trezor_connect::thp::Chain as ThpChain;
 
     const BTC_SIGN_WITH_REF_TXS: &str =
         include_str!("../../../../tests/data/bitcoin/btc_sign_with_ref_txs.json");
@@ -159,25 +97,7 @@ mod tests {
     async fn sign_flow_orchestrates_handshake_confirmation_and_session_retry() {
         let backend = MockBackend::paired_with_session_retry(b"sign-test")
             .with_sign_tx_response(canned_eth_sign_response());
-        let config = default_test_host_config();
-        let mut workflow = ThpWorkflow::new(backend, config);
-
-        let mut session_ready = false;
-        let step = advance_session_bootstrap(
-            &mut workflow,
-            &mut session_ready,
-            &SessionBootstrapOptions {
-                thp_timeout: Duration::from_secs(60),
-                try_to_unlock: true,
-                passphrase: None,
-                on_device: false,
-                derive_cardano: false,
-                ..SessionBootstrapOptions::default()
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(step, SessionPhase::Ready);
+        let mut workflow = ready_workflow_with_mock(backend).await;
         let request = SignTxRequest::ethereum(vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0], 1)
             .with_nonce(vec![0])
             .with_gas_limit(vec![0x52, 0x08])
@@ -201,25 +121,7 @@ mod tests {
     async fn sign_sol_flow_uses_solana_chain() {
         let backend = MockBackend::paired_with_session_retry(b"sign-sol-test")
             .with_sign_tx_response(canned_sol_sign_response());
-        let config = default_test_host_config();
-        let mut workflow = ThpWorkflow::new(backend, config);
-
-        let mut session_ready = false;
-        let step = advance_session_bootstrap(
-            &mut workflow,
-            &mut session_ready,
-            &SessionBootstrapOptions {
-                thp_timeout: Duration::from_secs(60),
-                try_to_unlock: true,
-                passphrase: None,
-                on_device: false,
-                derive_cardano: false,
-                ..SessionBootstrapOptions::default()
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(step, SessionPhase::Ready);
+        let mut workflow = ready_workflow_with_mock(backend).await;
 
         let request = SignTxRequest::solana(
             vec![0x8000_002c, 0x8000_01f5, 0x8000_0000, 0x8000_0000],
@@ -244,25 +146,7 @@ mod tests {
     async fn sign_btc_flow_uses_bitcoin_chain() {
         let backend = MockBackend::paired_with_session_retry(b"sign-btc-test")
             .with_sign_tx_response(canned_btc_sign_response());
-        let config = default_test_host_config();
-        let mut workflow = ThpWorkflow::new(backend, config);
-
-        let mut session_ready = false;
-        let step = advance_session_bootstrap(
-            &mut workflow,
-            &mut session_ready,
-            &SessionBootstrapOptions {
-                thp_timeout: Duration::from_secs(60),
-                try_to_unlock: true,
-                passphrase: None,
-                on_device: false,
-                derive_cardano: false,
-                ..SessionBootstrapOptions::default()
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(step, SessionPhase::Ready);
+        let mut workflow = ready_workflow_with_mock(backend).await;
 
         let tx = parse_btc_tx_json(BTC_SIGN_WITH_REF_TXS).unwrap();
         let request = build_btc_sign_tx_request(tx).unwrap();

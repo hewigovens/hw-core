@@ -1,5 +1,8 @@
 use std::collections::VecDeque;
+use std::time::Duration;
 
+use hw_wallet::ble::{SessionBootstrapOptions, SessionPhase, advance_session_bootstrap};
+use trezor_connect::thp::ThpWorkflow;
 use trezor_connect::thp::types::{
     CodeEntryChallengeRequest, CodeEntryChallengeResponse, CreateChannelRequest,
     CreateChannelResponse, CreateSessionRequest, CreateSessionResponse, CredentialRequest,
@@ -325,4 +328,28 @@ pub fn default_test_host_config() -> HostConfig {
     let mut config = HostConfig::new("test-host", "hw-core/cli");
     config.pairing_methods = vec![PairingMethod::CodeEntry];
     config
+}
+
+pub async fn ready_workflow_with_mock(backend: MockBackend) -> ThpWorkflow<MockBackend> {
+    let config = default_test_host_config();
+    let mut workflow = ThpWorkflow::new(backend, config);
+
+    let mut session_ready = false;
+    let step = advance_session_bootstrap(
+        &mut workflow,
+        &mut session_ready,
+        &SessionBootstrapOptions {
+            thp_timeout: Duration::from_secs(60),
+            try_to_unlock: true,
+            passphrase: None,
+            on_device: false,
+            derive_cardano: false,
+            ..SessionBootstrapOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(step, SessionPhase::Ready);
+
+    workflow
 }

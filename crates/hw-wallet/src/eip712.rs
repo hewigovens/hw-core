@@ -6,16 +6,16 @@ use trezor_connect::thp::{
     Eip712StructMember, Eip712TypedData, SignTypedDataRequest, SignTypedDataResponse,
 };
 
-use crate::chain::infer_chain_from_path;
 use crate::error::{WalletError, WalletResult};
 use crate::hex::decode;
+use crate::message_signing::validate_eth_signing_path;
 
 pub fn build_sign_typed_hash_request(
     path: Vec<u32>,
     domain_separator_hash: &str,
     message_hash: Option<&str>,
 ) -> WalletResult<SignTypedDataRequest> {
-    validate_eth_path(&path)?;
+    validate_eth_signing_path(&path, "typed-data")?;
 
     let domain_separator_hash = decode(domain_separator_hash)?;
     if domain_separator_hash.len() != 32 {
@@ -52,7 +52,7 @@ pub fn build_sign_typed_data_request(
     data_json: &str,
     metamask_v4_compat: bool,
 ) -> WalletResult<SignTypedDataRequest> {
-    validate_eth_path(&path)?;
+    validate_eth_signing_path(&path, "typed-data")?;
 
     let parsed: Eip712TypedDataInput = serde_json::from_str(data_json)
         .map_err(|err| WalletError::Signing(format!("invalid EIP-712 JSON: {err}")))?;
@@ -106,24 +106,6 @@ pub fn normalize_typed_data_signature(response: &SignTypedDataResponse) -> Walle
     }
 
     Ok(format!("0x{}", hex::encode(&response.signature)))
-}
-
-fn validate_eth_path(path: &[u32]) -> WalletResult<()> {
-    if path.len() < 3 {
-        return Err(WalletError::InvalidBip32Path(
-            "typed-data path must contain at least 3 segments".to_string(),
-        ));
-    }
-
-    if let Some(inferred) = infer_chain_from_path(path)
-        && inferred != Chain::Ethereum
-    {
-        return Err(WalletError::InvalidBip32Path(format!(
-            "chain/path mismatch: expected Ethereum, inferred {inferred:?}"
-        )));
-    }
-
-    Ok(())
 }
 
 #[derive(Debug, Deserialize)]

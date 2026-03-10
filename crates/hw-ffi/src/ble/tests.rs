@@ -1,9 +1,8 @@
 use std::collections::VecDeque;
 
 use super::{
-    get_address_for_workflow, map_get_address_request, map_sign_message_request,
-    map_sign_tx_request, map_sign_typed_data_request, pairing_confirm_connection_for_workflow,
-    pairing_start_for_state, pairing_submit_code_for_workflow, sign_message_for_workflow,
+    get_address_for_workflow, pairing_confirm_connection_for_workflow, pairing_start_for_state,
+    pairing_submit_code_for_workflow, request_mapping, sign_message_for_workflow,
     sign_tx_for_workflow, sign_typed_data_for_workflow,
 };
 use trezor_connect::thp::backend::{BackendError, BackendResult, ThpBackend};
@@ -466,7 +465,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
 
 #[test]
 fn get_address_request_maps_solana_chain() {
-    let mapped = map_get_address_request(GetAddressRequest {
+    let mapped = request_mapping::map_get_address_request(GetAddressRequest {
         chain: Chain::Solana,
         path: "m/44'/501'/0'/0'".into(),
         show_on_device: false,
@@ -486,7 +485,7 @@ fn get_address_request_maps_solana_chain() {
 
 #[test]
 fn sign_tx_request_maps_solana_chain() {
-    let mapped = map_sign_tx_request(SignTxRequest {
+    let mapped = request_mapping::map_sign_tx_request(SignTxRequest {
         chain: Chain::Solana,
         path: "m/44'/501'/0'/0'".into(),
         to: String::new(),
@@ -513,7 +512,7 @@ fn sign_tx_request_maps_solana_chain() {
 
 #[test]
 fn sign_tx_request_rejects_too_short_solana_payload() {
-    let err = map_sign_tx_request(SignTxRequest {
+    let err = request_mapping::map_sign_tx_request(SignTxRequest {
         chain: Chain::Solana,
         path: "m/44'/501'/0'/0'".into(),
         to: String::new(),
@@ -533,7 +532,7 @@ fn sign_tx_request_rejects_too_short_solana_payload() {
 
 #[test]
 fn sign_tx_request_maps_bitcoin_chain() {
-    let mapped = map_sign_tx_request(SignTxRequest {
+    let mapped = request_mapping::map_sign_tx_request(SignTxRequest {
         chain: Chain::Bitcoin,
         path: String::new(),
         to: String::new(),
@@ -554,7 +553,7 @@ fn sign_tx_request_maps_bitcoin_chain() {
 
 #[test]
 fn sign_message_request_maps_ethereum_chain() {
-    let mapped = map_sign_message_request(SignMessageRequest {
+    let mapped = request_mapping::map_sign_message_request(SignMessageRequest {
         chain: Chain::Ethereum,
         path: "m/44'/60'/0'/0/0".into(),
         message: "hello".into(),
@@ -573,7 +572,7 @@ fn sign_message_request_maps_ethereum_chain() {
 
 #[test]
 fn sign_message_request_maps_bitcoin_hex_payload() {
-    let mapped = map_sign_message_request(SignMessageRequest {
+    let mapped = request_mapping::map_sign_message_request(SignMessageRequest {
         chain: Chain::Bitcoin,
         path: "m/84'/0'/0'/0/0".into(),
         message: "0x68656c6c6f".into(),
@@ -587,7 +586,7 @@ fn sign_message_request_maps_bitcoin_hex_payload() {
 
 #[test]
 fn sign_typed_data_request_maps_ethereum_hashes() {
-    let mapped = map_sign_typed_data_request(SignTypedDataRequest {
+    let mapped = request_mapping::map_sign_typed_data_request(SignTypedDataRequest {
         chain: Chain::Ethereum,
         path: "m/44'/60'/0'/0/0".into(),
         domain_separator_hash: "0x1111111111111111111111111111111111111111111111111111111111111111"
@@ -614,4 +613,74 @@ fn sign_typed_data_request_maps_ethereum_hashes() {
         }
         other => panic!("expected hash payload, got {other:?}"),
     }
+}
+
+#[test]
+fn sign_typed_data_request_rejects_message_hash_without_domain() {
+    let err = request_mapping::map_sign_typed_data_request(SignTypedDataRequest {
+        chain: Chain::Ethereum,
+        path: "m/44'/60'/0'/0/0".into(),
+        domain_separator_hash: "   ".into(),
+        message_hash: Some(
+            "0x2222222222222222222222222222222222222222222222222222222222222222".into(),
+        ),
+        data_json: None,
+        metamask_v4_compat: true,
+    })
+    .expect_err("message hash without domain should fail");
+
+    assert!(matches!(err, HWCoreError::Validation(_)));
+    assert!(err.to_string().contains("requires `domain_separator_hash`"));
+}
+
+#[test]
+fn sign_typed_data_request_treats_whitespace_message_hash_as_absent() {
+    let mapped = request_mapping::map_sign_typed_data_request(SignTypedDataRequest {
+        chain: Chain::Ethereum,
+        path: "m/44'/60'/0'/0/0".into(),
+        domain_separator_hash: "0x1111111111111111111111111111111111111111111111111111111111111111"
+            .into(),
+        message_hash: Some("   ".into()),
+        data_json: None,
+        metamask_v4_compat: true,
+    })
+    .expect("whitespace message hash should be ignored");
+
+    match mapped.payload {
+        trezor_connect::thp::SignTypedDataPayload::Hashes { message_hash, .. } => {
+            assert_eq!(message_hash, None);
+        }
+        other => panic!("expected hash payload, got {other:?}"),
+    }
+}
+
+#[test]
+fn sign_typed_data_request_rejects_mixed_json_and_hash_payloads() {
+    let err = request_mapping::map_sign_typed_data_request(SignTypedDataRequest {
+        chain: Chain::Ethereum,
+        path: "m/44'/60'/0'/0/0".into(),
+        domain_separator_hash: "0x1111111111111111111111111111111111111111111111111111111111111111"
+            .into(),
+        message_hash: None,
+        data_json: Some(
+            r#"{
+                "types": {
+                    "EIP712Domain": [{ "name": "name", "type": "string" }],
+                    "Mail": [{ "name": "contents", "type": "string" }]
+                },
+                "primaryType": "Mail",
+                "domain": { "name": "Ether Mail" },
+                "message": { "contents": "hello" }
+            }"#
+            .into(),
+        ),
+        metamask_v4_compat: true,
+    })
+    .expect_err("mixed typed-data payloads should fail");
+
+    assert!(matches!(err, HWCoreError::Validation(_)));
+    assert!(
+        err.to_string()
+            .contains("must use either `data_json` or hash fields")
+    );
 }

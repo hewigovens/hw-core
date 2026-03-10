@@ -1,0 +1,4 @@
+{
+  "data_json": "{\"types\":{\"EIP712Domain\":[{\"name\":\"name\",\"type\":\"string\"}],\"Mail\":[{\"name\":\"contents\",\"type\":\"string\"}]},\"primaryType\":\"Mail\",\"domain\":{\"name\":\"Ether Mail\"},\"message\":{\"contents\":\"hello\"}}",
+  "domain_separator_hash": "0x1111111111111111111111111111111111111111111111111111111111111111"
+}

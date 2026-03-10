@@ -1,4 +1,5 @@
 use super::*;
+use serde::Deserialize;
 
 fn sample_btc_sign_tx() -> crate::thp::types::BtcSignTx {
     crate::thp::types::BtcSignTx {
@@ -405,270 +406,475 @@ fn hex_to_bytes(s: &str) -> Vec<u8> {
     hex::decode(stripped).expect("invalid hex in fixture")
 }
 
-fn load_rbf_fixture() -> crate::thp::types::BtcSignTx {
-    let json: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/data/bitcoin/btc_rbf_with_payment_req.json"
-    ))
-    .expect("fixture is valid JSON");
+fn default_sequence() -> u32 {
+    0xffff_ffff
+}
 
-    let parse_path = |s: &str| -> Vec<u32> {
-        s.strip_prefix("m/")
-            .unwrap_or(s)
-            .split('/')
-            .map(|component| {
-                if let Some(stripped) = component.strip_suffix('\'') {
-                    stripped.parse::<u32>().unwrap() | 0x8000_0000
-                } else {
-                    component.parse::<u32>().unwrap()
-                }
-            })
-            .collect()
-    };
+fn default_input_script_type() -> String {
+    "spendwitness".to_string()
+}
 
-    let inputs: Vec<crate::thp::types::BtcSignInput> = json["inputs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|inp| crate::thp::types::BtcSignInput {
-            path: parse_path(inp["path"].as_str().unwrap()),
-            prev_hash: hex_to_bytes(inp["prev_hash"].as_str().unwrap()),
-            prev_index: inp["prev_index"].as_u64().unwrap() as u32,
-            amount: inp["amount"].as_str().unwrap().parse().unwrap(),
-            sequence: inp["sequence"].as_u64().unwrap_or(0xffff_ffff) as u32,
-            script_type: match inp["script_type"].as_str().unwrap_or("spendwitness") {
-                "spendwitness" => crate::thp::types::BtcInputScriptType::SpendWitness,
-                "spendaddress" => crate::thp::types::BtcInputScriptType::SpendAddress,
-                "spendtaproot" => crate::thp::types::BtcInputScriptType::SpendTaproot,
-                other => panic!("unsupported script_type: {other}"),
-            },
-            script_sig: inp["script_sig"].as_str().map(hex_to_bytes),
-            witness: inp["witness"].as_str().map(hex_to_bytes),
-            orig_hash: inp["orig_hash"].as_str().map(hex_to_bytes),
-            orig_index: inp["orig_index"].as_u64().map(|index| index as u32),
+fn default_output_script_type() -> String {
+    "paytoaddress".to_string()
+}
+
+fn parse_path(path: &str) -> Vec<u32> {
+    path.strip_prefix("m/")
+        .unwrap_or(path)
+        .split('/')
+        .map(|component| {
+            if let Some(stripped) = component.strip_suffix('\'') {
+                stripped.parse::<u32>().unwrap() | 0x8000_0000
+            } else {
+                component.parse::<u32>().unwrap()
+            }
         })
-        .collect();
+        .collect()
+}
 
-    let outputs: Vec<crate::thp::types::BtcSignOutput> = json["outputs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|out| crate::thp::types::BtcSignOutput {
-            address: out["address"].as_str().map(String::from),
-            path: out["path"].as_str().map(parse_path).unwrap_or_default(),
-            amount: out["amount"].as_str().unwrap().parse().unwrap(),
-            script_type: match out["script_type"].as_str().unwrap_or("paytoaddress") {
-                "paytowitness" => crate::thp::types::BtcOutputScriptType::PayToWitness,
-                "paytoaddress" => crate::thp::types::BtcOutputScriptType::PayToAddress,
-                "paytotaproot" => crate::thp::types::BtcOutputScriptType::PayToTaproot,
-                other => panic!("unsupported output script_type: {other}"),
-            },
-            op_return_data: None,
-            orig_hash: out["orig_hash"].as_str().map(hex_to_bytes),
-            orig_index: out["orig_index"].as_u64().map(|index| index as u32),
-            payment_req_index: out["payment_req_index"].as_u64().map(|index| index as u32),
-        })
-        .collect();
-
-    let ref_txs: Vec<crate::thp::types::BtcRefTx> = json["ref_txs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|rtx| crate::thp::types::BtcRefTx {
-            hash: hex_to_bytes(rtx["hash"].as_str().unwrap()),
-            version: rtx["version"].as_u64().unwrap() as u32,
-            lock_time: rtx["lock_time"].as_u64().unwrap() as u32,
-            inputs: rtx["inputs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|ri| crate::thp::types::BtcRefTxInput {
-                    prev_hash: hex_to_bytes(ri["prev_hash"].as_str().unwrap()),
-                    prev_index: ri["prev_index"].as_u64().unwrap() as u32,
-                    script_sig: hex_to_bytes(ri["script_sig"].as_str().unwrap()),
-                    sequence: ri["sequence"].as_u64().unwrap_or(0xffff_ffff) as u32,
-                })
-                .collect(),
-            bin_outputs: rtx["bin_outputs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|bo| crate::thp::types::BtcRefTxOutput {
-                    amount: bo["amount"].as_str().unwrap().parse().unwrap(),
-                    script_pubkey: hex_to_bytes(bo["script_pubkey"].as_str().unwrap()),
-                })
-                .collect(),
-            extra_data: None,
-            timestamp: None,
-            version_group_id: None,
-            expiry: None,
-            branch_id: None,
-        })
-        .collect();
-
-    let orig_txs: Vec<crate::thp::types::BtcOrigTx> = json["orig_txs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|otx| crate::thp::types::BtcOrigTx {
-            hash: hex_to_bytes(otx["hash"].as_str().unwrap()),
-            version: otx["version"].as_u64().unwrap() as u32,
-            lock_time: otx["lock_time"].as_u64().unwrap() as u32,
-            inputs: otx["inputs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|inp| crate::thp::types::BtcSignInput {
-                    path: parse_path(inp["path"].as_str().unwrap()),
-                    prev_hash: hex_to_bytes(inp["prev_hash"].as_str().unwrap()),
-                    prev_index: inp["prev_index"].as_u64().unwrap() as u32,
-                    amount: inp["amount"].as_str().unwrap().parse().unwrap(),
-                    sequence: inp["sequence"].as_u64().unwrap_or(0xffff_ffff) as u32,
-                    script_type: match inp["script_type"].as_str().unwrap_or("spendwitness") {
-                        "spendwitness" => crate::thp::types::BtcInputScriptType::SpendWitness,
-                        "spendaddress" => crate::thp::types::BtcInputScriptType::SpendAddress,
-                        "spendtaproot" => crate::thp::types::BtcInputScriptType::SpendTaproot,
-                        other => panic!("unsupported script_type: {other}"),
-                    },
-                    script_sig: inp["script_sig"].as_str().map(hex_to_bytes),
-                    witness: inp["witness"].as_str().map(hex_to_bytes),
-                    orig_hash: inp["orig_hash"].as_str().map(hex_to_bytes),
-                    orig_index: inp["orig_index"].as_u64().map(|index| index as u32),
-                })
-                .collect(),
-            outputs: otx["outputs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|out| crate::thp::types::BtcSignOutput {
-                    address: out["address"].as_str().map(String::from),
-                    path: out["path"].as_str().map(parse_path).unwrap_or_default(),
-                    amount: out["amount"].as_str().unwrap().parse().unwrap(),
-                    script_type: match out["script_type"].as_str().unwrap_or("paytoaddress") {
-                        "paytowitness" => crate::thp::types::BtcOutputScriptType::PayToWitness,
-                        "paytoaddress" => crate::thp::types::BtcOutputScriptType::PayToAddress,
-                        "paytotaproot" => crate::thp::types::BtcOutputScriptType::PayToTaproot,
-                        other => panic!("unsupported output script_type: {other}"),
-                    },
-                    op_return_data: out["op_return_data"].as_str().map(hex_to_bytes),
-                    orig_hash: out["orig_hash"].as_str().map(hex_to_bytes),
-                    orig_index: out["orig_index"].as_u64().map(|index| index as u32),
-                    payment_req_index: out["payment_req_index"].as_u64().map(|index| index as u32),
-                })
-                .collect(),
-            extra_data: otx["extra_data"].as_str().map(hex_to_bytes),
-            timestamp: otx["timestamp"].as_u64().map(|value| value as u32),
-            version_group_id: otx["version_group_id"].as_u64().map(|value| value as u32),
-            expiry: otx["expiry"].as_u64().map(|value| value as u32),
-            branch_id: otx["branch_id"].as_u64().map(|value| value as u32),
-        })
-        .collect();
-
-    let payment_reqs: Vec<crate::thp::types::BtcPaymentRequest> = json["payment_reqs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|pr| crate::thp::types::BtcPaymentRequest {
-            nonce: pr["nonce"].as_str().map(hex_to_bytes),
-            recipient_name: pr["recipient_name"].as_str().unwrap().to_string(),
-            memos: pr["memos"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|m| match m["type"].as_str().unwrap() {
-                    "text" => crate::thp::types::BtcPaymentRequestMemo::Text {
-                        text: m["text"].as_str().unwrap().to_string(),
-                    },
-                    "text_details" => crate::thp::types::BtcPaymentRequestMemo::TextDetails {
-                        title: m["title"].as_str().unwrap().to_string(),
-                        text: m["text"].as_str().unwrap().to_string(),
-                    },
-                    "refund" => crate::thp::types::BtcPaymentRequestMemo::Refund {
-                        address: m["address"].as_str().unwrap().to_string(),
-                        path: parse_path(m["path"].as_str().unwrap()),
-                        mac: hex_to_bytes(m["mac"].as_str().unwrap()),
-                    },
-                    "coin_purchase" => crate::thp::types::BtcPaymentRequestMemo::CoinPurchase {
-                        coin_type: m["coin_type"].as_u64().unwrap() as u32,
-                        amount: m["amount"].as_str().unwrap().to_string(),
-                        address: m["address"].as_str().unwrap().to_string(),
-                        path: parse_path(m["path"].as_str().unwrap()),
-                        mac: hex_to_bytes(m["mac"].as_str().unwrap()),
-                    },
-                    other => panic!("unsupported memo type: {other}"),
-                })
-                .collect(),
-            amount: pr["amount"].as_str().map(|s| {
-                crate::thp::types::BtcPaymentRequestAmount::from_sats(s.parse::<u64>().unwrap())
-            }),
-            signature: hex_to_bytes(pr["signature"].as_str().unwrap()),
-        })
-        .collect();
-
-    crate::thp::types::BtcSignTx {
-        version: json["version"].as_u64().unwrap() as u32,
-        lock_time: json["lock_time"].as_u64().unwrap() as u32,
-        inputs,
-        outputs,
-        ref_txs,
-        orig_txs,
-        payment_reqs,
-        chunkify: false,
+fn parse_input_script_type(value: &str) -> crate::thp::types::BtcInputScriptType {
+    match value {
+        "spendwitness" => crate::thp::types::BtcInputScriptType::SpendWitness,
+        "spendaddress" => crate::thp::types::BtcInputScriptType::SpendAddress,
+        "spendtaproot" => crate::thp::types::BtcInputScriptType::SpendTaproot,
+        other => panic!("unsupported script_type: {other}"),
     }
 }
 
-#[test]
-fn rbf_fee_bump_fixture_full_request_sequence() {
-    let btc = load_rbf_fixture();
-    let ref_txs_by_hash = build_ref_txs_index(&btc);
-    let orig_txs_by_hash = build_orig_txs_index(&btc);
+fn parse_output_script_type(value: &str) -> crate::thp::types::BtcOutputScriptType {
+    match value {
+        "paytowitness" => crate::thp::types::BtcOutputScriptType::PayToWitness,
+        "paytoaddress" => crate::thp::types::BtcOutputScriptType::PayToAddress,
+        "paytotaproot" => crate::thp::types::BtcOutputScriptType::PayToTaproot,
+        other => panic!("unsupported output script_type: {other}"),
+    }
+}
 
-    assert_eq!(btc.inputs.len(), 2);
-    assert_eq!(btc.outputs.len(), 2);
-    assert_eq!(btc.ref_txs.len(), 2);
-    assert_eq!(btc.orig_txs.len(), 1);
-    assert_eq!(btc.payment_reqs.len(), 1);
-    assert_eq!(btc.payment_reqs[0].recipient_name, "Acme Coffee Co.");
+#[derive(Debug, Clone, Deserialize)]
+struct BtcFixture {
+    version: u32,
+    #[serde(default)]
+    lock_time: u32,
+    #[serde(default)]
+    inputs: Vec<FixtureSignInput>,
+    #[serde(default)]
+    outputs: Vec<FixtureSignOutput>,
+    #[serde(default)]
+    ref_txs: Vec<FixtureRefTx>,
+    #[serde(default)]
+    orig_txs: Vec<FixtureOrigTx>,
+    #[serde(default)]
+    payment_reqs: Vec<FixturePaymentRequest>,
+    #[serde(default)]
+    firmware_request_sequence: Vec<FixtureTxRequestStep>,
+}
 
-    let fixture_json: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/data/bitcoin/btc_rbf_with_payment_req.json"
-    ))
-    .unwrap();
-    let sequence = fixture_json["firmware_request_sequence"]
-        .as_array()
-        .unwrap();
+#[derive(Debug, Clone, Deserialize)]
+struct FixtureSignInput {
+    path: String,
+    prev_hash: String,
+    prev_index: u32,
+    amount: String,
+    #[serde(default = "default_sequence")]
+    sequence: u32,
+    #[serde(default = "default_input_script_type")]
+    script_type: String,
+    #[serde(default)]
+    script_sig: Option<String>,
+    #[serde(default)]
+    witness: Option<String>,
+    #[serde(default)]
+    orig_hash: Option<String>,
+    #[serde(default)]
+    orig_index: Option<u32>,
+}
 
-    let mut ack_count = 0u32;
-    let mut finished = false;
+#[derive(Debug, Clone, Deserialize)]
+struct FixtureSignOutput {
+    #[serde(default)]
+    address: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    amount: String,
+    #[serde(default = "default_output_script_type")]
+    script_type: String,
+    #[serde(default)]
+    op_return_data: Option<String>,
+    #[serde(default)]
+    orig_hash: Option<String>,
+    #[serde(default)]
+    orig_index: Option<u32>,
+    #[serde(default)]
+    payment_req_index: Option<u32>,
+}
 
-    for (step, entry) in sequence.iter().enumerate() {
-        let req_type_str = entry["type"].as_str().unwrap();
+#[derive(Debug, Clone, Deserialize)]
+struct FixtureRefTxInput {
+    prev_hash: String,
+    prev_index: u32,
+    script_sig: String,
+    #[serde(default = "default_sequence")]
+    sequence: u32,
+}
 
-        let request_type = match req_type_str {
+#[derive(Debug, Clone, Deserialize)]
+struct FixtureRefTxOutput {
+    amount: String,
+    script_pubkey: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct FixtureRefTx {
+    hash: String,
+    version: u32,
+    lock_time: u32,
+    #[serde(default)]
+    inputs: Vec<FixtureRefTxInput>,
+    #[serde(default)]
+    bin_outputs: Vec<FixtureRefTxOutput>,
+    #[serde(default)]
+    extra_data: Option<String>,
+    #[serde(default)]
+    timestamp: Option<u32>,
+    #[serde(default)]
+    version_group_id: Option<u32>,
+    #[serde(default)]
+    expiry: Option<u32>,
+    #[serde(default)]
+    branch_id: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct FixtureOrigTx {
+    hash: String,
+    version: u32,
+    lock_time: u32,
+    #[serde(default)]
+    inputs: Vec<FixtureSignInput>,
+    #[serde(default)]
+    outputs: Vec<FixtureSignOutput>,
+    #[serde(default)]
+    extra_data: Option<String>,
+    #[serde(default)]
+    timestamp: Option<u32>,
+    #[serde(default)]
+    version_group_id: Option<u32>,
+    #[serde(default)]
+    expiry: Option<u32>,
+    #[serde(default)]
+    branch_id: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct FixturePaymentRequest {
+    #[serde(default)]
+    nonce: Option<String>,
+    recipient_name: String,
+    #[serde(default)]
+    memos: Vec<FixturePaymentRequestMemo>,
+    #[serde(default)]
+    amount: Option<String>,
+    signature: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct FixturePaymentRequestMemo {
+    #[serde(rename = "type")]
+    memo_type: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    address: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    mac: Option<String>,
+    #[serde(default)]
+    coin_type: Option<u32>,
+    #[serde(default)]
+    amount: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct FixtureTxRequestStep {
+    #[serde(rename = "type")]
+    request_type: String,
+    #[serde(default)]
+    index: Option<u32>,
+    #[serde(default)]
+    tx_hash: Option<String>,
+    #[serde(default)]
+    extra_data_len: Option<u32>,
+    #[serde(default)]
+    extra_data_offset: Option<u32>,
+    #[serde(default)]
+    signature_index: Option<u32>,
+    #[serde(default)]
+    signature: Option<String>,
+    #[serde(default)]
+    serialized_tx: Option<String>,
+    #[serde(default)]
+    expected_extra_data: Option<String>,
+}
+
+impl FixtureSignInput {
+    fn to_sign_input(&self) -> crate::thp::types::BtcSignInput {
+        crate::thp::types::BtcSignInput {
+            path: parse_path(&self.path),
+            prev_hash: hex_to_bytes(&self.prev_hash),
+            prev_index: self.prev_index,
+            amount: self.amount.parse().unwrap(),
+            sequence: self.sequence,
+            script_type: parse_input_script_type(&self.script_type),
+            script_sig: self.script_sig.as_deref().map(hex_to_bytes),
+            witness: self.witness.as_deref().map(hex_to_bytes),
+            orig_hash: self.orig_hash.as_deref().map(hex_to_bytes),
+            orig_index: self.orig_index,
+        }
+    }
+}
+
+impl FixtureSignOutput {
+    fn to_sign_output(&self) -> crate::thp::types::BtcSignOutput {
+        crate::thp::types::BtcSignOutput {
+            address: self.address.clone(),
+            path: self.path.as_deref().map(parse_path).unwrap_or_default(),
+            amount: self.amount.parse().unwrap(),
+            script_type: parse_output_script_type(&self.script_type),
+            op_return_data: self.op_return_data.as_deref().map(hex_to_bytes),
+            orig_hash: self.orig_hash.as_deref().map(hex_to_bytes),
+            orig_index: self.orig_index,
+            payment_req_index: self.payment_req_index,
+        }
+    }
+}
+
+impl FixtureRefTx {
+    fn to_ref_tx(&self) -> crate::thp::types::BtcRefTx {
+        crate::thp::types::BtcRefTx {
+            hash: hex_to_bytes(&self.hash),
+            version: self.version,
+            lock_time: self.lock_time,
+            inputs: self
+                .inputs
+                .iter()
+                .map(|input| crate::thp::types::BtcRefTxInput {
+                    prev_hash: hex_to_bytes(&input.prev_hash),
+                    prev_index: input.prev_index,
+                    script_sig: hex_to_bytes(&input.script_sig),
+                    sequence: input.sequence,
+                })
+                .collect(),
+            bin_outputs: self
+                .bin_outputs
+                .iter()
+                .map(|output| crate::thp::types::BtcRefTxOutput {
+                    amount: output.amount.parse().unwrap(),
+                    script_pubkey: hex_to_bytes(&output.script_pubkey),
+                })
+                .collect(),
+            extra_data: self.extra_data.as_deref().map(hex_to_bytes),
+            timestamp: self.timestamp,
+            version_group_id: self.version_group_id,
+            expiry: self.expiry,
+            branch_id: self.branch_id,
+        }
+    }
+}
+
+impl FixtureOrigTx {
+    fn to_orig_tx(&self) -> crate::thp::types::BtcOrigTx {
+        crate::thp::types::BtcOrigTx {
+            hash: hex_to_bytes(&self.hash),
+            version: self.version,
+            lock_time: self.lock_time,
+            inputs: self
+                .inputs
+                .iter()
+                .map(FixtureSignInput::to_sign_input)
+                .collect(),
+            outputs: self
+                .outputs
+                .iter()
+                .map(FixtureSignOutput::to_sign_output)
+                .collect(),
+            extra_data: self.extra_data.as_deref().map(hex_to_bytes),
+            timestamp: self.timestamp,
+            version_group_id: self.version_group_id,
+            expiry: self.expiry,
+            branch_id: self.branch_id,
+        }
+    }
+}
+
+impl FixturePaymentRequestMemo {
+    fn to_memo(&self) -> crate::thp::types::BtcPaymentRequestMemo {
+        match self.memo_type.as_str() {
+            "text" => crate::thp::types::BtcPaymentRequestMemo::Text {
+                text: self.text.clone().expect("text memo must include text"),
+            },
+            "text_details" => crate::thp::types::BtcPaymentRequestMemo::TextDetails {
+                title: self
+                    .title
+                    .clone()
+                    .expect("text_details memo must include title"),
+                text: self
+                    .text
+                    .clone()
+                    .expect("text_details memo must include text"),
+            },
+            "refund" => crate::thp::types::BtcPaymentRequestMemo::Refund {
+                address: self
+                    .address
+                    .clone()
+                    .expect("refund memo must include address"),
+                path: parse_path(self.path.as_deref().expect("refund memo must include path")),
+                mac: hex_to_bytes(self.mac.as_deref().expect("refund memo must include mac")),
+            },
+            "coin_purchase" => crate::thp::types::BtcPaymentRequestMemo::CoinPurchase {
+                coin_type: self
+                    .coin_type
+                    .expect("coin_purchase memo must include coin_type"),
+                amount: self
+                    .amount
+                    .clone()
+                    .expect("coin_purchase memo must include amount"),
+                address: self
+                    .address
+                    .clone()
+                    .expect("coin_purchase memo must include address"),
+                path: parse_path(
+                    self.path
+                        .as_deref()
+                        .expect("coin_purchase memo must include path"),
+                ),
+                mac: hex_to_bytes(
+                    self.mac
+                        .as_deref()
+                        .expect("coin_purchase memo must include mac"),
+                ),
+            },
+            other => panic!("unsupported memo type: {other}"),
+        }
+    }
+}
+
+impl FixturePaymentRequest {
+    fn to_payment_request(&self) -> crate::thp::types::BtcPaymentRequest {
+        crate::thp::types::BtcPaymentRequest {
+            nonce: self.nonce.as_deref().map(hex_to_bytes),
+            recipient_name: self.recipient_name.clone(),
+            memos: self
+                .memos
+                .iter()
+                .map(FixturePaymentRequestMemo::to_memo)
+                .collect(),
+            amount: self.amount.as_deref().map(|amount| {
+                crate::thp::types::BtcPaymentRequestAmount::from_sats(
+                    amount.parse::<u64>().unwrap(),
+                )
+            }),
+            signature: hex_to_bytes(&self.signature),
+        }
+    }
+}
+
+impl FixtureTxRequestStep {
+    fn decoded_request(&self) -> DecodedBitcoinTxRequest {
+        let request_type = match self.request_type.as_str() {
             "TXINPUT" => Some(BitcoinTxRequestType::TxInput),
             "TXOUTPUT" => Some(BitcoinTxRequestType::TxOutput),
             "TXMETA" => Some(BitcoinTxRequestType::TxMeta),
+            "TXEXTRADATA" => Some(BitcoinTxRequestType::TxExtraData),
             "TXORIGINPUT" => Some(BitcoinTxRequestType::TxOrigInput),
             "TXORIGOUTPUT" => Some(BitcoinTxRequestType::TxOrigOutput),
             "TXPAYMENTREQ" => Some(BitcoinTxRequestType::TxPaymentReq),
             "TXFINISHED" => Some(BitcoinTxRequestType::TxFinished),
-            other => panic!("unknown request type in fixture step {step}: {other}"),
+            other => panic!("unknown request type in fixture: {other}"),
         };
 
-        let tx_hash = entry["tx_hash"].as_str().map(hex_to_bytes);
-
-        let tx_request = DecodedBitcoinTxRequest {
+        DecodedBitcoinTxRequest {
             request_type,
-            request_index: entry["index"].as_u64().map(|v| v as u32),
-            tx_hash,
-            extra_data_len: None,
-            extra_data_offset: None,
-            signature_index: None,
-            signature: None,
-            serialized_tx: None,
-        };
+            request_index: self.index,
+            tx_hash: self.tx_hash.as_deref().map(hex_to_bytes),
+            extra_data_len: self.extra_data_len,
+            extra_data_offset: self.extra_data_offset,
+            signature_index: self.signature_index,
+            signature: self.signature.as_deref().map(hex_to_bytes),
+            serialized_tx: self.serialized_tx.as_deref().map(hex_to_bytes),
+        }
+    }
+}
+
+impl BtcFixture {
+    fn to_sign_tx(&self) -> crate::thp::types::BtcSignTx {
+        crate::thp::types::BtcSignTx {
+            version: self.version,
+            lock_time: self.lock_time,
+            inputs: self
+                .inputs
+                .iter()
+                .map(FixtureSignInput::to_sign_input)
+                .collect(),
+            outputs: self
+                .outputs
+                .iter()
+                .map(FixtureSignOutput::to_sign_output)
+                .collect(),
+            ref_txs: self.ref_txs.iter().map(FixtureRefTx::to_ref_tx).collect(),
+            orig_txs: self
+                .orig_txs
+                .iter()
+                .map(FixtureOrigTx::to_orig_tx)
+                .collect(),
+            payment_reqs: self
+                .payment_reqs
+                .iter()
+                .map(FixturePaymentRequest::to_payment_request)
+                .collect(),
+            chunkify: false,
+        }
+    }
+}
+
+fn parse_btc_fixture(fixture_json: &str) -> BtcFixture {
+    serde_json::from_str(fixture_json).expect("fixture is valid JSON")
+}
+
+fn load_rbf_fixture() -> BtcFixture {
+    parse_btc_fixture(include_str!(
+        "../../../../tests/data/bitcoin/btc_rbf_with_payment_req.json"
+    ))
+}
+
+fn load_extra_data_fixture() -> BtcFixture {
+    parse_btc_fixture(include_str!(
+        "../../../../tests/data/bitcoin/btc_ref_tx_with_extra_data_sequence.json"
+    ))
+}
+
+fn run_fixture_request_sequence(
+    btc: &crate::thp::types::BtcSignTx,
+    fixture: &BtcFixture,
+) -> (u32, Option<Vec<u8>>) {
+    let ref_txs_by_hash = build_ref_txs_index(btc);
+    let orig_txs_by_hash = build_orig_txs_index(btc);
+
+    let mut ack_count = 0u32;
+    let mut finished = false;
+    let mut latest_signature = None;
+
+    for (step, entry) in fixture.firmware_request_sequence.iter().enumerate() {
+        let req_type_str = entry.request_type.as_str();
+        let tx_request = entry.decoded_request();
+        if let Some(signature) = tx_request.signature.as_ref() {
+            latest_signature = Some(signature.clone());
+        }
 
         let result =
-            handle_bitcoin_tx_request(&btc, &ref_txs_by_hash, &orig_txs_by_hash, &tx_request)
+            handle_bitcoin_tx_request(btc, &ref_txs_by_hash, &orig_txs_by_hash, &tx_request)
                 .unwrap_or_else(|e| panic!("step {step} ({req_type_str}): unexpected error: {e}"));
 
         match result {
@@ -686,6 +892,19 @@ fn rbf_fee_bump_fixture_full_request_sequence() {
                         "step {step} ({req_type_str}): expected standard tx ack"
                     );
                 }
+                if req_type_str == "TXEXTRADATA" {
+                    let expected_chunk = hex_to_bytes(
+                        entry
+                            .expected_extra_data
+                            .as_deref()
+                            .expect("TXEXTRADATA fixture must include expected_extra_data"),
+                    );
+                    let expected = encode_bitcoin_tx_ack_prev_extra_data(&expected_chunk).unwrap();
+                    assert_eq!(
+                        ack.payload, expected.payload,
+                        "step {step}: TXEXTRADATA ack payload should match requested chunk"
+                    );
+                }
                 ack_count += 1;
             }
             BitcoinTxRequestHandling::Finished => {
@@ -699,5 +918,41 @@ fn rbf_fee_bump_fixture_full_request_sequence() {
     }
 
     assert!(finished, "sequence must end with TXFINISHED");
+    (ack_count, latest_signature)
+}
+
+#[test]
+fn rbf_fee_bump_fixture_full_request_sequence() {
+    let fixture = load_rbf_fixture();
+    let btc = fixture.to_sign_tx();
+
+    assert_eq!(btc.inputs.len(), 2);
+    assert_eq!(btc.outputs.len(), 2);
+    assert_eq!(btc.ref_txs.len(), 2);
+    assert_eq!(btc.orig_txs.len(), 1);
+    assert_eq!(btc.payment_reqs.len(), 1);
+    assert_eq!(btc.payment_reqs[0].recipient_name, "Acme Coffee Co.");
+
+    let (ack_count, latest_signature) = run_fixture_request_sequence(&btc, &fixture);
     assert_eq!(ack_count, 14, "expected 14 ack responses in the sequence");
+    assert_eq!(latest_signature, None, "fixture does not emit signatures");
+}
+
+#[test]
+fn ref_tx_extra_data_fixture_sequence_yields_expected_chunks_and_signature() {
+    let fixture = load_extra_data_fixture();
+    let btc = fixture.to_sign_tx();
+
+    assert_eq!(btc.inputs.len(), 1);
+    assert_eq!(btc.outputs.len(), 1);
+    assert_eq!(btc.ref_txs.len(), 1);
+    let expected_extra_data = hex_to_bytes("0xdeadbeefcafebabe");
+    assert_eq!(
+        btc.ref_txs[0].extra_data.as_deref(),
+        Some(expected_extra_data.as_slice())
+    );
+
+    let (ack_count, latest_signature) = run_fixture_request_sequence(&btc, &fixture);
+    assert_eq!(ack_count, 5, "expected 5 ack responses in the sequence");
+    assert_eq!(latest_signature, Some(hex_to_bytes("0x3045022100feedface")));
 }

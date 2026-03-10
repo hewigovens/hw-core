@@ -4,7 +4,9 @@ use tracing::info;
 use trezor_connect::thp::{GetAddressRequest, ThpBackend, ThpWorkflow};
 
 use crate::cli::AddressArgs;
-use crate::commands::common::{ConnectWorkflowOptions, connect_ready_workflow};
+use crate::commands::common::{
+    connect_ready_command_workflow, print_address_response, print_requesting,
+};
 
 pub async fn run(args: AddressArgs, skip_pairing: bool) -> Result<()> {
     let resolved = ResolvedAddressTarget::from_args(&args)?;
@@ -19,22 +21,9 @@ pub async fn run(args: AddressArgs, skip_pairing: bool) -> Result<()> {
         args.chunkify
     );
 
-    let mut workflow = connect_ready_workflow(
-        ConnectWorkflowOptions {
-            scan_timeout_secs: args.timeout_secs,
-            thp_timeout_secs: args.thp_timeout_secs,
-            device_id: args.device_id.clone(),
-            storage_path: args.storage_path.clone(),
-            host_name: args.host_name.clone(),
-            app_name: args.app_name.clone(),
-            skip_pairing,
-        },
-        "address",
-        "Remove this Trezor from macOS Bluetooth settings, then pair again.",
-    )
-    .await?;
+    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "address").await?;
 
-    println!("Requesting {:?} address from device...", resolved.chain);
+    print_requesting(&format!("{:?} address", resolved.chain));
     let response = get_address_with_workflow(
         &mut workflow,
         resolved.chain,
@@ -53,13 +42,11 @@ pub async fn run(args: AddressArgs, skip_pairing: bool) -> Result<()> {
         );
     }
 
-    println!("Address: {}", response.address);
-    if let Some(mac) = response.mac {
-        println!("MAC: {}", hex::encode(mac));
-    }
-    if let Some(public_key) = response.public_key {
-        println!("Public key: {}", public_key);
-    }
+    print_address_response(
+        &response.address,
+        response.mac.as_deref(),
+        response.public_key.as_deref(),
+    );
 
     Ok(())
 }
@@ -122,14 +109,12 @@ mod tests {
     use super::*;
 
     use crate::commands::test_support::{
-        MockBackend, canned_eth_address_response, default_test_host_config,
+        MockBackend, canned_eth_address_response, ready_workflow_with_mock,
     };
-    use hw_wallet::ble::{SessionBootstrapOptions, SessionPhase, advance_session_bootstrap};
     use hw_wallet::chain::{
         DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
     };
-    use std::time::Duration;
-    use trezor_connect::thp::{Chain as ThpChain, ThpWorkflow};
+    use trezor_connect::thp::Chain as ThpChain;
 
     fn args(chain: Option<Chain>, path: Option<&str>) -> AddressArgs {
         AddressArgs {
@@ -189,25 +174,7 @@ mod tests {
             .with_get_address_response(canned_eth_address_response(
                 "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE",
             ));
-        let config = default_test_host_config();
-        let mut workflow = ThpWorkflow::new(backend, config);
-
-        let mut session_ready = false;
-        let step = advance_session_bootstrap(
-            &mut workflow,
-            &mut session_ready,
-            &SessionBootstrapOptions {
-                thp_timeout: Duration::from_secs(60),
-                try_to_unlock: true,
-                passphrase: None,
-                on_device: false,
-                derive_cardano: false,
-                ..SessionBootstrapOptions::default()
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(step, SessionPhase::Ready);
+        let mut workflow = ready_workflow_with_mock(backend).await;
         let response = get_address_with_workflow(
             &mut workflow,
             Chain::Ethereum,

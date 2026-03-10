@@ -1,0 +1,78 @@
+{
+  "description": "Previous-transaction extra-data fixture that exercises TXMETA, TXEXTRADATA, top-level TXINPUT/TXOUTPUT, and signature carry-through at TXFINISHED.",
+  "version": 2,
+  "lock_time": 0,
+  "inputs": [
+    {
+      "path": "m/84'/0'/0'/0/0",
+      "prev_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "prev_index": 0,
+      "amount": "1000",
+      "sequence": 4294967295,
+      "script_type": "spendwitness"
+    }
+  ],
+  "outputs": [
+    {
+      "address": "bc1qexample0000000000000000000000000000000000",
+      "amount": "900",
+      "script_type": "paytoaddress"
+    }
+  ],
+  "ref_txs": [
+    {
+      "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "version": 2,
+      "lock_time": 42,
+      "inputs": [
+        {
+          "prev_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prev_index": 0,
+          "script_sig": "",
+          "sequence": 4294967294
+        }
+      ],
+      "bin_outputs": [
+        {
+          "amount": "1000",
+          "script_pubkey": "001400112233445566778899aabbccddeeff00112233"
+        }
+      ],
+      "extra_data": "0xdeadbeefcafebabe"
+    }
+  ],
+  "orig_txs": [],
+  "payment_reqs": [],
+  "firmware_request_sequence": [
+    {
+      "type": "TXMETA",
+      "tx_hash": "0x1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "type": "TXEXTRADATA",
+      "tx_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "extra_data_offset": 0,
+      "extra_data_len": 4,
+      "expected_extra_data": "0xdeadbeef"
+    },
+    {
+      "type": "TXINPUT",
+      "index": 0
+    },
+    {
+      "type": "TXOUTPUT",
+      "index": 0
+    },
+    {
+      "type": "TXEXTRADATA",
+      "tx_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "extra_data_offset": 4,
+      "extra_data_len": 4,
+      "expected_extra_data": "0xcafebabe"
+    },
+    {
+      "type": "TXFINISHED",
+      "signature": "0x3045022100feedface"
+    }
+  ]
+}
