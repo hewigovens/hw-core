@@ -5,7 +5,7 @@ use hw_wallet::btc::{
 use hw_wallet::eth::{TxAccessListInput, TxInput, build_sign_tx_request};
 use hw_wallet::hex::decode as decode_hex;
 use hw_wallet::message::build_sign_message_request;
-use hw_wallet::message_signing::{build_eth_eip191_request, build_eth_eip712_request};
+use hw_wallet::message_signing::build_eth_eip712_request;
 use trezor_connect::thp::{
     GetAddressRequest as ThpGetAddressRequest, SignMessageRequest as ThpSignMessageRequest,
 };
@@ -84,20 +84,14 @@ pub(crate) fn map_sign_message_request(
     request: SignMessageRequest,
 ) -> Result<ThpSignMessageRequest, HWCoreError> {
     let path = parse_request_path(&request.path)?;
-    match request.chain {
-        crate::types::Chain::Ethereum => {
-            build_eth_eip191_request(path, &request.message, request.is_hex, request.chunkify)
-                .map_err(HWCoreError::from)
-        }
-        _ => build_sign_message_request(
-            request.chain,
-            path,
-            &request.message,
-            request.is_hex,
-            request.chunkify,
-        )
-        .map_err(HWCoreError::from),
-    }
+    build_sign_message_request(
+        request.chain,
+        path,
+        &request.message,
+        request.is_hex,
+        request.chunkify,
+    )
+    .map_err(HWCoreError::from)
 }
 
 pub(crate) fn map_sign_typed_data_request(

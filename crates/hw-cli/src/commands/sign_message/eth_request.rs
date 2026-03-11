@@ -39,11 +39,10 @@ pub(super) fn build_eth_sign_request_from_args(
                 anyhow::bail!("`hex` and `chunkify` are only valid for ETH EIP-191 signing");
             }
 
-            let data_file = args.data_file.as_deref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "ETH EIP-712 signing requires either `data_json` or `domain_separator_hash`"
-                )
-            })?;
+            let data_file = args
+                .data_file
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("--data-file is required for --type eip712"))?;
             let data_json = read_text_file(data_file, "typed-data file")?;
 
             build_eth_eip712_json_request(path, &data_json, args.metamask_v4_compat)
@@ -113,7 +112,7 @@ mod tests {
 
         assert!(
             err.to_string()
-                .contains("requires either `data_json` or `domain_separator_hash`")
+                .contains("--data-file is required for --type eip712")
         );
     }
 }
