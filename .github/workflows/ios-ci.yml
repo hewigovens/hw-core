@@ -45,7 +45,8 @@ jobs:
       - name: Run HWCoreKit Swift package tests
         run: swift test --package-path apple/HWCoreKit
 
-      - name: Build iOS sample app
-        run: xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build | xcbeautify
+      - name: Run iOS sample app UI smoke tests
+        run: just smoke-ios-ui
+
       - name: Build macOS sample app
         run: xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' build | xcbeautify

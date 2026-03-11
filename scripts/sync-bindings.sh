@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # ── Apple settings ──────────────────────────────────────────────────
 PACKAGE_DIR="$ROOT_DIR/apple/HWCoreKit"
 BINDINGS_DIR="$ROOT_DIR/target/bindings/swift"
+IOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-16.0}"
 
 # ── Android settings ────────────────────────────────────────────────
 ANDROID_LIB_DIR="$ROOT_DIR/android/lib"
@@ -94,7 +95,7 @@ Platform flags (at least one required):
   --all             Both Apple and Android
 
 Apple options:
-  --ios-sim-ffi     Also build universal iOS-simulator libhwcore.dylib
+  --ios-sim-ffi     Also build universal iOS-simulator libhwcore.{a,dylib}
   --ios-sim-only    Build iOS-simulator lib only (skip Swift binding sync)
 
 Android options:
@@ -159,17 +160,25 @@ if [[ "$DO_APPLE" -eq 1 ]]; then
   if [[ "$DO_BUILD_IOS_SIM_FFI" -eq 1 ]]; then
     rustup target add aarch64-apple-ios-sim x86_64-apple-ios
 
-    cargo build -p hw-ffi --target aarch64-apple-ios-sim
-    cargo build -p hw-ffi --target x86_64-apple-ios
+    IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
+      cargo build -p hw-ffi --target aarch64-apple-ios-sim
+    IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
+      cargo build -p hw-ffi --target x86_64-apple-ios
 
     mkdir -p "$ROOT_DIR/target/ios-sim/debug"
     lipo -create \
       "$ROOT_DIR/target/aarch64-apple-ios-sim/debug/libhwcore.dylib" \
       "$ROOT_DIR/target/x86_64-apple-ios/debug/libhwcore.dylib" \
       -output "$ROOT_DIR/target/ios-sim/debug/libhwcore.dylib"
+    lipo -create \
+      "$ROOT_DIR/target/aarch64-apple-ios-sim/debug/libhwcore.a" \
+      "$ROOT_DIR/target/x86_64-apple-ios/debug/libhwcore.a" \
+      -output "$ROOT_DIR/target/ios-sim/debug/libhwcore.a"
 
-    echo "Built universal iOS-simulator FFI library:"
+    echo "Built universal iOS-simulator FFI libraries:"
     echo "  $ROOT_DIR/target/ios-sim/debug/libhwcore.dylib"
+    echo "  $ROOT_DIR/target/ios-sim/debug/libhwcore.a"
+    echo "  deployment target: iOS $IOS_DEPLOYMENT_TARGET"
   fi
 fi
 
