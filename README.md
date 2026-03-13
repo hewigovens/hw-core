@@ -13,6 +13,8 @@
 
 The first production target is THP (Trezor Host Protocol), introduced by Trezor Safe 7. The stack is designed so the same core workflow/orchestration can be reused across multiple app surfaces, including the CLI plus Apple and Android sample apps via FFI.
 
+It doesn't need the Trezor Suite app and can talk to the device directly.
+
 High-level references:
 
 - THP spec: [trezor-firmware/docs/common/communication/thp.md](https://github.com/trezor/trezor-firmware/blob/m1nd3r/thp-documentation/docs/common/communication/thp.md)

@@ -1,6 +1,6 @@
 # hw-core Execution Plan
 
-Last updated: 2026-03-10
+Last updated: 2026-03-13
 Status legend: TODO | IN_PROGRESS | DONE | BLOCKED
 
 ## Objective
@@ -54,6 +54,11 @@ The library is not developer-ready until third-party app teams can consume it wi
 - Package the library for downstream consumption.
 - Document the supported integration path for Android and Apple consumers.
 
+### Completed
+- Updated Android BLE support to `btleplug` 0.12.0 and reduced the carried Android Java patch to the remaining upstream behavior gaps.
+- Aligned the Android sample's critical pairing flow with the iOS-style blocking code prompt and added nonce access to the sample surface.
+- Set platform-specific host identifiers for the Android and Apple sample apps.
+
 ### Must Finish
 - [ ] Verify repeated real-device happy paths on Android: pair, connect, address, sign, disconnect, reconnect.
 - [ ] Add focused Apple regressions for stale pairing credentials and reconnect recovery.
@@ -78,6 +83,9 @@ Without a narrow validation story, "supported" behavior will keep drifting from 
 - Keep the validation matrix small and explicit.
 - Make CI reflect the real support contract.
 - Keep docs current with the validated developer experience.
+
+### Completed
+- Emulator integration tests now capture emulator stdout/stderr to files during normal runs and dump them automatically on failure for CI debugging.
 
 ### Must Finish
 - [x] Define one canonical smoke matrix for CLI, Apple, and Android flows.

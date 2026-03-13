@@ -1,16 +1,18 @@
 # hw-core Roadmap
 
-Last updated: 2026-03-10
+Last updated: 2026-03-13
 
 ## Product Goal
 Ship a stable, reusable host stack for hardware-wallet communication over THP/BLE that external developers can adopt through well-defined Rust and FFI surfaces.
 
 ## Current Baseline
 - THP/BLE host stack is operational end-to-end for discovery, pairing, session establishment, encrypted messaging, and persisted pairing state.
+- Android BLE support is updated to `btleplug` 0.12.0, with only the remaining required Android Java behavior patch carried locally.
 - Shared wallet orchestration (`hw-wallet`) is used by CLI and FFI.
 - Consumer-facing ETH message-sign validation is shared across wallet, CLI, and FFI entry points.
 - CLI supports scan, pair, address, sign-tx, and message-signing workflows.
 - `hw-ffi` generates Swift/Kotlin bindings consumed by Apple and Android sample surfaces.
+- Emulator CI retains quiet successful runs while preserving emulator stdout/stderr automatically on failures.
 
 ## Feature Status
 
