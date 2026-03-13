@@ -71,6 +71,7 @@ data class UiState(
     val btcTxJsonInput: String = DEFAULT_BITCOIN_TX_JSON,
     val address: String? = null,
     val addressPublicKey: String? = null,
+    val nonceResult: String? = null,
     val txSignResult: String? = null,
     val messageSignResult: String? = null,
     val error: String? = null,
@@ -81,7 +82,7 @@ private const val DEFAULT_ETH_PATH = "m/44'/60'/0'/0/0"
 private const val DEFAULT_BTC_PATH = "m/84'/0'/0'/0/0"
 private const val DEFAULT_SOL_PATH = "m/44'/501'/0'/0'"
 private const val SESSION_STEP_TIMEOUT_MS = 60_000L
-private const val DEFAULT_APP_NAME = "hw-core/cli"
+private const val DEFAULT_APP_NAME = "hw-core/android"
 private const val UI_STATE_SNAPSHOT_FILE = "sample-ui-state.json"
 private const val UI_STATE_SAVED_KEY = "sample_ui_state_json"
 private const val REMEMBERED_DEVICE_FILE = "remembered-device-id.txt"
@@ -433,6 +434,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             put("btcTxJsonInput", state.btcTxJsonInput)
             put("address", state.address)
             put("addressPublicKey", state.addressPublicKey)
+            put("nonceResult", state.nonceResult)
             put("txSignResult", state.txSignResult)
             put("messageSignResult", state.messageSignResult)
             put("error", state.error)
@@ -528,6 +530,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 btcTxJsonInput = json.optString("btcTxJsonInput", DEFAULT_BITCOIN_TX_JSON.trim()),
                 address = json.optString("address").takeIf { it.isNotBlank() },
                 addressPublicKey = json.optString("addressPublicKey").takeIf { it.isNotBlank() },
+                nonceResult = json.optString("nonceResult").takeIf { it.isNotBlank() },
                 txSignResult = json.optString("txSignResult").takeIf { it.isNotBlank() },
                 messageSignResult = json.optString("messageSignResult").takeIf { it.isNotBlank() },
                 error = json.optString("error").takeIf { it.isNotBlank() },
@@ -579,9 +582,22 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         restoreUiFromJsonString(file.readText(), "file")
     }
 
+    private fun withDeviceRestartHint(msg: String): String {
+        val lower = msg.lowercase()
+        val isUnexpectedMessage =
+            "device error: code=1" in lower ||
+                "device returned error code 1" in lower ||
+                "failure_unexpectedmessage" in lower
+        if (!isUnexpectedMessage || "restart trezor" in lower) {
+            return msg
+        }
+        return "$msg Restart Trezor and try again."
+    }
+
     private fun setError(msg: String) {
-        log("ERROR: $msg")
-        ui = ui.copy(error = msg, status = msg, isBusy = false)
+        val message = withDeviceRestartHint(msg)
+        log("ERROR: $message")
+        ui = ui.copy(error = message, status = message, isBusy = false)
     }
 
     fun onMissingBlePermissions() {
@@ -1042,10 +1058,13 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 val wf = workflow ?: return@launch setError("Pairing failed: no active workflow")
                 val progress = wf.pairingSubmitCode(trimmed)
                 log("Pairing progress: ${progress.kind} - ${progress.message}")
+                if (progress.kind != PairingProgressKind.AWAITING_CODE) {
+                    ui = ui.copy(pairingPrompt = null)
+                }
 
                 when (progress.kind) {
                     PairingProgressKind.AWAITING_CONNECTION_CONFIRMATION -> {
-                        ui = ui.copy(isBusy = false)
+                        ui = ui.copy(isBusy = false, status = progress.message)
                     }
                     PairingProgressKind.COMPLETED -> {
                         resumePendingFlowAfterPairing()
@@ -1059,6 +1078,16 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 setError("Pairing failed: ${e.message}")
             }
         }
+    }
+
+    fun cancelPairingCodePrompt() {
+        pendingPairingFlow = null
+        ui = ui.copy(
+            pairingPrompt = null,
+            isBusy = false,
+            status = "Pairing prompt dismissed",
+        )
+        log("Pairing prompt dismissed")
     }
 
     fun confirmConnection() {
@@ -1091,6 +1120,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             messageSignPathInput = nextMessagePath,
             address = null,
             addressPublicKey = null,
+            nonceResult = null,
             txSignResult = null,
             messageSignResult = null,
             error = null,
@@ -1196,6 +1226,30 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 }
             } catch (e: Exception) {
                 setError("Get address failed: ${e.message}")
+            }
+        }
+    }
+
+    fun getNonce() {
+        ui = ui.copy(nonceResult = null, error = null, isBusy = true)
+        log("Getting device nonce...")
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val wf = workflow ?: return@launch setError("Get nonce failed: connect first")
+                if (ui.sessionState?.canGetAddress != true) {
+                    return@launch setError("Get nonce failed: session is not ready")
+                }
+
+                val nonce = wf.getNonce()
+                ui = ui.copy(
+                    nonceResult = nonce,
+                    isBusy = false,
+                    status = "Nonce received",
+                )
+                log("Nonce: $nonce")
+            } catch (e: Exception) {
+                setError("Get nonce failed: ${e.message}")
             }
         }
     }
@@ -1380,6 +1434,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 pairingPrompt = null,
                 address = null,
                 addressPublicKey = null,
+                nonceResult = null,
                 txSignResult = null,
                 messageSignResult = null,
                 isBusy = false,

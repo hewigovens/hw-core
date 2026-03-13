@@ -120,17 +120,21 @@ impl BleSession {
         let mtu_hint = profile.mtu_hint.map(|m| m as usize).unwrap_or(244);
         #[cfg(target_os = "android")]
         let mtu = {
-            // Android defaults to 23-byte ATT MTU unless requestMtu succeeds.
-            // We request MTU 247 in the Droidplug Java shim; keep this cap overridable.
+            // btleplug 0.12 negotiates ATT MTU during connect() on Android.
+            // Use the negotiated MTU payload size, but keep our profile/env caps.
+            let negotiated_payload = peripheral.mtu().saturating_sub(3) as usize;
             let safe_cap = std::env::var("HWCORE_BLE_ANDROID_TX_MTU")
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(244)
                 .max(1);
-            let selected = mtu_hint.min(safe_cap);
+            let selected = mtu_hint.min(safe_cap).min(negotiated_payload.max(1));
             debug!(
                 mtu_hint,
-                safe_cap, selected, "BLE TX mtu selected (android conservative mode)"
+                negotiated_payload,
+                safe_cap,
+                selected,
+                "BLE TX mtu selected (android conservative mode)"
             );
             selected
         };

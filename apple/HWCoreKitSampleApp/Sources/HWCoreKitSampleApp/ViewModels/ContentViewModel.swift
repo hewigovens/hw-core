@@ -337,7 +337,7 @@ final class ContentViewModel: ObservableObject {
             coreKit = try await HWCoreKit.create(
                 config: HWCoreConfig(
                     hostName: defaultHostName(),
-                    appName: "hw-core/cli",
+                    appName: "hw-core/ios",
                     storagePath: path
                 )
             )

@@ -41,6 +41,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -201,6 +203,7 @@ fun MainScreen(
     val canPairOnly = !ui.isBusy && (ui.sessionState?.canPairOnly == true || (!ui.hasWorkflow && ui.devices.isNotEmpty()))
     val canConnect = !ui.isBusy && (ui.sessionState?.canConnect == true || (!ui.hasWorkflow && ui.devices.isNotEmpty()))
     val canGetAddress = !ui.isBusy && ui.sessionState?.canGetAddress == true
+    val canGetNonce = canGetAddress
     val canSign = !ui.isBusy && ui.sessionState?.canSignTx == true
     val canSignMessage = canSign && ui.selectedChain != Chain.SOLANA
     val canDisconnect = !ui.isBusy && ui.hasWorkflow
@@ -407,12 +410,22 @@ fun MainScreen(
 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             Button(
+                                onClick = { vm.getNonce() },
+                                enabled = canGetNonce,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("Nonce")
+                            }
+                            Button(
                                 onClick = { vm.signTx() },
                                 enabled = canSign,
                                 modifier = Modifier.weight(1f),
                             ) {
                                 Text("Sign")
                             }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             Button(
                                 onClick = { vm.signMessage() },
                                 enabled = canSignMessage,
@@ -420,14 +433,13 @@ fun MainScreen(
                             ) {
                                 Text("Sign Msg")
                             }
-                        }
-
-                        OutlinedButton(
-                            onClick = { vm.disconnect() },
-                            enabled = canDisconnect,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Disconnect")
+                            OutlinedButton(
+                                onClick = { vm.disconnect() },
+                                enabled = canDisconnect,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("Disconnect")
+                            }
                         }
 
                         OutlinedButton(
@@ -441,50 +453,6 @@ fun MainScreen(
                 }
             }
 
-        if (ui.pairingPrompt != null) {
-            item {
-                var code by rememberSaveable { mutableStateOf("") }
-                val prompt = ui.pairingPrompt
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Pairing", style = MaterialTheme.typography.titleMedium)
-                        Text(prompt?.message.orEmpty(), style = MaterialTheme.typography.bodyMedium)
-
-                        OutlinedTextField(
-                            value = code,
-                            onValueChange = { value ->
-                                if (value.length <= 6) {
-                                    code = value.filter { it.isDigit() }
-                                }
-                            },
-                            label = { Text("Pairing Code") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !ui.isBusy,
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = { vm.submitPairingCode(code) },
-                                enabled = !ui.isBusy && code.length == 6,
-                            ) {
-                                Text("Submit Code")
-                            }
-
-                            if (prompt?.requiresConnectionConfirmation == true) {
-                                OutlinedButton(
-                                    onClick = { vm.confirmConnection() },
-                                    enabled = !ui.isBusy,
-                                ) {
-                                    Text("Confirm on Device")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
         }
 
         if (showConfigTab) {
@@ -744,7 +712,7 @@ fun MainScreen(
         }
         }
 
-        if (showMainTab && (ui.address != null || ui.addressPublicKey != null || ui.txSignResult != null || ui.messageSignResult != null)) {
+        if (showMainTab && (ui.address != null || ui.addressPublicKey != null || ui.nonceResult != null || ui.txSignResult != null || ui.messageSignResult != null)) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -776,6 +744,21 @@ fun MainScreen(
                                 clipboard.setText(AnnotatedString(publicKey))
                             }) {
                                 Text("Copy Public Key")
+                            }
+                        }
+
+                        ui.nonceResult?.let { nonce ->
+                            Divider()
+                            Text("Nonce", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                nonce,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                            )
+                            OutlinedButton(onClick = {
+                                clipboard.setText(AnnotatedString(nonce))
+                            }) {
+                                Text("Copy Nonce")
                             }
                         }
 
@@ -869,6 +852,62 @@ fun MainScreen(
 
     LaunchedEffect(ui.log.size) {
         // keep composition responsive when logs append quickly
+    }
+
+    ui.pairingPrompt?.let { prompt ->
+        var pairingCode by rememberSaveable(prompt.message) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Pairing Code") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = prompt.message.ifBlank {
+                            "Enter the 6-digit code shown on the device."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedTextField(
+                        value = pairingCode,
+                        onValueChange = { value ->
+                            if (value.length <= 6) {
+                                pairingCode = value.filter { it.isDigit() }
+                            }
+                        },
+                        label = { Text("123456") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !ui.isBusy,
+                    )
+                    if (prompt.requiresConnectionConfirmation) {
+                        OutlinedButton(
+                            onClick = { vm.confirmConnection() },
+                            enabled = !ui.isBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Confirm on Device")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { vm.submitPairingCode(pairingCode) },
+                    enabled = !ui.isBusy && pairingCode.length == 6,
+                ) {
+                    Text("Submit")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { vm.cancelPairingCodePrompt() },
+                    enabled = !ui.isBusy,
+                ) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }
 
