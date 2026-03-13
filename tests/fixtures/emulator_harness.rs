@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::net::UdpSocket;
 use std::path::PathBuf;
@@ -16,6 +17,9 @@ pub struct EmulatorHarness {
     auto_confirm: Child,
     bus_address: String,
     profile_dir: PathBuf,
+    log_dir: PathBuf,
+    emu_stdout_path: PathBuf,
+    emu_stderr_path: PathBuf,
 }
 
 impl EmulatorHarness {
@@ -54,20 +58,34 @@ impl EmulatorHarness {
         let id = HARNESS_COUNTER.fetch_add(1, Ordering::SeqCst);
         let profile_dir =
             std::env::temp_dir().join(format!("trezor-emu-{}-{}", std::process::id(), id));
+        let log_dir =
+            std::env::temp_dir().join(format!("trezor-emu-logs-{}-{}", std::process::id(), id));
         let _ = std::fs::remove_dir_all(&profile_dir);
+        let _ = std::fs::remove_dir_all(&log_dir);
         std::fs::create_dir_all(&profile_dir).expect("failed to create profile dir");
+        std::fs::create_dir_all(&log_dir).expect("failed to create emulator log dir");
+
+        let emu_stdout_path = log_dir.join("emulator.stdout.log");
+        let emu_stderr_path = log_dir.join("emulator.stderr.log");
+        let emu_stdout = File::create(&emu_stdout_path).expect("failed to create emulator stdout");
+        let emu_stderr = File::create(&emu_stderr_path).expect("failed to create emulator stderr");
 
         let emu = Command::new(&emu_bin)
             .args(["-O0", "-m", "main"])
             .env("SDL_VIDEODRIVER", "dummy")
             .env("TREZOR_DISABLE_ANIMATION", "1")
             .env("TREZOR_PROFILE_DIR", &profile_dir)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
+            .stdout(Stdio::from(emu_stdout))
+            .stderr(Stdio::from(emu_stderr))
             .spawn()
             .expect("emulator failed to start");
 
         eprintln!("[harness] emulator started (pid {})", emu.id());
+        eprintln!(
+            "[harness] emulator logs: stdout={}, stderr={}",
+            emu_stdout_path.display(),
+            emu_stderr_path.display()
+        );
 
         let bridge = Command::new("python3")
             .arg(format!("{bridge_dir}/bluez-emu-bridge.py"))
@@ -90,6 +108,9 @@ impl EmulatorHarness {
             auto_confirm: auto_confirm_placeholder,
             bus_address,
             profile_dir,
+            log_dir,
+            emu_stdout_path,
+            emu_stderr_path,
         };
 
         wait_for_emulator_ready(21329, Duration::from_secs(30));
@@ -136,6 +157,12 @@ impl EmulatorHarness {
 
 impl Drop for EmulatorHarness {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            dump_log_file("emulator stdout", &self.emu_stdout_path);
+            dump_log_file("emulator stderr", &self.emu_stderr_path);
+            eprintln!("[harness] emulator logs kept at {}", self.log_dir.display());
+        }
+
         eprintln!("[harness] tearing down...");
         let _ = self.auto_confirm.kill();
         let _ = self.bridge.kill();
@@ -146,6 +173,9 @@ impl Drop for EmulatorHarness {
         let _ = self.emu.wait();
         let _ = self.dbus.wait();
         let _ = std::fs::remove_dir_all(&self.profile_dir);
+        if !std::thread::panicking() {
+            let _ = std::fs::remove_dir_all(&self.log_dir);
+        }
     }
 }
 
@@ -191,4 +221,23 @@ fn wait_for_output(child: &mut Child, timeout: Duration) {
 
     rx.recv_timeout(timeout)
         .expect("child process produced no output within timeout");
+}
+
+fn dump_log_file(label: &str, path: &PathBuf) {
+    match std::fs::read_to_string(path) {
+        Ok(contents) => {
+            eprintln!("[harness] {label} ({})", path.display());
+            if contents.is_empty() {
+                eprintln!("[harness] {label} is empty");
+            } else {
+                eprintln!("{contents}");
+            }
+        }
+        Err(err) => {
+            eprintln!(
+                "[harness] failed to read {label} from {}: {err}",
+                path.display()
+            );
+        }
+    }
 }
