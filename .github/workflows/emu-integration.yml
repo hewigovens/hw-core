@@ -77,4 +77,6 @@ jobs:
         env:
           TREZOR_EMU_BINARY: ${{ github.workspace }}/tests/fixtures/trezor-emu-core-T3W1
           BRIDGE_DIR: ${{ github.workspace }}/tests/fixtures
-        run: cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
+        run: |
+          cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
+          cargo test -p hw-ffi --test emu_ble -- --ignored --nocapture --test-threads=1

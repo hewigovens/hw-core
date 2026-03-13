@@ -28,5 +28,10 @@ let package = Package(
             dependencies: ["HWCoreFFI"],
             path: "Sources/HWCoreKit"
         ),
+        .testTarget(
+            name: "HWCoreKitTests",
+            dependencies: ["HWCoreKit"],
+            path: "Tests/HWCoreKitTests"
+        ),
     ]
 )

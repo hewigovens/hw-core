@@ -1,6 +1,7 @@
 set dotenv-load := false
 set positional-arguments := false
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
+ios_deployment_target := "16.0"
 
 default:
     @just --list
@@ -41,7 +42,7 @@ bindings:
     cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
     if [[ "$(uname -s)" == "Darwin" ]]; then
         ./scripts/sync-bindings.sh --apple --ios-sim-ffi
-        cargo build -p hw-ffi --target aarch64-apple-ios
+        IPHONEOS_DEPLOYMENT_TARGET="{{ios_deployment_target}}" cargo build -p hw-ffi --target aarch64-apple-ios
     else
         ./scripts/sync-bindings.sh --apple
     fi
@@ -169,10 +170,10 @@ build-ios-ui:
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build-for-testing | xcbeautify
 
-test-ios-ui:
+smoke-ios-ui:
     #!/usr/bin/env bash
     set -euo pipefail
-    just build-ios-ui
+    xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS Simulator' build-for-testing | xcbeautify
     SIM_DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')"
     if [[ -z "$SIM_DEVICE_ID" ]]; then
         echo "No available iPhone simulator found." >&2
@@ -180,6 +181,11 @@ test-ios-ui:
     fi
     xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$SIM_DEVICE_ID" test-without-building | xcbeautify
+
+test-ios-ui:
+    just bindings
+    xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
+    just smoke-ios-ui
 
 run-ios:
     #!/usr/bin/env bash
@@ -253,3 +259,6 @@ cli-address-eth:
 
 cli-sign-eth:
     cargo run -p hw-cli -- -vv sign eth --path "m/44'/60'/0'/0/0" --tx '{"to":"0x000000000000000000000000000000000000dead","nonce":"0x0","gas_limit":"0x5208","chain_id":1,"max_fee_per_gas":"0x3b9aca00","max_priority_fee":"0x59682f00","value":"0x0"}'
+
+cli-sign-message-eth:
+    cargo run -p hw-cli -- -vv sign-message eth --message "hello"

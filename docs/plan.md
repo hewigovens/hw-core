@@ -1,6 +1,6 @@
 # hw-core Execution Plan
 
-Last updated: 2026-03-09
+Last updated: 2026-03-10
 Status legend: TODO | IN_PROGRESS | DONE | BLOCKED
 
 ## Objective
@@ -30,12 +30,12 @@ If protocol handling or request validation is incomplete, every consumer surface
 - Added unit coverage for the new BTC request types, bounds checks, and nonce flows.
 
 ### Must Finish
-- [ ] Add integration tests for mixed BTC `TX*` request sequences.
+- [x] Add integration tests for mixed BTC `TX*` request sequences.
 - [ ] Validate BTC payment-request signing on real hardware with a live server-signed SLIP-24 request, fresh nonce, and authenticated MACs.
-- [ ] Extract message-signing validation into a shared module used by all entry points.
-- [ ] Add negative fixtures for malformed ETH mode combinations and EIP-712 payloads.
-- [ ] Remove duplicated request-validation logic across CLI, wallet, and FFI.
-- [ ] Add focused regression tests before and after the validation refactor.
+- [x] Extract message-signing validation into a shared module used by all entry points.
+- [x] Add negative fixtures for malformed ETH mode combinations and EIP-712 payloads.
+- [x] Remove duplicated request-validation logic across CLI, wallet, and FFI.
+- [x] Add focused regression tests before and after the validation refactor.
 
 ### Exit Criteria
 - No known protocol gaps remain in the supported ETH/BTC flows.
@@ -80,12 +80,12 @@ Without a narrow validation story, "supported" behavior will keep drifting from 
 - Keep docs current with the validated developer experience.
 
 ### Must Finish
-- [ ] Define one canonical smoke matrix for CLI, Apple, and Android flows.
+- [x] Define one canonical smoke matrix for CLI, Apple, and Android flows.
 - [ ] Add CI coverage for Apple sample build and smoke checks where runner support exists.
 - [ ] Keep Android sample build validation in CI and extend it with the minimum high-signal checks.
-- [ ] Update `README.md` and contributor docs so all referenced commands still work.
-- [ ] Keep `docs/plan.md` and `docs/roadmap.md` synchronized as the only active planning docs.
-- [ ] Create a release checklist covering bindings, artifacts, smoke tests, and docs verification.
+- [x] Update `README.md` and contributor docs so all referenced commands still work.
+- [x] Keep `docs/plan.md` and `docs/roadmap.md` synchronized as the only active planning docs.
+- [x] Create a release checklist covering bindings, artifacts, smoke tests, and docs verification.
 
 ### Exit Criteria
 - CI validates the flows we claim are supported.

@@ -1,6 +1,6 @@
 # hw-core Roadmap
 
-Last updated: 2026-03-09
+Last updated: 2026-03-10
 
 ## Product Goal
 Ship a stable, reusable host stack for hardware-wallet communication over THP/BLE that external developers can adopt through well-defined Rust and FFI surfaces.
@@ -8,6 +8,7 @@ Ship a stable, reusable host stack for hardware-wallet communication over THP/BL
 ## Current Baseline
 - THP/BLE host stack is operational end-to-end for discovery, pairing, session establishment, encrypted messaging, and persisted pairing state.
 - Shared wallet orchestration (`hw-wallet`) is used by CLI and FFI.
+- Consumer-facing ETH message-sign validation is shared across wallet, CLI, and FFI entry points.
 - CLI supports scan, pair, address, sign-tx, and message-signing workflows.
 - `hw-ffi` generates Swift/Kotlin bindings consumed by Apple and Android sample surfaces.
 
@@ -20,7 +21,7 @@ Ship a stable, reusable host stack for hardware-wallet communication over THP/BL
 | Message signing | Done (EIP-191 + EIP-712) | Done | Deferred |
 
 ## Near-Term Priorities
-1. Complete protocol gaps and shared validation for supported ETH/BTC flows.
+1. Complete remaining BTC protocol gaps and keep shared ETH/BTC validation regression-covered.
 2. Make Android and Apple consumption paths supportable through packaged artifacts and integration docs.
 3. Narrow validation and CI to the developer-facing flows we explicitly support.
 
@@ -28,7 +29,7 @@ Ship a stable, reusable host stack for hardware-wallet communication over THP/BL
 
 | Milestone | Status | Exit Criteria |
 |---|---|---|
-| M1: Protocol-complete baseline | In progress | BTC signing handles the full supported firmware-requested `TX*` sequence and consumer-facing validation is shared across entry points |
+| M1: Protocol-complete baseline | In progress | BTC signing handles the full supported firmware-requested `TX*` sequence and consumer-facing validation remains regression-covered across entry points |
 | M2: Consumer-ready SDK surfaces | In progress | Android and Apple consumers can integrate hw-core from packaged artifacts using documented setup |
 | M3: Release confidence | In progress | CI, smoke checks, and release docs reflect the actual supported developer experience |
 

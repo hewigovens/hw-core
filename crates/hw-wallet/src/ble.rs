@@ -8,7 +8,8 @@ use tracing::debug;
 use trezor_connect::ble::BleBackend;
 use trezor_connect::thp::storage::ThpStorage;
 use trezor_connect::thp::{
-    BackendError, HostConfig, Phase, ThpBackend, ThpState, ThpWorkflow, ThpWorkflowError,
+    BackendError, HostConfig, PairingMethod, Phase, ThpBackend, ThpState, ThpWorkflow,
+    ThpWorkflowError,
 };
 
 use crate::error::{WalletError, WalletResult};
@@ -218,6 +219,23 @@ pub fn session_state(phase: SessionPhase, prompt_message: Option<String>) -> Ses
     }
 }
 
+fn selected_pairing_method(state: &ThpState) -> Option<PairingMethod> {
+    state.pairing_method().or_else(|| {
+        state
+            .handshake_credentials()
+            .and_then(|credentials| credentials.pairing_methods.first().copied())
+    })
+}
+
+fn skip_pairing_can_auto_advance(state: &ThpState) -> bool {
+    matches!(state.phase(), Phase::Pairing)
+        && !state.is_paired()
+        && matches!(
+            selected_pairing_method(state),
+            Some(PairingMethod::SkipPairing)
+        )
+}
+
 /// Options for the full connect-and-bootstrap-session flow.
 ///
 /// Use [`Default::default`] to get sane production values and override only
@@ -324,6 +342,11 @@ where
 {
     let retry_delay = retry_policy.retry_delay();
     loop {
+        if skip_pairing_can_auto_advance(workflow.state()) {
+            workflow.pairing(None).await.map_err(WalletError::from)?;
+            continue;
+        }
+
         match session_phase(workflow.state(), false) {
             SessionPhase::NeedsChannel => {
                 create_channel_with_retry(
@@ -363,6 +386,11 @@ where
 {
     let retry_delay = options.retry_policy.retry_delay();
     loop {
+        if skip_pairing_can_auto_advance(workflow.state()) {
+            workflow.pairing(None).await.map_err(WalletError::from)?;
+            continue;
+        }
+
         match session_phase(workflow.state(), *session_ready) {
             SessionPhase::NeedsChannel => {
                 create_channel_with_retry(
@@ -593,7 +621,7 @@ fn is_peer_removed_pairing_info(error: &BleError) -> bool {
 mod tests {
     use super::*;
     use trezor_connect::thp::PairingMethod;
-    use trezor_connect::thp::state::HandshakeCache;
+    use trezor_connect::thp::state::{HandshakeCache, HandshakeCredentials};
 
     #[test]
     fn session_phase_starts_with_channel_creation() {
@@ -624,6 +652,32 @@ mod tests {
             session_phase(&state, false),
             SessionPhase::NeedsConnectionConfirmation
         );
+    }
+
+    #[test]
+    fn skip_pairing_can_auto_advance_when_selected() {
+        let mut state = ThpState::new();
+        state.set_handshake_credentials(HandshakeCredentials {
+            pairing_methods: vec![PairingMethod::SkipPairing],
+            ..HandshakeCredentials::default()
+        });
+        state.set_pairing_method(PairingMethod::SkipPairing);
+        state.set_is_paired(false);
+
+        assert!(skip_pairing_can_auto_advance(&state));
+    }
+
+    #[test]
+    fn code_entry_pairing_cannot_auto_advance() {
+        let mut state = ThpState::new();
+        state.set_handshake_credentials(HandshakeCredentials {
+            pairing_methods: vec![PairingMethod::CodeEntry],
+            ..HandshakeCredentials::default()
+        });
+        state.set_pairing_method(PairingMethod::CodeEntry);
+        state.set_is_paired(false);
+
+        assert!(!skip_pairing_can_auto_advance(&state));
     }
 
     #[test]

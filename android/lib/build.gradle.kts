@@ -36,4 +36,5 @@ dependencies {
     api("net.java.dev.jna:jna:5.15.0@aar")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("androidx.core:core-ktx:1.15.0")
+    testImplementation("junit:junit:4.13.2")
 }

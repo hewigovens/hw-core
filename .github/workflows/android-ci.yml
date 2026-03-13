@@ -74,6 +74,10 @@ jobs:
         working-directory: android
         run: ./gradlew :lib:assembleDebug --no-daemon
 
+      - name: Run Android lib unit tests
+        working-directory: android
+        run: ./gradlew :lib:testDebugUnitTest --no-daemon
+
       - name: Build Android sample app
         working-directory: android
         run: ./gradlew :sample-app:app:assembleDebug --no-daemon

@@ -2,9 +2,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use hw_chain::Chain;
 use trezor_connect::thp::{SignMessageRequest, SignMessageResponse};
 
-use crate::chain::infer_chain_from_path;
 use crate::error::{WalletError, WalletResult};
 use crate::hex::decode;
+use crate::message_signing::validate_signing_path_for_chain;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SignatureEncoding {
@@ -25,7 +25,7 @@ pub fn build_sign_message_request(
     is_hex: bool,
     chunkify: bool,
 ) -> WalletResult<SignMessageRequest> {
-    validate_path_for_chain(chain, &path)?;
+    validate_signing_path_for_chain(chain, &path, "message-sign")?;
 
     let message_bytes = if is_hex {
         decode(message)?
@@ -68,24 +68,6 @@ pub fn normalize_message_signature(
             "message signing is currently unsupported for Solana".into(),
         )),
     }
-}
-
-fn validate_path_for_chain(chain: Chain, path: &[u32]) -> WalletResult<()> {
-    if path.len() < 3 {
-        return Err(WalletError::InvalidBip32Path(format!(
-            "message-sign path must contain at least 3 segments for {chain:?}"
-        )));
-    }
-
-    if let Some(inferred) = infer_chain_from_path(path)
-        && inferred != chain
-    {
-        return Err(WalletError::InvalidBip32Path(format!(
-            "chain/path mismatch: explicit {chain:?} conflicts with inferred {inferred:?}"
-        )));
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

@@ -149,6 +149,8 @@ Current and planned milestones are tracked in:
 
 - [docs/roadmap.md](docs/roadmap.md)
 - [docs/plan.md](docs/plan.md)
+- [docs/smoke-matrix.md](docs/smoke-matrix.md)
+- [docs/release-checklist.md](docs/release-checklist.md)
 
 ## License
 
