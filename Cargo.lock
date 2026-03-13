@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "ble-transport"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "btleplug",
@@ -974,11 +974,11 @@ dependencies = [
 
 [[package]]
 name = "hw-chain"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "hw-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "hw-ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1020,7 +1020,7 @@ dependencies = [
 
 [[package]]
 name = "hw-wallet"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "ble-transport",
@@ -2133,7 +2133,7 @@ dependencies = [
 
 [[package]]
 name = "thp-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2147,7 +2147,7 @@ dependencies = [
 
 [[package]]
 name = "thp-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes-gcm",
  "crc32fast",
@@ -2163,7 +2163,7 @@ dependencies = [
 
 [[package]]
 name = "thp-proto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prost",
  "prost-build",
@@ -2357,7 +2357,7 @@ dependencies = [
 
 [[package]]
 name = "trezor-connect"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
