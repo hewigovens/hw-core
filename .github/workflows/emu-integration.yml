@@ -2,6 +2,9 @@ name: Emulator Integration
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -80,3 +83,11 @@ jobs:
         run: |
           cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
           cargo test -p hw-ffi --test emu_ble -- --ignored --nocapture --test-threads=1
+
+      - name: Upload emulator logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-logs-${{ github.run_id }}
+          path: /tmp/trezor-emu-logs-*
+          if-no-files-found: ignore
