@@ -6,11 +6,6 @@ name = "hw-core"
 script = ""
 
 [[actions]]
-name = "GitHub App"
-icon = "tool"
-command = "github ."
-
-[[actions]]
 name = "Run on iOS Device"
 icon = "run"
 command = "just run-ios-device"
