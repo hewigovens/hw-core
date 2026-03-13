@@ -13,4 +13,4 @@ command = "just run-ios-device"
 [[actions]]
 name = "Run on Android Device"
 icon = "run"
-command = "just run-android-device"
+command = "just run-android"
