@@ -33,25 +33,15 @@
  
      public Peripheral(Adapter adapter, String address) {
          BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-@@ -66,10 +77,20 @@
+@@ -66,10 +77,10 @@
                                  }
  
                                  if (newState == BluetoothGatt.STATE_CONNECTED) {
 -                                    Peripheral.this.wakeCommand(future, null);
-+                                    if (!gatt.requestMtu(247)) {
-+                                        // Some stacks reject MTU requests; continue with default ATT MTU.
-+                                        Peripheral.this.wakeCommand(future, null);
-+                                    }
++                                    Peripheral.this.wakeCommand(future, null);
                                  }
                              });
                          }
-+
-+                        @Override
-+                        public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
-+                            Peripheral.this.asyncWithFuture(future, () -> {
-+                                Peripheral.this.wakeCommand(future, null);
-+                            });
-+                        }
                      };
  
                      if (this.connected) {
