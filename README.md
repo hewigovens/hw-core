@@ -3,7 +3,7 @@
 [![CI](https://github.com/hewigovens/hw-core/actions/workflows/ci.yml/badge.svg)](https://github.com/hewigovens/hw-core/actions/workflows/ci.yml)
 [![Cargo Audit](https://github.com/hewigovens/hw-core/actions/workflows/audit.yml/badge.svg)](https://github.com/hewigovens/hw-core/actions/workflows/audit.yml)
 [![Security Policy](https://img.shields.io/badge/Security-Policy-blue)](SECURITY.md)
-[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](#license)
+[![License](https://img.shields.io/badge/License-Apache--2.0-green.svg)](#license)
 [![Rust Edition](https://img.shields.io/badge/Rust-2024-orange)](https://www.rust-lang.org/)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/hewigovens/hw-core)
 
@@ -156,4 +156,4 @@ Current and planned milestones are tracked in:
 
 ## License
 
-`hw-core` is licensed under **GNU General Public License v3.0 only (GPL-3.0-only)**.
+[Apache-2.0](LICENSE)
