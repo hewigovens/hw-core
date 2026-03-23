@@ -30,7 +30,7 @@ async-trait = "0.1"
 btleplug = "0.12.0"
 ble-transport = { version = "0.1.0", path = "crates/ble-transport" }
 bs58 = "0.5"
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 crc32fast = "1"
 hex = "0.4"
 hw-chain = { version = "0.1.0", path = "crates/hw-chain" }
