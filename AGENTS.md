@@ -50,5 +50,5 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 - **Build times**: Initial build takes several minutes; incremental builds are fast with sccache
 - **Linux BLE**: Requires `sudo apt-get install -y libdbus-1-dev pkg-config`
 - **Pairing state**: Stored at `~/.hw-core/thp-host.json`; use `pair --force` to reset
-- **License**: GPL-3.0-only
+- **License**: Apache-2.0
 - **Development status**: See [docs/roadmap.md](docs/roadmap.md) and [docs/plan.md](docs/plan.md)
