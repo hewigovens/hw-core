@@ -5,9 +5,10 @@ use prost::Message;
 
 use super::{EncodedMessage, ProtoMappingError};
 use crate::thp::types::{
-    BtcInputScriptType, BtcOrigTx, BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestMemo,
-    BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput, GetAddressRequest,
-    GetAddressResponse, SignMessageRequest, SignMessageResponse, SignTxRequest,
+    BtcHDNode, BtcHDNodePath, BtcInputScriptType, BtcMultisig, BtcOrigTx, BtcOutputScriptType,
+    BtcPaymentRequest, BtcPaymentRequestMemo, BtcRefTx, BtcRefTxInput, BtcRefTxOutput,
+    BtcSignInput, BtcSignOutput, GetAddressRequest, GetAddressResponse, SignMessageRequest,
+    SignMessageResponse, SignTxRequest,
 };
 
 const MESSAGE_TYPE_BITCOIN_GET_ADDRESS: u16 = 29;
@@ -227,6 +228,56 @@ struct BitcoinTxAckTransaction {
     branch_id: Option<u32>,
 }
 
+// ── Multisig proto structs ───────────────────────────────────────────────────
+
+/// Matches Trezor's `HDNodeType` from `messages-common.proto`.
+#[derive(Clone, PartialEq, Message)]
+struct ProtoHDNodeType {
+    #[prost(uint32, required, tag = "1")]
+    depth: u32,
+    #[prost(uint32, required, tag = "2")]
+    fingerprint: u32,
+    #[prost(uint32, required, tag = "3")]
+    child_num: u32,
+    #[prost(bytes = "vec", required, tag = "4")]
+    chain_code: Vec<u8>,
+    #[prost(bytes = "vec", optional, tag = "5")]
+    private_key: Option<Vec<u8>>,
+    #[prost(bytes = "vec", required, tag = "6")]
+    public_key: Vec<u8>,
+}
+
+/// Matches `MultisigRedeemScriptType.HDNodePathType`.
+#[derive(Clone, PartialEq, Message)]
+struct ProtoHDNodePathType {
+    #[prost(message, required, tag = "1")]
+    node: ProtoHDNodeType,
+    #[prost(uint32, repeated, packed = "false", tag = "2")]
+    address_n: Vec<u32>,
+}
+
+/// Matches Trezor's `MultisigRedeemScriptType` from `messages-bitcoin.proto`.
+#[derive(Clone, PartialEq, Message)]
+struct ProtoMultisigRedeemScriptType {
+    /// Deprecated pubkeys-with-paths (use `nodes` + `address_n` instead).
+    #[prost(message, repeated, tag = "1")]
+    pubkeys: Vec<ProtoHDNodePathType>,
+    /// Existing partial signatures (empty bytes = missing).
+    #[prost(bytes = "vec", repeated, tag = "2")]
+    signatures: Vec<Vec<u8>>,
+    /// Required threshold (`m` in m-of-n).
+    #[prost(uint32, required, tag = "3")]
+    m: u32,
+    /// Cosigner HD nodes (preferred flat representation).
+    #[prost(message, repeated, tag = "4")]
+    nodes: Vec<ProtoHDNodeType>,
+    /// Common derivation suffix applied to every node in `nodes`.
+    #[prost(uint32, repeated, packed = "false", tag = "5")]
+    address_n: Vec<u32>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[derive(Clone, PartialEq, Message)]
 struct BitcoinTxInput {
     #[prost(uint32, repeated, packed = "false", tag = "1")]
@@ -241,6 +292,8 @@ struct BitcoinTxInput {
     sequence: Option<u32>,
     #[prost(enumeration = "BitcoinInputScriptTypeProto", optional, tag = "6")]
     script_type: Option<i32>,
+    #[prost(message, optional, tag = "7")]
+    multisig: Option<ProtoMultisigRedeemScriptType>,
     #[prost(uint64, optional, tag = "8")]
     amount: Option<u64>,
     #[prost(bytes = "vec", optional, tag = "13")]
@@ -280,6 +333,8 @@ struct BitcoinTxOutput {
     amount: u64,
     #[prost(enumeration = "BitcoinOutputScriptTypeProto", optional, tag = "4")]
     script_type: Option<i32>,
+    #[prost(message, optional, tag = "5")]
+    multisig: Option<ProtoMultisigRedeemScriptType>,
     #[prost(bytes = "vec", optional, tag = "6")]
     op_return_data: Option<Vec<u8>>,
     #[prost(bytes = "vec", optional, tag = "10")]
@@ -552,6 +607,34 @@ fn bitcoin_output_script_type_to_proto(script_type: BtcOutputScriptType) -> i32 
     }
 }
 
+fn hd_node_to_proto(node: &BtcHDNode) -> ProtoHDNodeType {
+    ProtoHDNodeType {
+        depth: node.depth,
+        fingerprint: node.fingerprint,
+        child_num: node.child_num,
+        chain_code: node.chain_code.clone(),
+        private_key: None,
+        public_key: node.public_key.clone(),
+    }
+}
+
+fn hd_node_path_to_proto(entry: &BtcHDNodePath) -> ProtoHDNodePathType {
+    ProtoHDNodePathType {
+        node: hd_node_to_proto(&entry.node),
+        address_n: entry.address_n.clone(),
+    }
+}
+
+fn multisig_to_proto(ms: &BtcMultisig) -> ProtoMultisigRedeemScriptType {
+    ProtoMultisigRedeemScriptType {
+        pubkeys: ms.pubkeys.iter().map(hd_node_path_to_proto).collect(),
+        signatures: ms.signatures.clone(),
+        m: ms.m,
+        nodes: ms.nodes.iter().map(hd_node_to_proto).collect(),
+        address_n: ms.address_n.clone(),
+    }
+}
+
 pub fn decode_bitcoin_tx_request(
     message_type: u16,
     payload: &[u8],
@@ -671,6 +754,7 @@ pub fn encode_bitcoin_tx_ack_input(
                 script_sig: input.script_sig.clone(),
                 sequence: Some(input.sequence),
                 script_type: Some(bitcoin_input_script_type_to_proto(input.script_type)),
+                multisig: input.multisig.as_ref().map(multisig_to_proto),
                 amount: Some(input.amount),
                 witness: input.witness.clone(),
                 orig_hash: input.orig_hash.clone(),
@@ -712,6 +796,7 @@ pub fn encode_bitcoin_tx_ack_output(
                 address_n: output.path.clone(),
                 amount: output.amount,
                 script_type: Some(bitcoin_output_script_type_to_proto(output.script_type)),
+                multisig: output.multisig.as_ref().map(multisig_to_proto),
                 op_return_data: output.op_return_data.clone(),
                 orig_hash: output.orig_hash.clone(),
                 orig_index: output.orig_index,
@@ -776,6 +861,7 @@ pub fn encode_bitcoin_tx_ack_prev_input(
                 script_sig: Some(input.script_sig.clone()),
                 sequence: Some(input.sequence),
                 script_type: None,
+                multisig: None,
                 amount: None,
                 witness: None,
                 orig_hash: None,
@@ -944,8 +1030,8 @@ pub fn encode_bitcoin_tx_ack_payment_request(
 mod tests {
     use super::*;
     use crate::thp::types::{
-        BtcPaymentRequest, BtcPaymentRequestAmount, BtcPaymentRequestMemo, BtcSignTx,
-        GetAddressRequest, SignMessageRequest,
+        BtcHDNode, BtcHDNodePath, BtcMultisig, BtcPaymentRequest, BtcPaymentRequestAmount,
+        BtcPaymentRequestMemo, BtcSignTx, GetAddressRequest, SignMessageRequest,
     };
 
     #[test]
@@ -1055,6 +1141,7 @@ mod tests {
                 amount: 1234,
                 sequence: 0xffff_fffd,
                 script_type: BtcInputScriptType::SpendWitness,
+                multisig: None,
                 script_sig: None,
                 witness: None,
                 orig_hash: None,
@@ -1065,6 +1152,7 @@ mod tests {
                 path: Vec::new(),
                 amount: 1000,
                 script_type: BtcOutputScriptType::PayToAddress,
+                multisig: None,
                 op_return_data: None,
                 orig_hash: None,
                 orig_index: None,
@@ -1092,6 +1180,7 @@ mod tests {
             path: Vec::new(),
             amount: 1000,
             script_type: BtcOutputScriptType::PayToAddress,
+            multisig: None,
             op_return_data: None,
             orig_hash: None,
             orig_index: None,
@@ -1267,5 +1356,137 @@ mod tests {
         let decoded = BitcoinTxAck::decode(encoded.payload.as_slice()).unwrap();
         let tx = decoded.tx.unwrap();
         assert_eq!(tx.extra_data, Some(chunk));
+    }
+
+    #[test]
+    fn encodes_bitcoin_input_ack_with_multisig() {
+        let multisig = BtcMultisig {
+            pubkeys: vec![
+                BtcHDNodePath {
+                    node: BtcHDNode {
+                        depth: 4,
+                        fingerprint: 0xDEAD_BEEF,
+                        child_num: 0x8000_0002,
+                        chain_code: vec![0x01; 32],
+                        public_key: vec![0x02; 33],
+                    },
+                    address_n: vec![0, 0],
+                },
+                BtcHDNodePath {
+                    node: BtcHDNode {
+                        depth: 4,
+                        fingerprint: 0x1234_5678,
+                        child_num: 0x8000_0002,
+                        chain_code: vec![0xFE; 32],
+                        public_key: vec![0x03; 33],
+                    },
+                    address_n: vec![0, 0],
+                },
+            ],
+            signatures: vec![vec![], vec![]],
+            m: 2,
+            nodes: Vec::new(),
+            address_n: Vec::new(),
+        };
+
+        let input = BtcSignInput {
+            path: vec![0x8000_0030, 0x8000_0000, 0x8000_0000, 0x8000_0002, 0, 0],
+            prev_hash: vec![0x11; 32],
+            prev_index: 0,
+            amount: 100_000,
+            sequence: 0xffff_ffff,
+            script_type: BtcInputScriptType::SpendMultisig,
+            multisig: Some(multisig),
+            script_sig: None,
+            witness: None,
+            orig_hash: None,
+            orig_index: None,
+        };
+
+        let encoded = encode_bitcoin_tx_ack_input(&input).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_BITCOIN_TX_ACK);
+
+        let decoded = BitcoinTxAck::decode(encoded.payload.as_slice()).unwrap();
+        let tx_input = &decoded.tx.unwrap().inputs[0];
+
+        assert_eq!(
+            tx_input.script_type,
+            Some(BitcoinInputScriptTypeProto::SpendMultisig as i32)
+        );
+
+        let ms = tx_input.multisig.as_ref().expect("multisig present");
+        assert_eq!(ms.m, 2);
+        assert_eq!(ms.pubkeys.len(), 2);
+        assert_eq!(ms.signatures.len(), 2);
+        assert!(ms.signatures.iter().all(|s| s.is_empty()));
+        assert_eq!(ms.pubkeys[0].node.depth, 4);
+        assert_eq!(ms.pubkeys[0].node.fingerprint, 0xDEAD_BEEF);
+        assert_eq!(ms.pubkeys[0].node.chain_code, vec![0x01; 32]);
+        assert_eq!(ms.pubkeys[0].node.public_key, vec![0x02; 33]);
+        assert_eq!(ms.pubkeys[0].address_n, vec![0, 0]);
+    }
+
+    #[test]
+    fn encodes_bitcoin_output_ack_with_multisig_nodes() {
+        let multisig = BtcMultisig {
+            pubkeys: Vec::new(),
+            signatures: vec![vec![], vec![], vec![]],
+            m: 2,
+            nodes: vec![
+                BtcHDNode {
+                    depth: 4,
+                    fingerprint: 0xDEAD_BEEF,
+                    child_num: 0x8000_0002,
+                    chain_code: vec![0x01; 32],
+                    public_key: vec![0x02; 33],
+                },
+                BtcHDNode {
+                    depth: 4,
+                    fingerprint: 0x1234_5678,
+                    child_num: 0x8000_0002,
+                    chain_code: vec![0xFE; 32],
+                    public_key: vec![0x03; 33],
+                },
+                BtcHDNode {
+                    depth: 4,
+                    fingerprint: 0x8765_4321,
+                    child_num: 0x8000_0002,
+                    chain_code: vec![0xAA; 32],
+                    public_key: vec![0x04; 33],
+                },
+            ],
+            address_n: vec![1, 0],
+        };
+
+        let output = BtcSignOutput {
+            address: None,
+            path: vec![0x8000_0030, 0x8000_0000, 0x8000_0000, 0x8000_0002, 1, 0],
+            amount: 9_000,
+            script_type: BtcOutputScriptType::PayToMultisig,
+            multisig: Some(multisig),
+            op_return_data: None,
+            orig_hash: None,
+            orig_index: None,
+            payment_req_index: None,
+        };
+
+        let encoded = encode_bitcoin_tx_ack_output(&output).unwrap();
+        assert_eq!(encoded.message_type, MESSAGE_TYPE_BITCOIN_TX_ACK);
+
+        let decoded = BitcoinTxAck::decode(encoded.payload.as_slice()).unwrap();
+        let tx_output = &decoded.tx.unwrap().outputs[0];
+
+        assert_eq!(
+            tx_output.script_type,
+            Some(BitcoinOutputScriptTypeProto::PayToMultisig as i32)
+        );
+
+        let ms = tx_output.multisig.as_ref().expect("multisig present");
+        assert_eq!(ms.m, 2);
+        assert_eq!(ms.nodes.len(), 3);
+        assert_eq!(ms.address_n, vec![1, 0]);
+        assert!(ms.pubkeys.is_empty());
+        assert_eq!(ms.nodes[0].fingerprint, 0xDEAD_BEEF);
+        assert_eq!(ms.nodes[2].fingerprint, 0x8765_4321);
     }
 }

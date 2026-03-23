@@ -400,6 +400,42 @@ pub struct EthAccessListEntry {
     pub storage_keys: Vec<Vec<u8>>,
 }
 
+/// A BIP-32 HD node in deserialized form, matching Trezor's `HDNodeType` protobuf message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BtcHDNode {
+    pub depth: u32,
+    pub fingerprint: u32,
+    pub child_num: u32,
+    pub chain_code: Vec<u8>,
+    pub public_key: Vec<u8>,
+}
+
+/// An HD node together with a relative BIP-32 derivation suffix,
+/// matching Trezor's `HDNodePathType` (nested inside `MultisigRedeemScriptType`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BtcHDNodePath {
+    pub node: BtcHDNode,
+    pub address_n: Vec<u32>,
+}
+
+/// Multisig cosigner metadata sent alongside `SpendMultisig` inputs
+/// and `PayToMultisig` outputs.  Matches Trezor's `MultisigRedeemScriptType`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BtcMultisig {
+    /// Cosigner HD nodes with their derivation suffixes (deprecated path —
+    /// prefer setting `nodes` + `address_n` instead, but both are supported).
+    pub pubkeys: Vec<BtcHDNodePath>,
+    /// Existing partial signatures in order.  Empty `Vec<u8>` entries denote
+    /// missing signatures.
+    pub signatures: Vec<Vec<u8>>,
+    /// Required signature threshold (`m` of m-of-n).
+    pub m: u32,
+    /// Cosigner HD nodes (preferred flat representation).
+    pub nodes: Vec<BtcHDNode>,
+    /// Common derivation suffix applied to every node in `nodes`.
+    pub address_n: Vec<u32>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BtcInputScriptType {
     SpendAddress,
@@ -429,6 +465,7 @@ pub struct BtcSignInput {
     pub amount: u64,
     pub sequence: u32,
     pub script_type: BtcInputScriptType,
+    pub multisig: Option<BtcMultisig>,
     pub script_sig: Option<Vec<u8>>,
     pub witness: Option<Vec<u8>>,
     pub orig_hash: Option<Vec<u8>>,
@@ -441,6 +478,7 @@ pub struct BtcSignOutput {
     pub path: Vec<u32>,
     pub amount: u64,
     pub script_type: BtcOutputScriptType,
+    pub multisig: Option<BtcMultisig>,
     pub op_return_data: Option<Vec<u8>>,
     pub orig_hash: Option<Vec<u8>>,
     pub orig_index: Option<u32>,

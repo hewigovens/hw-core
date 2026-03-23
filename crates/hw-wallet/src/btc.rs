@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 use trezor_connect::thp::{
-    BtcInputScriptType, BtcOrigTx, BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestAmount,
-    BtcPaymentRequestMemo, BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput,
-    BtcSignTx, SignTxRequest,
+    BtcHDNode, BtcHDNodePath, BtcInputScriptType, BtcMultisig, BtcOrigTx, BtcOutputScriptType,
+    BtcPaymentRequest, BtcPaymentRequestAmount, BtcPaymentRequestMemo, BtcRefTx, BtcRefTxInput,
+    BtcRefTxOutput, BtcSignInput, BtcSignOutput, BtcSignTx, SignTxRequest,
 };
 
 use crate::bip32::parse_bip32_path;
@@ -39,6 +39,7 @@ pub struct TxInputInput {
     pub sequence: u32,
     #[serde(default = "default_input_script_type")]
     pub script_type: String,
+    pub multisig: Option<TxInputMultisig>,
     pub script_sig: Option<String>,
     pub witness: Option<String>,
     pub orig_hash: Option<String>,
@@ -52,6 +53,7 @@ pub struct TxInputOutput {
     pub amount: String,
     #[serde(default = "default_output_script_type")]
     pub script_type: String,
+    pub multisig: Option<TxInputMultisig>,
     pub op_return_data: Option<String>,
     pub orig_hash: Option<String>,
     pub orig_index: Option<u32>,
@@ -125,6 +127,44 @@ pub struct TxInputPaymentRequestMemo {
     pub amount: Option<String>,
 }
 
+/// JSON representation of a single HD node (matches Trezor `HDNodeType`).
+#[derive(Debug, Deserialize)]
+pub struct TxInputHDNode {
+    pub depth: u32,
+    pub fingerprint: u32,
+    pub child_num: u32,
+    pub chain_code: String,
+    pub public_key: String,
+}
+
+/// JSON representation of an HD node with derivation suffix
+/// (matches Trezor `HDNodePathType`).
+#[derive(Debug, Deserialize)]
+pub struct TxInputHDNodePath {
+    pub node: TxInputHDNode,
+    pub address_n: Vec<u32>,
+}
+
+/// JSON representation of multisig metadata
+/// (matches Trezor `MultisigRedeemScriptType`).
+#[derive(Debug, Deserialize)]
+pub struct TxInputMultisig {
+    /// Cosigner HD nodes with derivation suffixes (legacy representation).
+    #[serde(default)]
+    pub pubkeys: Vec<TxInputHDNodePath>,
+    /// Existing partial signatures in order (hex-encoded; empty string = missing).
+    #[serde(default)]
+    pub signatures: Vec<String>,
+    /// Required signature threshold.
+    pub m: u32,
+    /// Cosigner HD nodes (preferred flat representation).
+    #[serde(default)]
+    pub nodes: Vec<TxInputHDNode>,
+    /// Common derivation suffix applied to every node in `nodes`.
+    #[serde(default)]
+    pub address_n: Vec<u32>,
+}
+
 fn default_version() -> u32 {
     2
 }
@@ -176,6 +216,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
             let prev_hash = parse_hash32("prev_hash", &input.prev_hash)?;
             let amount = parse_sats(&input.amount)?;
             let script_type = parse_input_script_type(&input.script_type)?;
+            let multisig = input.multisig.map(parse_multisig).transpose()?;
             Ok(BtcSignInput {
                 path,
                 prev_hash,
@@ -183,6 +224,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                 amount,
                 sequence: input.sequence,
                 script_type,
+                multisig,
                 script_sig: input.script_sig.as_deref().map(decode).transpose()?,
                 witness: input.witness.as_deref().map(decode).transpose()?,
                 orig_hash: input
@@ -218,11 +260,13 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                 .transpose()?
                 .unwrap_or_default();
             let op_return_data = output.op_return_data.as_deref().map(decode).transpose()?;
+            let multisig = output.multisig.map(parse_multisig).transpose()?;
             Ok(BtcSignOutput {
                 address: output.address,
                 path,
                 amount,
                 script_type,
+                multisig,
                 op_return_data,
                 orig_hash: output
                     .orig_hash
@@ -289,6 +333,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                     let prev_hash = parse_hash32("orig_txs.inputs.prev_hash", &input.prev_hash)?;
                     let amount = parse_sats(&input.amount)?;
                     let script_type = parse_input_script_type(&input.script_type)?;
+                    let multisig = input.multisig.map(parse_multisig).transpose()?;
                     Ok(BtcSignInput {
                         path,
                         prev_hash,
@@ -296,6 +341,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                         amount,
                         sequence: input.sequence,
                         script_type,
+                        multisig,
                         script_sig: input.script_sig.as_deref().map(decode).transpose()?,
                         witness: input.witness.as_deref().map(decode).transpose()?,
                         orig_hash: input
@@ -333,11 +379,13 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                         .unwrap_or_default();
                     let op_return_data =
                         output.op_return_data.as_deref().map(decode).transpose()?;
+                    let multisig = output.multisig.map(parse_multisig).transpose()?;
                     Ok(BtcSignOutput {
                         address: output.address,
                         path,
                         amount,
                         script_type,
+                        multisig,
                         op_return_data,
                         orig_hash: output
                             .orig_hash
@@ -631,6 +679,55 @@ fn parse_output_script_type(value: &str) -> WalletResult<BtcOutputScriptType> {
     }
 }
 
+fn parse_hd_node(node: &TxInputHDNode) -> WalletResult<BtcHDNode> {
+    Ok(BtcHDNode {
+        depth: node.depth,
+        fingerprint: node.fingerprint,
+        child_num: node.child_num,
+        chain_code: decode(&node.chain_code)?,
+        public_key: decode(&node.public_key)?,
+    })
+}
+
+fn parse_multisig(ms: TxInputMultisig) -> WalletResult<BtcMultisig> {
+    let pubkeys = ms
+        .pubkeys
+        .iter()
+        .map(|pk| {
+            Ok(BtcHDNodePath {
+                node: parse_hd_node(&pk.node)?,
+                address_n: pk.address_n.clone(),
+            })
+        })
+        .collect::<WalletResult<Vec<_>>>()?;
+
+    let signatures = ms
+        .signatures
+        .iter()
+        .map(|sig| {
+            if sig.is_empty() {
+                Ok(Vec::new())
+            } else {
+                decode(sig)
+            }
+        })
+        .collect::<WalletResult<Vec<_>>>()?;
+
+    let nodes = ms
+        .nodes
+        .iter()
+        .map(parse_hd_node)
+        .collect::<WalletResult<Vec<_>>>()?;
+
+    Ok(BtcMultisig {
+        pubkeys,
+        signatures,
+        m: ms.m,
+        nodes,
+        address_n: ms.address_n,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -646,6 +743,8 @@ mod tests {
         include_str!("../../../tests/data/bitcoin/btc_prev_index_oob.json");
     const BTC_RBF_WITH_PAYMENT_REQ: &str =
         include_str!("../../../tests/data/bitcoin/btc_rbf_with_payment_req.json");
+    const BTC_MULTISIG_SIGN: &str =
+        include_str!("../../../tests/data/bitcoin/btc_multisig_sign.json");
 
     #[test]
     fn parse_btc_tx_json() {
@@ -698,5 +797,44 @@ mod tests {
             err.to_string()
                 .contains("input 0 prev_index 2 out of bounds for ref_txs hash")
         );
+    }
+
+    #[test]
+    fn build_btc_sign_request_with_multisig_input_and_output() {
+        let tx = parse_tx_json(BTC_MULTISIG_SIGN).unwrap();
+        let request = build_sign_tx_request(tx).unwrap();
+        assert_eq!(request.chain, Chain::Bitcoin);
+        let btc = request.btc.unwrap();
+
+        // Input carries a 2-of-3 multisig via `pubkeys` (legacy representation)
+        assert_eq!(btc.inputs.len(), 1);
+        assert_eq!(btc.inputs[0].script_type, BtcInputScriptType::SpendMultisig);
+        let input_ms = btc.inputs[0].multisig.as_ref().expect("input multisig");
+        assert_eq!(input_ms.m, 2);
+        assert_eq!(input_ms.pubkeys.len(), 3);
+        assert_eq!(input_ms.signatures.len(), 3);
+        // All signatures are empty (unsigned)
+        assert!(input_ms.signatures.iter().all(|s| s.is_empty()));
+        // Verify first cosigner HD node fields
+        assert_eq!(input_ms.pubkeys[0].node.depth, 4);
+        assert_eq!(input_ms.pubkeys[0].node.fingerprint, 0xDEAD_BEEF);
+        assert_eq!(input_ms.pubkeys[0].address_n, vec![0, 0]);
+        assert_eq!(input_ms.pubkeys[0].node.public_key.len(), 33);
+
+        // Output[0] is a plain paytoaddress (no multisig)
+        assert_eq!(btc.outputs[0].multisig, None);
+        assert_eq!(btc.outputs[0].amount, 90_000);
+
+        // Output[1] carries a 2-of-3 multisig via `nodes` (flat representation)
+        assert_eq!(
+            btc.outputs[1].script_type,
+            BtcOutputScriptType::PayToMultisig
+        );
+        let output_ms = btc.outputs[1].multisig.as_ref().expect("output multisig");
+        assert_eq!(output_ms.m, 2);
+        assert_eq!(output_ms.nodes.len(), 3);
+        assert_eq!(output_ms.address_n, vec![1, 0]);
+        // pubkeys list is empty when using the flat nodes representation
+        assert!(output_ms.pubkeys.is_empty());
     }
 }
