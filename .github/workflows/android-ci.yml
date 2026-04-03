@@ -35,7 +35,7 @@ jobs:
           distribution: "zulu"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           # NDK is pre-installed; only need build-tools + platform
           packages: 'build-tools;35.0.0 platforms;android-35'
@@ -54,7 +54,7 @@ jobs:
           shared-key: "ci-rust"
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Install just
         uses: extractions/setup-just@v3
