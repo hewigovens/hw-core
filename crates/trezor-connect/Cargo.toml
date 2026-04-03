@@ -22,7 +22,7 @@ tracing = { workspace = true }
 serde = { workspace = true }
 aes-gcm = { workspace = true }
 sha2 = { workspace = true }
-hmac = "0.12"
+hmac = "0.13"
 x25519-dalek = { workspace = true }
 num-bigint = "0.4"
 num-traits = "0.2"
