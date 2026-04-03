@@ -335,12 +335,17 @@ struct MacContentView: View {
                     viewModel.loadBitcoinAdvancedPreset()
                 }
                 .accessibilityIdentifier("button.sign.btc.load_advanced")
+
+                Button("Load Multisig") {
+                    viewModel.loadBitcoinMultisigPreset()
+                }
+                .accessibilityIdentifier("button.sign.btc.load_multisig")
             }
             TextEditor(text: $viewModel.btcTxJsonInput)
                 .font(.system(.footnote, design: .monospaced))
                 .frame(minHeight: 140)
                 .accessibilityIdentifier("input.sign.btc.tx_json")
-            Text("BTC signing requires ref_txs that match each input prev_hash/prev_index. The RBF preset covers orig_txs for real-device testing. Real Bitcoin payment requests also need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in preset.")
+            Text("BTC signing requires ref_txs that match each input prev_hash/prev_index. The RBF preset covers orig_txs for real-device testing, and the multisig preset mirrors Trezor Suite's xpub-based multisig payload shape for emulator or seeded-device testing. Real Bitcoin payment requests also need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in presets.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

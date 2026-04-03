@@ -605,6 +605,13 @@ fun MainScreen(
                                 ) {
                                     Text("Load RBF Preset")
                                 }
+                                OutlinedButton(
+                                    onClick = vm::loadBitcoinMultisigPreset,
+                                    enabled = !ui.isBusy,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("Load Multisig")
+                                }
                             }
                             OutlinedTextField(
                                 value = ui.btcTxJsonInput,
@@ -619,7 +626,7 @@ fun MainScreen(
                                 textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             )
                             Text(
-                                text = "BTC signing accepts basic ref_txs plus advanced orig_txs for RBF. Real Bitcoin payment requests need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in preset.",
+                                text = "BTC signing accepts basic ref_txs, advanced orig_txs for RBF, and a Suite-style multisig preset for emulator or seeded-device testing. Real Bitcoin payment requests need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in presets.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

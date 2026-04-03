@@ -5,10 +5,10 @@ use prost::Message;
 
 use super::{EncodedMessage, ProtoMappingError};
 use crate::thp::types::{
-    BtcHDNode, BtcHDNodePath, BtcInputScriptType, BtcMultisig, BtcOrigTx, BtcOutputScriptType,
-    BtcPaymentRequest, BtcPaymentRequestMemo, BtcRefTx, BtcRefTxInput, BtcRefTxOutput,
-    BtcSignInput, BtcSignOutput, GetAddressRequest, GetAddressResponse, SignMessageRequest,
-    SignMessageResponse, SignTxRequest,
+    BtcHDNode, BtcHDNodePath, BtcInputScriptType, BtcMultisig, BtcMultisigPubkeysOrder, BtcOrigTx,
+    BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestMemo, BtcRefTx, BtcRefTxInput,
+    BtcRefTxOutput, BtcSignInput, BtcSignOutput, GetAddressRequest, GetAddressResponse,
+    SignMessageRequest, SignMessageResponse, SignTxRequest,
 };
 
 const MESSAGE_TYPE_BITCOIN_GET_ADDRESS: u16 = 29;
@@ -274,9 +274,19 @@ struct ProtoMultisigRedeemScriptType {
     /// Common derivation suffix applied to every node in `nodes`.
     #[prost(uint32, repeated, packed = "false", tag = "5")]
     address_n: Vec<u32>,
+    /// Ordering policy for `pubkeys`.
+    #[prost(enumeration = "ProtoMultisigPubkeysOrder", optional, tag = "6")]
+    pubkeys_order: Option<i32>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
+#[repr(i32)]
+enum ProtoMultisigPubkeysOrder {
+    Preserved = 0,
+    Lexicographic = 1,
+}
 
 #[derive(Clone, PartialEq, Message)]
 struct BitcoinTxInput {
@@ -625,6 +635,13 @@ fn hd_node_path_to_proto(entry: &BtcHDNodePath) -> ProtoHDNodePathType {
     }
 }
 
+fn multisig_pubkeys_order_to_proto(order: BtcMultisigPubkeysOrder) -> i32 {
+    match order {
+        BtcMultisigPubkeysOrder::Preserved => ProtoMultisigPubkeysOrder::Preserved as i32,
+        BtcMultisigPubkeysOrder::Lexicographic => ProtoMultisigPubkeysOrder::Lexicographic as i32,
+    }
+}
+
 fn multisig_to_proto(ms: &BtcMultisig) -> ProtoMultisigRedeemScriptType {
     ProtoMultisigRedeemScriptType {
         pubkeys: ms.pubkeys.iter().map(hd_node_path_to_proto).collect(),
@@ -632,6 +649,7 @@ fn multisig_to_proto(ms: &BtcMultisig) -> ProtoMultisigRedeemScriptType {
         m: ms.m,
         nodes: ms.nodes.iter().map(hd_node_to_proto).collect(),
         address_n: ms.address_n.clone(),
+        pubkeys_order: Some(multisig_pubkeys_order_to_proto(ms.pubkeys_order)),
     }
 }
 
@@ -1387,6 +1405,7 @@ mod tests {
             m: 2,
             nodes: Vec::new(),
             address_n: Vec::new(),
+            pubkeys_order: BtcMultisigPubkeysOrder::Lexicographic,
         };
 
         let input = BtcSignInput {
@@ -1419,6 +1438,10 @@ mod tests {
         assert_eq!(ms.pubkeys.len(), 2);
         assert_eq!(ms.signatures.len(), 2);
         assert!(ms.signatures.iter().all(|s| s.is_empty()));
+        assert_eq!(
+            ms.pubkeys_order,
+            Some(ProtoMultisigPubkeysOrder::Lexicographic as i32)
+        );
         assert_eq!(ms.pubkeys[0].node.depth, 4);
         assert_eq!(ms.pubkeys[0].node.fingerprint, 0xDEAD_BEEF);
         assert_eq!(ms.pubkeys[0].node.chain_code, vec![0x01; 32]);
@@ -1456,6 +1479,7 @@ mod tests {
                 },
             ],
             address_n: vec![1, 0],
+            pubkeys_order: BtcMultisigPubkeysOrder::Preserved,
         };
 
         let output = BtcSignOutput {
@@ -1485,6 +1509,10 @@ mod tests {
         assert_eq!(ms.m, 2);
         assert_eq!(ms.nodes.len(), 3);
         assert_eq!(ms.address_n, vec![1, 0]);
+        assert_eq!(
+            ms.pubkeys_order,
+            Some(ProtoMultisigPubkeysOrder::Preserved as i32)
+        );
         assert!(ms.pubkeys.is_empty());
         assert_eq!(ms.nodes[0].fingerprint, 0xDEAD_BEEF);
         assert_eq!(ms.nodes[2].fingerprint, 0x8765_4321);

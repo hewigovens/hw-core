@@ -13,38 +13,21 @@
       "multisig": {
         "pubkeys": [
           {
-            "node": {
-              "depth": 4,
-              "fingerprint": 3735928559,
-              "child_num": 2147483650,
-              "chain_code": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-              "public_key": "0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
-            },
+            "node": "tpubDF4tYm8PaDydbLMZZRqcquYZ6AvxFmyTv6RhSokPh6YxccaCxP1gF2VABKV9wsinAdUbsbdLx1vcXdJH8qRcQMM9VYd926rWM685CepPUdN",
             "address_n": [0, 0]
           },
           {
-            "node": {
-              "depth": 4,
-              "fingerprint": 305419896,
-              "child_num": 2147483650,
-              "chain_code": "0xfedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
-              "public_key": "0x02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
-            },
+            "node": "tpubDEhpbishBroZWzT7sQf9YuXiyCUSdkK6Cur95UkDdTRcyrJUhLtn69GhC8mJwrxmXRLSUitWAgsXcQ3Cb16EaqFyMob4LHPqzohSzyMMmP5",
             "address_n": [0, 0]
           },
           {
-            "node": {
-              "depth": 4,
-              "fingerprint": 2271560481,
-              "child_num": 2147483650,
-              "chain_code": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-              "public_key": "0x03f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
-            },
+            "node": "tpubDFLKt47Wb4BomPVBFW675DKNuhbd9hkx7s1wr2C8GMgQM5Sa5susNc78xKWsjkrkkCQsMT4o7m5RD8ZJqTgh9cjwEQg8pjCxr9Ar77C2wiv",
             "address_n": [0, 0]
           }
         ],
         "signatures": ["", "", ""],
-        "m": 2
+        "m": 2,
+        "pubkeys_order": "preserved"
       }
     }
   ],
@@ -84,7 +67,8 @@
         ],
         "address_n": [1, 0],
         "signatures": ["", "", ""],
-        "m": 2
+        "m": 2,
+        "pubkeys_order": "lexicographic"
       }
     }
   ],

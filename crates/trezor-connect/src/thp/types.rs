@@ -418,6 +418,12 @@ pub struct BtcHDNodePath {
     pub address_n: Vec<u32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BtcMultisigPubkeysOrder {
+    Preserved,
+    Lexicographic,
+}
+
 /// Multisig cosigner metadata sent alongside `SpendMultisig` inputs
 /// and `PayToMultisig` outputs.  Matches Trezor's `MultisigRedeemScriptType`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -434,6 +440,8 @@ pub struct BtcMultisig {
     pub nodes: Vec<BtcHDNode>,
     /// Common derivation suffix applied to every node in `nodes`.
     pub address_n: Vec<u32>,
+    /// Ordering policy for `pubkeys` when constructing the redeem script.
+    pub pubkeys_order: BtcMultisigPubkeysOrder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

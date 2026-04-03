@@ -12,12 +12,14 @@ ble-transport = { workspace = true, features = [
     "backend-btleplug",
     "trezor-safe7",
 ] }
+bs58 = { workspace = true }
 hex = { workspace = true }
 hw-chain = { workspace = true }
 k256 = { version = "0.13", features = ["ecdsa"] }
 rlp = "0.6.1"
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sha3 = "0.10"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }

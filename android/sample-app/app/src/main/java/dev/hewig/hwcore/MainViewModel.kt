@@ -277,6 +277,105 @@ private const val ADVANCED_BITCOIN_TX_JSON = """
 }
 """
 
+private const val MULTISIG_BITCOIN_TX_JSON = """
+{
+  "description": "Suite-style multisig fixture with xpub pubkeys and pubkeys_order for emulator or seeded-device testing.",
+  "version": 2,
+  "lock_time": 0,
+  "inputs": [
+    {
+      "path": "m/48'/0'/0'/2'/0/0",
+      "prev_hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "prev_index": 0,
+      "amount": "100000",
+      "sequence": 4294967295,
+      "script_type": "spendmultisig",
+      "multisig": {
+        "pubkeys": [
+          {
+            "node": "tpubDF4tYm8PaDydbLMZZRqcquYZ6AvxFmyTv6RhSokPh6YxccaCxP1gF2VABKV9wsinAdUbsbdLx1vcXdJH8qRcQMM9VYd926rWM685CepPUdN",
+            "address_n": [0, 0]
+          },
+          {
+            "node": "tpubDEhpbishBroZWzT7sQf9YuXiyCUSdkK6Cur95UkDdTRcyrJUhLtn69GhC8mJwrxmXRLSUitWAgsXcQ3Cb16EaqFyMob4LHPqzohSzyMMmP5",
+            "address_n": [0, 0]
+          },
+          {
+            "node": "tpubDFLKt47Wb4BomPVBFW675DKNuhbd9hkx7s1wr2C8GMgQM5Sa5susNc78xKWsjkrkkCQsMT4o7m5RD8ZJqTgh9cjwEQg8pjCxr9Ar77C2wiv",
+            "address_n": [0, 0]
+          }
+        ],
+        "signatures": ["", "", ""],
+        "m": 2,
+        "pubkeys_order": "lexicographic"
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+      "amount": "90000",
+      "script_type": "paytoaddress"
+    },
+    {
+      "path": "m/48'/0'/0'/2'/1/0",
+      "amount": "9000",
+      "script_type": "paytomultisig",
+      "multisig": {
+        "nodes": [
+          {
+            "depth": 4,
+            "fingerprint": 3735928559,
+            "child_num": 2147483650,
+            "chain_code": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "public_key": "0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          },
+          {
+            "depth": 4,
+            "fingerprint": 305419896,
+            "child_num": 2147483650,
+            "chain_code": "0xfedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+            "public_key": "0x02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+          },
+          {
+            "depth": 4,
+            "fingerprint": 2271560481,
+            "child_num": 2147483650,
+            "chain_code": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "public_key": "0x03f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+          }
+        ],
+        "address_n": [1, 0],
+        "signatures": ["", "", ""],
+        "m": 2,
+        "pubkeys_order": "preserved"
+      }
+    }
+  ],
+  "ref_txs": [
+    {
+      "hash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "version": 2,
+      "lock_time": 0,
+      "inputs": [
+        {
+          "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "prev_index": 0,
+          "script_sig": "",
+          "sequence": 4294967295
+        }
+      ],
+      "bin_outputs": [
+        {
+          "amount": "100000",
+          "script_pubkey": "a91489abcdefabbaabbaabbaabbaabbaabbaabbaab87"
+        }
+      ]
+    }
+  ]
+}
+"""
+
 class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
 
     private var uiState by mutableStateOf(UiState())
@@ -1156,6 +1255,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     fun updateBitcoinTxJson(value: String) { ui = ui.copy(btcTxJsonInput = value) }
     fun loadBitcoinBasicPreset() { ui = ui.copy(btcTxJsonInput = DEFAULT_BITCOIN_TX_JSON.trimIndent()) }
     fun loadBitcoinAdvancedPreset() { ui = ui.copy(btcTxJsonInput = ADVANCED_BITCOIN_TX_JSON.trimIndent()) }
+    fun loadBitcoinMultisigPreset() { ui = ui.copy(btcTxJsonInput = MULTISIG_BITCOIN_TX_JSON.trimIndent()) }
 
     fun signPreview(): String {
         val state = ui
