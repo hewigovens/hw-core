@@ -9,7 +9,7 @@ repository.workspace = true
 [dependencies]
 aes-gcm = { workspace = true }
 crc32fast = { workspace = true }
-hkdf = "0.12"
+hkdf = "0.13"
 rand = { workspace = true }
 sha2 = { workspace = true }
 subtle = "2"
