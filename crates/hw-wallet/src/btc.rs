@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use trezor_connect::thp::{
-    BtcInputScriptType, BtcOrigTx, BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestAmount,
-    BtcPaymentRequestMemo, BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput,
-    BtcSignTx, SignTxRequest,
+    BtcHDNode, BtcHDNodePath, BtcInputScriptType, BtcMultisig, BtcMultisigPubkeysOrder, BtcOrigTx,
+    BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestAmount, BtcPaymentRequestMemo,
+    BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput, BtcSignTx, SignTxRequest,
 };
 
 use crate::bip32::parse_bip32_path;
@@ -39,6 +40,7 @@ pub struct TxInputInput {
     pub sequence: u32,
     #[serde(default = "default_input_script_type")]
     pub script_type: String,
+    pub multisig: Option<TxInputMultisig>,
     pub script_sig: Option<String>,
     pub witness: Option<String>,
     pub orig_hash: Option<String>,
@@ -52,6 +54,7 @@ pub struct TxInputOutput {
     pub amount: String,
     #[serde(default = "default_output_script_type")]
     pub script_type: String,
+    pub multisig: Option<TxInputMultisig>,
     pub op_return_data: Option<String>,
     pub orig_hash: Option<String>,
     pub orig_index: Option<u32>,
@@ -125,6 +128,64 @@ pub struct TxInputPaymentRequestMemo {
     pub amount: Option<String>,
 }
 
+/// JSON representation of a single HD node (matches Trezor `HDNodeType`).
+#[derive(Debug, Deserialize)]
+pub struct TxInputHDNode {
+    pub depth: u32,
+    pub fingerprint: u32,
+    pub child_num: u32,
+    pub chain_code: String,
+    pub public_key: String,
+}
+
+/// JSON representation of an HD node with derivation suffix
+/// (matches Trezor `HDNodePathType`).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum TxInputHDNodeRef {
+    Node(TxInputHDNode),
+    Xpub(String),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TxInputHDNodePath {
+    pub node: TxInputHDNodeRef,
+    pub address_n: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TxInputMultisigPubkeysOrder {
+    #[serde(alias = "PRESERVED")]
+    #[default]
+    Preserved,
+    #[serde(alias = "LEXICOGRAPHIC")]
+    Lexicographic,
+}
+
+/// JSON representation of multisig metadata
+/// (matches Trezor `MultisigRedeemScriptType`).
+#[derive(Debug, Deserialize)]
+pub struct TxInputMultisig {
+    /// Cosigner HD nodes with derivation suffixes (legacy representation).
+    #[serde(default)]
+    pub pubkeys: Vec<TxInputHDNodePath>,
+    /// Existing partial signatures in order (hex-encoded; empty string = missing).
+    #[serde(default)]
+    pub signatures: Vec<String>,
+    /// Required signature threshold.
+    pub m: u32,
+    /// Cosigner HD nodes (preferred flat representation).
+    #[serde(default)]
+    pub nodes: Vec<TxInputHDNode>,
+    /// Common derivation suffix applied to every node in `nodes`.
+    #[serde(default)]
+    pub address_n: Vec<u32>,
+    /// Ordering policy for `pubkeys`.
+    #[serde(default)]
+    pub pubkeys_order: TxInputMultisigPubkeysOrder,
+}
+
 fn default_version() -> u32 {
     2
 }
@@ -176,6 +237,13 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
             let prev_hash = parse_hash32("prev_hash", &input.prev_hash)?;
             let amount = parse_sats(&input.amount)?;
             let script_type = parse_input_script_type(&input.script_type)?;
+            let multisig = input.multisig.map(parse_multisig).transpose()?;
+            if script_type == BtcInputScriptType::SpendMultisig && multisig.is_none() {
+                return Err(WalletError::Signing(
+                    "bitcoin input with script_type SpendMultisig requires multisig metadata"
+                        .into(),
+                ));
+            }
             Ok(BtcSignInput {
                 path,
                 prev_hash,
@@ -183,6 +251,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                 amount,
                 sequence: input.sequence,
                 script_type,
+                multisig,
                 script_sig: input.script_sig.as_deref().map(decode).transpose()?,
                 witness: input.witness.as_deref().map(decode).transpose()?,
                 orig_hash: input
@@ -218,11 +287,18 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                 .transpose()?
                 .unwrap_or_default();
             let op_return_data = output.op_return_data.as_deref().map(decode).transpose()?;
+            let multisig = output.multisig.map(parse_multisig).transpose()?;
+            if script_type == BtcOutputScriptType::PayToMultisig && multisig.is_none() {
+                return Err(WalletError::Signing(
+                    "bitcoin PayToMultisig output requires multisig metadata".into(),
+                ));
+            }
             Ok(BtcSignOutput {
                 address: output.address,
                 path,
                 amount,
                 script_type,
+                multisig,
                 op_return_data,
                 orig_hash: output
                     .orig_hash
@@ -289,6 +365,13 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                     let prev_hash = parse_hash32("orig_txs.inputs.prev_hash", &input.prev_hash)?;
                     let amount = parse_sats(&input.amount)?;
                     let script_type = parse_input_script_type(&input.script_type)?;
+                    let multisig = input.multisig.map(parse_multisig).transpose()?;
+                    if script_type == BtcInputScriptType::SpendMultisig && multisig.is_none() {
+                        return Err(WalletError::Signing(
+                            "bitcoin input with script_type SpendMultisig requires multisig metadata"
+                                .into(),
+                        ));
+                    }
                     Ok(BtcSignInput {
                         path,
                         prev_hash,
@@ -296,6 +379,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                         amount,
                         sequence: input.sequence,
                         script_type,
+                        multisig,
                         script_sig: input.script_sig.as_deref().map(decode).transpose()?,
                         witness: input.witness.as_deref().map(decode).transpose()?,
                         orig_hash: input
@@ -333,11 +417,18 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
                         .unwrap_or_default();
                     let op_return_data =
                         output.op_return_data.as_deref().map(decode).transpose()?;
+                    let multisig = output.multisig.map(parse_multisig).transpose()?;
+                    if script_type == BtcOutputScriptType::PayToMultisig && multisig.is_none() {
+                        return Err(WalletError::Signing(
+                            "bitcoin PayToMultisig output requires multisig metadata".into(),
+                        ));
+                    }
                     Ok(BtcSignOutput {
                         address: output.address,
                         path,
                         amount,
                         script_type,
+                        multisig,
                         op_return_data,
                         orig_hash: output
                             .orig_hash
@@ -631,6 +722,162 @@ fn parse_output_script_type(value: &str) -> WalletResult<BtcOutputScriptType> {
     }
 }
 
+fn parse_hd_node(node: &TxInputHDNode) -> WalletResult<BtcHDNode> {
+    let chain_code = decode(&node.chain_code)?;
+    if chain_code.len() != 32 {
+        return Err(WalletError::Signing(format!(
+            "invalid hd_node.chain_code length: expected 32 bytes, got {}",
+            chain_code.len()
+        )));
+    }
+
+    let public_key = decode(&node.public_key)?;
+    if public_key.len() != 33 {
+        return Err(WalletError::Signing(format!(
+            "invalid hd_node.public_key length: expected 33 bytes, got {}",
+            public_key.len()
+        )));
+    }
+
+    Ok(BtcHDNode {
+        depth: node.depth,
+        fingerprint: node.fingerprint,
+        child_num: node.child_num,
+        chain_code,
+        public_key,
+    })
+}
+
+fn parse_hd_node_ref(node: &TxInputHDNodeRef) -> WalletResult<BtcHDNode> {
+    match node {
+        TxInputHDNodeRef::Node(node) => parse_hd_node(node),
+        TxInputHDNodeRef::Xpub(xpub) => parse_hd_node_xpub(xpub),
+    }
+}
+
+fn parse_hd_node_xpub(xpub: &str) -> WalletResult<BtcHDNode> {
+    let decoded = bs58::decode(xpub)
+        .into_vec()
+        .map_err(|err| WalletError::Signing(format!("invalid xpub '{}': {err}", xpub)))?;
+    if decoded.len() < 4 {
+        return Err(WalletError::Signing(format!(
+            "invalid xpub '{}': payload is too short",
+            xpub
+        )));
+    }
+
+    let (payload, checksum) = decoded.split_at(decoded.len() - 4);
+    let expected_checksum = Sha256::digest(Sha256::digest(payload));
+    if checksum != &expected_checksum[..4] {
+        return Err(WalletError::Signing(format!(
+            "invalid xpub '{}': checksum mismatch",
+            xpub
+        )));
+    }
+    if payload.len() != 78 {
+        return Err(WalletError::Signing(format!(
+            "invalid xpub '{}': expected 78-byte payload, got {} bytes",
+            xpub,
+            payload.len()
+        )));
+    }
+
+    let depth = u32::from(payload[4]);
+    let fingerprint = u32::from_be_bytes(payload[5..9].try_into().map_err(|_| {
+        WalletError::Signing(format!("invalid xpub '{}': missing fingerprint", xpub))
+    })?);
+    let child_num = u32::from_be_bytes(payload[9..13].try_into().map_err(|_| {
+        WalletError::Signing(format!("invalid xpub '{}': missing child number", xpub))
+    })?);
+    let chain_code = payload[13..45].to_vec();
+    let key_prefix = payload[45];
+    if key_prefix != 0x02 && key_prefix != 0x03 {
+        return Err(WalletError::Signing(format!(
+            "invalid xpub '{}': compressed public key must start with 0x02 or 0x03",
+            xpub
+        )));
+    }
+    let public_key = payload[45..78].to_vec();
+
+    Ok(BtcHDNode {
+        depth,
+        fingerprint,
+        child_num,
+        chain_code,
+        public_key,
+    })
+}
+
+fn parse_multisig_pubkeys_order(order: TxInputMultisigPubkeysOrder) -> BtcMultisigPubkeysOrder {
+    match order {
+        TxInputMultisigPubkeysOrder::Preserved => BtcMultisigPubkeysOrder::Preserved,
+        TxInputMultisigPubkeysOrder::Lexicographic => BtcMultisigPubkeysOrder::Lexicographic,
+    }
+}
+
+fn parse_multisig(ms: TxInputMultisig) -> WalletResult<BtcMultisig> {
+    if ms.m == 0 {
+        return Err(WalletError::Signing(
+            "multisig threshold m must be at least 1".into(),
+        ));
+    }
+    if ms.pubkeys.is_empty() && ms.nodes.is_empty() {
+        return Err(WalletError::Signing(
+            "multisig requires at least one cosigner (pubkeys or nodes)".into(),
+        ));
+    }
+
+    let n = if !ms.pubkeys.is_empty() {
+        ms.pubkeys.len()
+    } else {
+        ms.nodes.len()
+    };
+    if ms.m as usize > n {
+        return Err(WalletError::Signing(format!(
+            "multisig threshold m={} exceeds number of cosigners n={n}",
+            ms.m
+        )));
+    }
+
+    let pubkeys = ms
+        .pubkeys
+        .into_iter()
+        .map(|pk| {
+            Ok(BtcHDNodePath {
+                node: parse_hd_node_ref(&pk.node)?,
+                address_n: pk.address_n,
+            })
+        })
+        .collect::<WalletResult<Vec<_>>>()?;
+
+    let signatures = ms
+        .signatures
+        .into_iter()
+        .map(|sig| {
+            if sig.is_empty() {
+                Ok(Vec::new())
+            } else {
+                decode(&sig)
+            }
+        })
+        .collect::<WalletResult<Vec<_>>>()?;
+
+    let nodes = ms
+        .nodes
+        .into_iter()
+        .map(|n| parse_hd_node(&n))
+        .collect::<WalletResult<Vec<_>>>()?;
+
+    Ok(BtcMultisig {
+        pubkeys,
+        signatures,
+        m: ms.m,
+        nodes,
+        address_n: ms.address_n,
+        pubkeys_order: parse_multisig_pubkeys_order(ms.pubkeys_order),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -646,6 +893,8 @@ mod tests {
         include_str!("../../../tests/data/bitcoin/btc_prev_index_oob.json");
     const BTC_RBF_WITH_PAYMENT_REQ: &str =
         include_str!("../../../tests/data/bitcoin/btc_rbf_with_payment_req.json");
+    const BTC_MULTISIG_SIGN: &str =
+        include_str!("../../../tests/data/bitcoin/btc_multisig_sign.json");
 
     #[test]
     fn parse_btc_tx_json() {
@@ -697,6 +946,171 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("input 0 prev_index 2 out of bounds for ref_txs hash")
+        );
+    }
+
+    #[test]
+    fn build_btc_sign_request_with_multisig_input_and_output() {
+        let tx = parse_tx_json(BTC_MULTISIG_SIGN).unwrap();
+        let request = build_sign_tx_request(tx).unwrap();
+        assert_eq!(request.chain, Chain::Bitcoin);
+        let btc = request.btc.unwrap();
+
+        // Input carries a 2-of-3 multisig via `pubkeys` (legacy representation)
+        assert_eq!(btc.inputs.len(), 1);
+        assert_eq!(btc.inputs[0].script_type, BtcInputScriptType::SpendMultisig);
+        let input_ms = btc.inputs[0].multisig.as_ref().expect("input multisig");
+        assert_eq!(input_ms.m, 2);
+        assert_eq!(input_ms.pubkeys.len(), 3);
+        assert_eq!(input_ms.signatures.len(), 3);
+        assert_eq!(input_ms.pubkeys_order, BtcMultisigPubkeysOrder::Preserved);
+        // All signatures are empty (unsigned)
+        assert!(input_ms.signatures.iter().all(|s| s.is_empty()));
+        // Verify first cosigner HD node fields decoded from the xpub string
+        assert_eq!(input_ms.pubkeys[0].node.depth, 4);
+        assert_eq!(input_ms.pubkeys[0].node.fingerprint, 0x9DFF_15C0);
+        assert_eq!(input_ms.pubkeys[0].node.child_num, 0x8000_0000);
+        assert_eq!(input_ms.pubkeys[0].address_n, vec![0, 0]);
+        assert_eq!(input_ms.pubkeys[0].node.public_key.len(), 33);
+
+        // Output[0] is a plain paytoaddress (no multisig)
+        assert_eq!(btc.outputs[0].multisig, None);
+        assert_eq!(btc.outputs[0].amount, 90_000);
+
+        // Output[1] carries a 2-of-3 multisig via `nodes` (flat representation)
+        assert_eq!(
+            btc.outputs[1].script_type,
+            BtcOutputScriptType::PayToMultisig
+        );
+        let output_ms = btc.outputs[1].multisig.as_ref().expect("output multisig");
+        assert_eq!(output_ms.m, 2);
+        assert_eq!(output_ms.nodes.len(), 3);
+        assert_eq!(output_ms.address_n, vec![1, 0]);
+        assert_eq!(
+            output_ms.pubkeys_order,
+            BtcMultisigPubkeysOrder::Lexicographic
+        );
+        // pubkeys list is empty when using the flat nodes representation
+        assert!(output_ms.pubkeys.is_empty());
+    }
+
+    #[test]
+    fn parse_multisig_rejects_zero_threshold() {
+        let ms = TxInputMultisig {
+            pubkeys: vec![TxInputHDNodePath {
+                node: TxInputHDNodeRef::Node(TxInputHDNode {
+                    depth: 0,
+                    fingerprint: 0,
+                    child_num: 0,
+                    chain_code: "00".repeat(32),
+                    public_key: format!("02{}", "00".repeat(32)),
+                }),
+                address_n: vec![],
+            }],
+            signatures: vec![],
+            m: 0,
+            nodes: vec![],
+            address_n: vec![],
+            pubkeys_order: TxInputMultisigPubkeysOrder::Preserved,
+        };
+        let err = parse_multisig(ms).unwrap_err();
+        assert!(err.to_string().contains("threshold m must be at least 1"));
+    }
+
+    #[test]
+    fn parse_multisig_rejects_no_cosigners() {
+        let ms = TxInputMultisig {
+            pubkeys: vec![],
+            signatures: vec![],
+            m: 2,
+            nodes: vec![],
+            address_n: vec![],
+            pubkeys_order: TxInputMultisigPubkeysOrder::Preserved,
+        };
+        let err = parse_multisig(ms).unwrap_err();
+        assert!(err.to_string().contains("requires at least one cosigner"));
+    }
+
+    #[test]
+    fn parse_multisig_rejects_threshold_exceeding_cosigners() {
+        let ms = TxInputMultisig {
+            pubkeys: vec![TxInputHDNodePath {
+                node: TxInputHDNodeRef::Node(TxInputHDNode {
+                    depth: 0,
+                    fingerprint: 0,
+                    child_num: 0,
+                    chain_code: "00".repeat(32),
+                    public_key: format!("02{}", "00".repeat(32)),
+                }),
+                address_n: vec![],
+            }],
+            signatures: vec![],
+            m: 5,
+            nodes: vec![],
+            address_n: vec![],
+            pubkeys_order: TxInputMultisigPubkeysOrder::Preserved,
+        };
+        let err = parse_multisig(ms).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("threshold m=5 exceeds number of cosigners n=1")
+        );
+    }
+
+    #[test]
+    fn parse_hd_node_ref_decodes_xpub_string() {
+        let node = parse_hd_node_ref(&TxInputHDNodeRef::Xpub(
+            "tpubDF4tYm8PaDydbLMZZRqcquYZ6AvxFmyTv6RhSokPh6YxccaCxP1gF2VABKV9wsinAdUbsbdLx1vcXdJH8qRcQMM9VYd926rWM685CepPUdN"
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(node.depth, 4);
+        assert_eq!(node.fingerprint, 0x9DFF_15C0);
+        assert_eq!(node.child_num, 0x8000_0000);
+        assert_eq!(node.chain_code.len(), 32);
+        assert_eq!(node.public_key.len(), 33);
+        assert_eq!(node.public_key[0], 0x03);
+    }
+
+    #[test]
+    fn parse_hd_node_ref_rejects_invalid_xpub_checksum() {
+        let err = parse_hd_node_ref(&TxInputHDNodeRef::Xpub(
+            "tpubDF4tYm8PaDydbLMZZRqcquYZ6AvxFmyTv6RhSokPh6YxccaCxP1gF2VABKV9wsinAdUbsbdLx1vcXdJH8qRcQMM9VYd926rWM685CepPUdA"
+                .to_string(),
+        ))
+        .unwrap_err();
+        assert!(err.to_string().contains("checksum mismatch"));
+    }
+
+    #[test]
+    fn parse_hd_node_rejects_bad_chain_code_length() {
+        let node = TxInputHDNode {
+            depth: 0,
+            fingerprint: 0,
+            child_num: 0,
+            chain_code: "aabb".to_string(),
+            public_key: format!("02{}", "00".repeat(32)),
+        };
+        let err = parse_hd_node(&node).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("chain_code length: expected 32 bytes, got 2")
+        );
+    }
+
+    #[test]
+    fn parse_hd_node_rejects_bad_public_key_length() {
+        let node = TxInputHDNode {
+            depth: 0,
+            fingerprint: 0,
+            child_num: 0,
+            chain_code: "00".repeat(32),
+            public_key: "00".repeat(32),
+        };
+        let err = parse_hd_node(&node).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("public_key length: expected 33 bytes, got 32")
         );
     }
 }
