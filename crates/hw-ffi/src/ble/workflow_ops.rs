@@ -74,6 +74,7 @@ where
         v: response.v,
         r: response.r,
         s: response.s,
+        signatures: response.signatures,
         tx_hash: verification.as_ref().map(|sig| sig.tx_hash.to_vec()),
         recovered_address: verification.map(|sig| sig.recovered_address),
     })

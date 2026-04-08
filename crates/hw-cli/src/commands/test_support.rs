@@ -279,6 +279,7 @@ pub fn canned_eth_sign_response() -> SignTxResponse {
         v: 0,
         r: vec![0xAA; 32],
         s: vec![0xBB; 32],
+        signatures: Vec::new(),
     }
 }
 
@@ -288,6 +289,7 @@ pub fn canned_sol_sign_response() -> SignTxResponse {
         v: 0,
         r: vec![0xCC; 64],
         s: Vec::new(),
+        signatures: Vec::new(),
     }
 }
 
@@ -297,6 +299,7 @@ pub fn canned_btc_sign_response() -> SignTxResponse {
         v: 0,
         r: vec![0xDD; 64],
         s: Vec::new(),
+        signatures: vec![vec![0xDD; 64]],
     }
 }
 

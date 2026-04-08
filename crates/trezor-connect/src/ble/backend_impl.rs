@@ -690,7 +690,13 @@ impl ThpBackend for BleBackend {
                         tx_request.signature_s,
                     ) {
                         self.state.set_expected_responses(&[]);
-                        return Ok(SignTxResponse { chain, v, r, s });
+                        return Ok(SignTxResponse {
+                            chain,
+                            v,
+                            r,
+                            s,
+                            signatures: Vec::new(),
+                        });
                     }
 
                     if let Some(requested_len) = tx_request.data_length {
@@ -734,6 +740,7 @@ impl ThpBackend for BleBackend {
                     v: 0,
                     r: signature,
                     s: Vec::new(),
+                    signatures: Vec::new(),
                 })
             }
             Chain::Bitcoin => {
@@ -742,7 +749,17 @@ impl ThpBackend for BleBackend {
                 })?;
                 let ref_txs_by_hash = build_ref_txs_index(&btc);
                 let orig_txs_by_hash = build_orig_txs_index(&btc);
-                let mut latest_signature: Option<Vec<u8>> = None;
+                // Collect per-input signatures, indexed by the device's
+                // `signature_index`. The Bitcoin signing flow streams one
+                // signature per signed input; keeping only the latest is
+                // incorrect for multi-input transactions, where each input
+                // has a distinct sighash and therefore a distinct signature.
+                let mut signatures: Vec<Vec<u8>> = Vec::new();
+                // Fallback for flows that deliver a signature without a
+                // `signature_index` (e.g. on TXFINISHED from older firmware).
+                // Keeps `SignTxResponse.r` populated for single-signature
+                // consumers that still read the legacy field.
+                let mut last_signature: Option<Vec<u8>> = None;
 
                 loop {
                     let (message_type, payload) = self.read_signing_message().await?;
@@ -757,7 +774,14 @@ impl ThpBackend for BleBackend {
                     let tx_request = decode_bitcoin_tx_request(message_type, &payload)
                         .map_err(Self::transport_error)?;
                     if let Some(signature) = tx_request.signature.as_ref() {
-                        latest_signature = Some(signature.clone());
+                        last_signature = Some(signature.clone());
+                        if let Some(idx) = tx_request.signature_index {
+                            let idx = idx as usize;
+                            if signatures.len() <= idx {
+                                signatures.resize(idx + 1, Vec::new());
+                            }
+                            signatures[idx] = signature.clone();
+                        }
                     }
 
                     match handle_bitcoin_tx_request(
@@ -771,11 +795,22 @@ impl ThpBackend for BleBackend {
                         }
                         BitcoinTxRequestHandling::Finished => {
                             self.state.set_expected_responses(&[]);
+                            // Preserve the legacy `r` field: prefer the last
+                            // indexed signature (current multi-input flow),
+                            // and fall back to any un-indexed signature seen
+                            // (legacy single-signature flow). New consumers
+                            // should prefer the `signatures` vector.
+                            let r = signatures
+                                .last()
+                                .cloned()
+                                .or_else(|| last_signature.clone())
+                                .unwrap_or_default();
                             return Ok(SignTxResponse {
                                 chain,
                                 v: 0,
-                                r: latest_signature.unwrap_or_default(),
+                                r,
                                 s: Vec::new(),
+                                signatures,
                             });
                         }
                         BitcoinTxRequestHandling::Continue => {
