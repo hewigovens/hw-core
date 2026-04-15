@@ -3,7 +3,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
 };
 use hkdf::Hkdf;
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, Rng, RngExt};
 use sha2::Sha256;
 use x25519_dalek::{PublicKey, StaticSecret};
 

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use tracing::debug;
 
 use super::{
