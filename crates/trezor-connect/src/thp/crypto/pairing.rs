@@ -1,6 +1,6 @@
 use hex::FromHex;
 use num_bigint::BigInt;
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, Rng, RngExt};
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
 

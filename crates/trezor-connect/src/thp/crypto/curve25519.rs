@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use num_bigint::BigInt;
 use num_traits::{One, ToPrimitive, Zero};
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, Rng, RngExt};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use super::tools::{
@@ -220,8 +220,8 @@ pub fn elligator2(input: &[u8; 32]) -> [u8; 32] {
 mod tests {
     use super::*;
     use hex::decode;
+    use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use rand::{Rng, SeedableRng};
 
     #[test]
     fn diffie_hellman_matches_dalek() {
