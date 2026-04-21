@@ -34,7 +34,7 @@ fn is_handshake_magic(magic: u8) -> bool {
     )
 }
 
-fn should_toggle_sync(magic: u8) -> bool {
+pub(crate) fn should_toggle_sync(magic: u8) -> bool {
     !matches!(
         magic,
         MAGIC_CREATE_CHANNEL_REQUEST | MAGIC_CREATE_CHANNEL_RESPONSE | MAGIC_READ_ACK

@@ -402,7 +402,7 @@ pub struct BleBackend {
     rx_buffer: Vec<u8>,
     continuation: Vec<u8>,
     pending_chunk: Option<ChunkAccumulator>,
-    last_sent_encrypted_frame: Option<Vec<u8>>,
+    last_sent_sync_frame: Option<Vec<u8>>,
 }
 
 impl BleBackend {
@@ -416,7 +416,7 @@ impl BleBackend {
             rx_buffer: Vec::new(),
             continuation: Vec::new(),
             pending_chunk: None,
-            last_sent_encrypted_frame: None,
+            last_sent_sync_frame: None,
         }
     }
 
@@ -463,6 +463,12 @@ impl BleBackend {
             trace!("BLE THP TX frame: magic=0x{magic:02x} len={}", frame.len());
         } else {
             debug!("BLE THP TX frame: magic=0x{magic:02x} len={}", frame.len());
+        }
+        // Cache sync-toggling frames (handshake + encrypted protobuf) so we can
+        // replay them if the peer later retransmits its last response — the
+        // replay covers our original reply having been dropped on the air.
+        if wire::should_toggle_sync(base_magic) {
+            self.last_sent_sync_frame = Some(frame.clone());
         }
         let mtu = {
             let link = self.inner.link_mut();
@@ -554,6 +560,31 @@ impl BleBackend {
     async fn read_next(&mut self) -> BackendResult<ParsedMessage> {
         loop {
             if let Some(mut parsed) = self.try_parse()? {
+                // Detect retransmits for any sync-toggling frame (handshake
+                // responses and encrypted protobuf). Over BLE Write-Without-
+                // Response the peer retransmits its last reply when it does
+                // not see ours; acknowledging and replaying keeps the session
+                // from deadlocking with both sides waiting on each other.
+                if wire::should_toggle_sync(parsed.header.magic)
+                    && parsed.header.seq_bit != self.state.recv_bit()
+                {
+                    debug!(
+                        magic = format_args!("0x{:02x}", parsed.header.magic),
+                        expected_seq = self.state.recv_bit(),
+                        got_seq = parsed.header.seq_bit,
+                        "BLE THP retransmitted frame; re-ACKing and replaying last outbound"
+                    );
+                    let ack = wire::encode_ack(self.state.channel(), parsed.header.seq_bit);
+                    self.send_frame(ack).await?;
+                    if let Some(frame) = self.last_sent_sync_frame.clone() {
+                        self.send_frame(frame).await?;
+                    } else {
+                        debug!(
+                            "BLE THP retransmit detected but no cached outbound frame; waiting for next message"
+                        );
+                    }
+                    continue;
+                }
                 match &mut parsed.response {
                     WireResponse::Ack => continue,
                     WireResponse::Continuation(chunk) => {
@@ -561,28 +592,6 @@ impl BleBackend {
                         continue;
                     }
                     WireResponse::Protobuf { payload } => {
-                        let is_encrypted_data = matches!(
-                            parsed.header.magic,
-                            MAGIC_CONTROL_ENCRYPTED | wire::MAGIC_CONTROL_DECRYPTED
-                        );
-                        if is_encrypted_data && parsed.header.seq_bit != self.state.recv_bit() {
-                            debug!(
-                                expected_seq = self.state.recv_bit(),
-                                got_seq = parsed.header.seq_bit,
-                                payload_len = payload.len(),
-                                "BLE THP retransmitted encrypted frame; re-ACKing and replaying last outbound"
-                            );
-                            let ack = wire::encode_ack(self.state.channel(), parsed.header.seq_bit);
-                            self.send_frame(ack).await?;
-                            if let Some(frame) = self.last_sent_encrypted_frame.clone() {
-                                self.send_frame(frame).await?;
-                            } else {
-                                debug!(
-                                    "BLE THP retransmit detected but no cached outbound frame; waiting for next message"
-                                );
-                            }
-                            continue;
-                        }
                         if !self.continuation.is_empty() {
                             let mut merged = std::mem::take(&mut self.continuation);
                             merged.extend(payload.iter());
@@ -728,7 +737,6 @@ impl BleBackend {
             encoded.payload.len()
         );
         let frame = self.encrypt_host_message(encoded.message_type, &encoded.payload)?;
-        self.last_sent_encrypted_frame = Some(frame.clone());
         self.send_frame(frame).await?;
         self.state.on_send(MAGIC_CONTROL_ENCRYPTED);
         Ok(())
