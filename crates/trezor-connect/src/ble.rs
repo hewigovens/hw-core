@@ -402,6 +402,7 @@ pub struct BleBackend {
     rx_buffer: Vec<u8>,
     continuation: Vec<u8>,
     pending_chunk: Option<ChunkAccumulator>,
+    last_sent_encrypted_frame: Option<Vec<u8>>,
 }
 
 impl BleBackend {
@@ -415,6 +416,7 @@ impl BleBackend {
             rx_buffer: Vec::new(),
             continuation: Vec::new(),
             pending_chunk: None,
+            last_sent_encrypted_frame: None,
         }
     }
 
@@ -559,6 +561,28 @@ impl BleBackend {
                         continue;
                     }
                     WireResponse::Protobuf { payload } => {
+                        let is_encrypted_data = matches!(
+                            parsed.header.magic,
+                            MAGIC_CONTROL_ENCRYPTED | wire::MAGIC_CONTROL_DECRYPTED
+                        );
+                        if is_encrypted_data && parsed.header.seq_bit != self.state.recv_bit() {
+                            debug!(
+                                expected_seq = self.state.recv_bit(),
+                                got_seq = parsed.header.seq_bit,
+                                payload_len = payload.len(),
+                                "BLE THP retransmitted encrypted frame; re-ACKing and replaying last outbound"
+                            );
+                            let ack = wire::encode_ack(self.state.channel(), parsed.header.seq_bit);
+                            self.send_frame(ack).await?;
+                            if let Some(frame) = self.last_sent_encrypted_frame.clone() {
+                                self.send_frame(frame).await?;
+                            } else {
+                                debug!(
+                                    "BLE THP retransmit detected but no cached outbound frame; waiting for next message"
+                                );
+                            }
+                            continue;
+                        }
                         if !self.continuation.is_empty() {
                             let mut merged = std::mem::take(&mut self.continuation);
                             merged.extend(payload.iter());
@@ -704,6 +728,7 @@ impl BleBackend {
             encoded.payload.len()
         );
         let frame = self.encrypt_host_message(encoded.message_type, &encoded.payload)?;
+        self.last_sent_encrypted_frame = Some(frame.clone());
         self.send_frame(frame).await?;
         self.state.on_send(MAGIC_CONTROL_ENCRYPTED);
         Ok(())
