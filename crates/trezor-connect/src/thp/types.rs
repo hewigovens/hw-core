@@ -730,6 +730,13 @@ pub struct SignTxResponse {
     pub v: u32,
     pub r: Vec<u8>,
     pub s: Vec<u8>,
+    /// Per-input signatures collected during transaction signing,
+    /// indexed by the device's `signature_index`.
+    ///
+    /// Currently populated for Bitcoin signing, where the device streams
+    /// one signature per input; empty for Ethereum and Solana, which
+    /// produce a single signature exposed via `r`/`s`.
+    pub signatures: Vec<Vec<u8>>,
 }
 
 #[async_trait::async_trait]

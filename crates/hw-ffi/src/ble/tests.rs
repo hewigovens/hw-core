@@ -248,6 +248,7 @@ impl ThpBackend for MockBackend {
             v: 0,
             r: vec![0xAA; 32],
             s: vec![0xBB; 32],
+            signatures: Vec::new(),
         })
     }
 

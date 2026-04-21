@@ -322,6 +322,7 @@ mod tests {
             v: u32::from(recovery_id.to_byte()),
             r: signature.r().to_bytes().to_vec(),
             s: signature.s().to_bytes().to_vec(),
+            signatures: Vec::new(),
         };
 
         let verified = verify_sign_tx_response(&request, &response).unwrap();
