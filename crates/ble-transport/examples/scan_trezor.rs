@@ -1,8 +1,3 @@
-//! Example that scans for Trezor Safe 7 devices using the btleplug backend.
-//!
-//! Run with:
-//! `cargo run -p ble-transport --example scan_trezor`
-
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};

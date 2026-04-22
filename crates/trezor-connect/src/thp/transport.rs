@@ -14,7 +14,6 @@ pub enum TransportError {
     NoSession,
 }
 
-/// Maintains a THP session lifecycle for a given link.
 #[derive(Default)]
 pub struct ThpTransport {
     session: Option<ThpSession>,

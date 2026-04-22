@@ -1,5 +1,3 @@
-//! Core host state machine for the Trezor Host Protocol.
-
 pub mod error;
 pub mod link;
 pub mod session;

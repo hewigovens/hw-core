@@ -1,8 +1,3 @@
-//! Emulator-backed smoke tests for the Rust FFI surface.
-//!
-//! These tests reuse the Linux BlueZ emulator harness and exercise the same
-//! public handle types that UniFFI exports to Swift/Kotlin consumers.
-
 use hwcore::{
     BleManagerHandle, Chain, GetAddressRequest, HostConfig, PairingMethod, SessionPhase,
     SignMessageRequest, WorkflowEventKind,
@@ -110,9 +105,7 @@ fn skip_pairing_host_config() -> HostConfig {
 }
 
 fn set_dbus_system_bus_address(value: &str) {
-    // SAFETY: emulator integration tests run in a dedicated single-threaded
-    // process in CI (`--test-threads=1`) and set the bus before creating any
-    // BLE manager state.
+    // SAFETY: tests set the bus before any BLE manager state is created.
     unsafe {
         std::env::set_var("DBUS_SYSTEM_BUS_ADDRESS", value);
     }

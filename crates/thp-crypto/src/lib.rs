@@ -1,5 +1,3 @@
-//! Cryptographic primitives and transport framing for the Trezor Host Protocol.
-
 pub mod frame;
 pub mod noise;
 pub mod traits;

@@ -1,9 +1,3 @@
-//! Demonstrates how to drive the BLE THP workflow by scanning and connecting
-//! to a nearby Trezor Safe 7 device.
-//!
-//! Requires the `ble` feature to be enabled:
-//! `cargo run -p trezor-connect --example ble_handshake --features ble`
-
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
@@ -14,7 +8,6 @@ use trezor_connect::thp::types::{HostConfig, PairingMethod};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Discover devices
     let profile =
         BleProfile::trezor_safe7().ok_or_else(|| anyhow!("trezor_safe7 profile not enabled"))?;
     let manager = ble_transport::BleManager::new().await?;
@@ -32,7 +25,6 @@ async fn main() -> Result<()> {
     let info = device.info();
     println!("Connecting to {} ({:?})", info.id, info.name);
 
-    // Open a BLE session and drive the workflow.
     let (info, peripheral) = device.into_parts();
     let session = BleSession::new(peripheral, profile, info)
         .await

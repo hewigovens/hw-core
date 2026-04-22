@@ -52,7 +52,6 @@ impl ThpSession {
         opts: HandshakeOpts,
         cb: impl Fn(HandshakeEvent) + Send,
     ) -> Result<Self, ThpError> {
-        // Surface a hint to UI that Numeric Comparison may be requested shortly.
         cb(HandshakeEvent::BondingRequired);
 
         let HandshakeOpts {
@@ -82,7 +81,6 @@ impl ThpSession {
         let mut local_msg_id = 0u32;
         let mut remote_msg_id = 1u32;
 
-        // Message 1 (handshake initiation)
         let mut out = vec![0u8; 256];
         let init_payload = app_id.as_deref().unwrap_or(&[]);
         let written = noise.write_message(init_payload, &mut out)?;
@@ -90,7 +88,6 @@ impl ThpSession {
         send_frame(link, mtu, local_msg_id, out).await?;
         local_msg_id = local_msg_id.wrapping_add(2);
 
-        // Message 2 (device response)
         let response = receive_frame(link, &mut decoder, handshake_timeout).await?;
         ensure_msg_id(remote_msg_id, response.msg_id)?;
         remote_msg_id = remote_msg_id.wrapping_add(2);
@@ -110,14 +107,12 @@ impl ThpSession {
             return Err(ThpError::PeerStaticMismatch);
         }
 
-        // Message 3 (handshake completion)
         let mut completion = vec![0u8; 256];
         let len = noise.write_message(&[], &mut completion)?;
         completion.truncate(len);
         send_frame(link, mtu, local_msg_id, completion).await?;
         local_msg_id = local_msg_id.wrapping_add(2);
 
-        // Promote to transport mode.
         let transport = noise.into_transport_mode()?;
 
         let peer = TrustedPeer {
@@ -291,7 +286,6 @@ mod tests {
         let mut decoder = ThpFrameDecoder::new();
         let mut remote_msg_id = 0u32;
 
-        // Receive message 1
         let incoming = receive_frame(&mut link, &mut decoder, Duration::from_secs(1))
             .await
             .unwrap();
@@ -301,14 +295,12 @@ mod tests {
         let read = noise.read_message(&incoming.payload, &mut buf).unwrap();
         buf.truncate(read);
 
-        // Send message 2
         let mut response = vec![0u8; 256];
         let wrote = noise.write_message(&[], &mut response).unwrap();
         response.truncate(wrote);
         let mtu = link.mtu();
         send_frame(&mut link, mtu, 1, response).await.unwrap();
 
-        // Receive message 3
         let incoming = receive_frame(&mut link, &mut decoder, Duration::from_secs(1))
             .await
             .unwrap();
@@ -320,7 +312,6 @@ mod tests {
         let mut transport = noise.into_transport_mode().unwrap();
         let mut next_msg_id = 3u32;
 
-        // Handle one request -> response echo
         loop {
             let incoming = receive_frame(&mut link, &mut decoder, Duration::from_secs(1))
                 .await

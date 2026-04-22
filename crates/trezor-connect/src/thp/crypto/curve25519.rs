@@ -208,7 +208,6 @@ pub fn elligator2(input: &[u8; 32]) -> [u8; 32] {
     tv2 = mod_reduce(&y1 * &y1, p);
     tv2 = mod_reduce(&tv2 * &gxd, p);
     let e3 = tv2 == gx1;
-    // conditionalMove(x2n, x1n, e3): choose x1n when e3 is true, otherwise x2n.
     let xn = if e3 { x1n.clone() } else { x2n };
     let xd_inv = pow_mod(&xd, &(p - BigInt::from(2u8)), p);
     let x = mod_reduce(&xn * xd_inv, p);
@@ -244,7 +243,6 @@ mod tests {
             rng.fill(&mut private_key);
             let mut u_coordinate = [0u8; 32];
             rng.fill(&mut u_coordinate);
-            // RFC7748 decodeUCoordinate ignores the top bit.
             u_coordinate[31] &= 0x7f;
 
             let ours = curve25519(&private_key, &u_coordinate);
@@ -258,7 +256,7 @@ mod tests {
 
     #[test]
     fn elligator2_matches_trezor_suite_fixtures() {
-        // Copied from trezor-suite packages/protocol/tests/protocol-thp/curve25519.fixtures.ts
+        // Fixtures copied from trezor-suite packages/protocol/tests/protocol-thp/curve25519.fixtures.ts.
         let fixtures = [
             (
                 "0000000000000000000000000000000000000000000000000000000000000000",

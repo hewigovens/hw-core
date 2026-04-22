@@ -16,19 +16,16 @@ counter += 1;
 
 ## Doc Comments
 
-Use `///` on all public types, traits, and functions in library crates. FFI-exported methods (`#[uniffi::export]`) must have doc comments since they define the API surface for iOS/Android consumers.
+Comments and doc comments are optional by default. When they add value, keep them to a single line. Public APIs do not need blanket `///` coverage; add a short doc comment only when it materially improves the consumer-facing surface (for example CLI help or FFI bindings).
 
 ```rust
 /// Scan for BLE devices matching the configured profile.
-///
-/// Returns a stream of discovered devices. The scan stops when
-/// the returned `ScanHandle` is dropped.
 pub fn scan(&self) -> ScanHandle { ... }
 ```
 
 ## Safety and Invariant Comments
 
-When an `unwrap()` or `expect()` is provably safe, add a comment explaining why:
+When an `unwrap()` or `expect()` is provably safe, add a one-line comment explaining why:
 
 ```rust
 // SAFETY: & 0xFF guarantees the value is in [0, 255], always valid for u8.

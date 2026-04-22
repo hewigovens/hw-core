@@ -125,7 +125,6 @@ impl ThpBackend for BleBackend {
                 host_pairing_credential,
             };
             let mut buf = Vec::new();
-            // prost encode to Vec<u8> is infallible (no I/O, only OOM which panics anyway)
             message
                 .encode(&mut buf)
                 .expect("encode to Vec is infallible");
@@ -201,8 +200,6 @@ impl ThpBackend for BleBackend {
                 self.state.on_receive(parsed.header.magic);
                 self.state.set_expected_responses(&[]);
 
-                // Handshake completion response is AES-GCM encrypted with key_response,
-                // nonce 0, empty associated data and a single-byte plaintext state.
                 let key = self.trezor_key()?;
                 let iv = [0u8; 12];
                 let plaintext = aes256gcm_decrypt(&key, &iv, &[], &[encrypted_state], &tag)
@@ -384,7 +381,6 @@ impl ThpBackend for BleBackend {
                     Ok(response) => response,
                 };
 
-                // Validation requires stored NFC secret; not available here, so defer to workflow.
                 Ok(to_pairing_tag_response(response))
             }
             PairingTagRequest::CodeEntry {
@@ -535,8 +531,7 @@ impl ThpBackend for BleBackend {
         };
 
         if request.include_public_key {
-            // Keep public-key retrieval silent. Address confirmation is handled by GetAddress
-            // itself; mirroring Suite behavior avoids extra on-device prompts/failures.
+            // Mirror Suite: keep GetPublicKey silent to avoid extra prompts.
             let encoded = encode_get_public_key_request(request.chain, &request.path, false)
                 .map_err(Self::transport_error)?;
             self.send_encrypted_request(encoded).await?;
@@ -749,16 +744,7 @@ impl ThpBackend for BleBackend {
                 })?;
                 let ref_txs_by_hash = build_ref_txs_index(&btc);
                 let orig_txs_by_hash = build_orig_txs_index(&btc);
-                // Collect per-input signatures, indexed by the device's
-                // `signature_index`. The Bitcoin signing flow streams one
-                // signature per signed input; keeping only the latest is
-                // incorrect for multi-input transactions, where each input
-                // has a distinct sighash and therefore a distinct signature.
                 let mut signatures: Vec<Vec<u8>> = Vec::new();
-                // Fallback for flows that deliver a signature without a
-                // `signature_index` (e.g. on TXFINISHED from older firmware).
-                // Keeps `SignTxResponse.r` populated for single-signature
-                // consumers that still read the legacy field.
                 let mut last_signature: Option<Vec<u8>> = None;
 
                 loop {
@@ -795,11 +781,7 @@ impl ThpBackend for BleBackend {
                         }
                         BitcoinTxRequestHandling::Finished => {
                             self.state.set_expected_responses(&[]);
-                            // Preserve the legacy `r` field: prefer the last
-                            // indexed signature (current multi-input flow),
-                            // and fall back to any un-indexed signature seen
-                            // (legacy single-signature flow). New consumers
-                            // should prefer the `signatures` vector.
+                            // Legacy fallback: prefer last indexed signature for 'r'.
                             let r = signatures
                                 .last()
                                 .cloned()

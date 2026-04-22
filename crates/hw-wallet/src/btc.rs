@@ -128,7 +128,6 @@ pub struct TxInputPaymentRequestMemo {
     pub amount: Option<String>,
 }
 
-/// JSON representation of a single HD node (matches Trezor `HDNodeType`).
 #[derive(Debug, Deserialize)]
 pub struct TxInputHDNode {
     pub depth: u32,
@@ -138,8 +137,6 @@ pub struct TxInputHDNode {
     pub public_key: String,
 }
 
-/// JSON representation of an HD node with derivation suffix
-/// (matches Trezor `HDNodePathType`).
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum TxInputHDNodeRef {
@@ -163,25 +160,17 @@ pub enum TxInputMultisigPubkeysOrder {
     Lexicographic,
 }
 
-/// JSON representation of multisig metadata
-/// (matches Trezor `MultisigRedeemScriptType`).
 #[derive(Debug, Deserialize)]
 pub struct TxInputMultisig {
-    /// Cosigner HD nodes with derivation suffixes (legacy representation).
     #[serde(default)]
     pub pubkeys: Vec<TxInputHDNodePath>,
-    /// Existing partial signatures in order (hex-encoded; empty string = missing).
     #[serde(default)]
     pub signatures: Vec<String>,
-    /// Required signature threshold.
     pub m: u32,
-    /// Cosigner HD nodes (preferred flat representation).
     #[serde(default)]
     pub nodes: Vec<TxInputHDNode>,
-    /// Common derivation suffix applied to every node in `nodes`.
     #[serde(default)]
     pub address_n: Vec<u32>,
-    /// Ordering policy for `pubkeys`.
     #[serde(default)]
     pub pubkeys_order: TxInputMultisigPubkeysOrder,
 }
@@ -956,7 +945,6 @@ mod tests {
         assert_eq!(request.chain, Chain::Bitcoin);
         let btc = request.btc.unwrap();
 
-        // Input carries a 2-of-3 multisig via `pubkeys` (legacy representation)
         assert_eq!(btc.inputs.len(), 1);
         assert_eq!(btc.inputs[0].script_type, BtcInputScriptType::SpendMultisig);
         let input_ms = btc.inputs[0].multisig.as_ref().expect("input multisig");
@@ -964,20 +952,16 @@ mod tests {
         assert_eq!(input_ms.pubkeys.len(), 3);
         assert_eq!(input_ms.signatures.len(), 3);
         assert_eq!(input_ms.pubkeys_order, BtcMultisigPubkeysOrder::Preserved);
-        // All signatures are empty (unsigned)
         assert!(input_ms.signatures.iter().all(|s| s.is_empty()));
-        // Verify first cosigner HD node fields decoded from the xpub string
         assert_eq!(input_ms.pubkeys[0].node.depth, 4);
         assert_eq!(input_ms.pubkeys[0].node.fingerprint, 0x9DFF_15C0);
         assert_eq!(input_ms.pubkeys[0].node.child_num, 0x8000_0000);
         assert_eq!(input_ms.pubkeys[0].address_n, vec![0, 0]);
         assert_eq!(input_ms.pubkeys[0].node.public_key.len(), 33);
 
-        // Output[0] is a plain paytoaddress (no multisig)
         assert_eq!(btc.outputs[0].multisig, None);
         assert_eq!(btc.outputs[0].amount, 90_000);
 
-        // Output[1] carries a 2-of-3 multisig via `nodes` (flat representation)
         assert_eq!(
             btc.outputs[1].script_type,
             BtcOutputScriptType::PayToMultisig
@@ -990,7 +974,6 @@ mod tests {
             output_ms.pubkeys_order,
             BtcMultisigPubkeysOrder::Lexicographic
         );
-        // pubkeys list is empty when using the flat nodes representation
         assert!(output_ms.pubkeys.is_empty());
     }
 
