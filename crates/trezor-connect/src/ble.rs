@@ -58,6 +58,47 @@ const MESSAGE_TYPE_BUTTON_ACK: u16 = messages::ThpMessageType::ButtonAck as i32 
 const MIN_THP_FRAME_SIZE: usize = 9; // 1 magic + 2 channel + 2 len + 4 crc
 const THP_CONTROL_BITS_MASK: u8 = (1 << 3) | (1 << 4);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RecentReplayableResponse {
+    magic: u8,
+    crc: [u8; 4],
+}
+
+fn is_replayable_request_magic(magic: u8) -> bool {
+    matches!(
+        magic,
+        MAGIC_HANDSHAKE_INIT_REQUEST | MAGIC_HANDSHAKE_COMPLETION_REQUEST | MAGIC_CONTROL_ENCRYPTED
+    )
+}
+
+fn is_replayable_response_magic(magic: u8) -> bool {
+    matches!(
+        magic,
+        wire::MAGIC_HANDSHAKE_INIT_RESPONSE
+            | wire::MAGIC_HANDSHAKE_COMPLETION_RESPONSE
+            | wire::MAGIC_CONTROL_ENCRYPTED
+            | wire::MAGIC_CONTROL_DECRYPTED
+    )
+}
+
+fn should_replay_recent_request(
+    parsed: &ParsedMessage,
+    state: &ThpWireState,
+    recent: Option<RecentReplayableResponse>,
+) -> bool {
+    is_replayable_response_magic(parsed.header.magic)
+        && parsed.header.seq_bit != state.recv_bit()
+        && recent
+            .is_some_and(|recent| recent.magic == parsed.header.magic && recent.crc == parsed.crc)
+}
+
+fn should_ack_magic(magic: u8) -> bool {
+    !matches!(
+        magic,
+        MAGIC_CREATE_CHANNEL_RESPONSE | wire::MAGIC_READ_ACK | wire::MAGIC_ERROR
+    )
+}
+
 #[derive(Clone, PartialEq, Message)]
 struct FailureProto {
     #[prost(int32, optional, tag = "1")]
@@ -401,6 +442,8 @@ pub struct BleBackend {
     rx_buffer: Vec<u8>,
     continuation: Vec<u8>,
     pending_chunk: Option<ChunkAccumulator>,
+    last_sent_sync_frame: Option<Vec<u8>>,
+    recent_response: Option<RecentReplayableResponse>,
 }
 
 impl BleBackend {
@@ -414,6 +457,8 @@ impl BleBackend {
             rx_buffer: Vec::new(),
             continuation: Vec::new(),
             pending_chunk: None,
+            last_sent_sync_frame: None,
+            recent_response: None,
         }
     }
 
@@ -461,6 +506,9 @@ impl BleBackend {
         } else {
             debug!("BLE THP TX frame: magic=0x{magic:02x} len={}", frame.len());
         }
+        if is_replayable_request_magic(base_magic) {
+            self.last_sent_sync_frame = Some(frame.clone());
+        }
         let mtu = {
             let link = self.inner.link_mut();
             link.mtu()
@@ -496,8 +544,9 @@ impl BleBackend {
             Ok(decoded) => {
                 self.rx_buffer.drain(..decoded.consumed);
                 trim_zero_padding(&mut self.rx_buffer);
+                let crc = decoded.crc;
                 let parsed =
-                    wire::parse_response(decoded.message).map_err(Self::transport_error)?;
+                    wire::parse_response(decoded.message, crc).map_err(Self::transport_error)?;
                 Ok(Some(parsed))
             }
             Err(WireError::ShortPacket) => Ok(None),
@@ -548,9 +597,41 @@ impl BleBackend {
         }
     }
 
+    fn remember_recent_response(&mut self, parsed: &ParsedMessage) {
+        if is_replayable_response_magic(parsed.header.magic) {
+            self.recent_response = Some(RecentReplayableResponse {
+                magic: parsed.header.magic,
+                crc: parsed.crc,
+            });
+        }
+    }
+
     async fn read_next(&mut self) -> BackendResult<ParsedMessage> {
         loop {
             if let Some(mut parsed) = self.try_parse()? {
+                if should_replay_recent_request(&parsed, &self.state, self.recent_response) {
+                    debug!(
+                        magic = format_args!("0x{:02x}", parsed.header.magic),
+                        expected_seq = self.state.recv_bit(),
+                        got_seq = parsed.header.seq_bit,
+                        "BLE THP retransmitted recent response; re-ACKing and replaying last outbound"
+                    );
+                    self.send_ack_with_bit(parsed.header.seq_bit).await?;
+                    if let Some(frame) = self.last_sent_sync_frame.clone() {
+                        self.send_frame(frame).await?;
+                    }
+                    continue;
+                }
+                if is_replayable_response_magic(parsed.header.magic)
+                    && parsed.header.seq_bit != self.state.recv_bit()
+                {
+                    return Err(BackendError::Transport(format!(
+                        "unexpected seq bit {} for THP frame 0x{:02x}; expected {}",
+                        parsed.header.seq_bit,
+                        parsed.header.magic,
+                        self.state.recv_bit()
+                    )));
+                }
                 match &mut parsed.response {
                     WireResponse::Ack => continue,
                     WireResponse::Continuation(chunk) => {
@@ -563,6 +644,7 @@ impl BleBackend {
                             merged.extend(payload.iter());
                             *payload = merged;
                         }
+                        self.remember_recent_response(&parsed);
                         return Ok(parsed);
                     }
                     _ => {
@@ -576,6 +658,7 @@ impl BleBackend {
                         if self.should_ack(&parsed.header) {
                             self.send_ack(&parsed.header).await?;
                         }
+                        self.remember_recent_response(&parsed);
                         return Ok(parsed);
                     }
                 }
@@ -689,10 +772,12 @@ impl BleBackend {
     }
 
     async fn send_ack(&mut self, _header: &wire::WireHeader) -> BackendResult<()> {
-        let ack_bit = self.state.recv_ack_bit();
+        self.send_ack_with_bit(self.state.recv_ack_bit()).await
+    }
+
+    async fn send_ack_with_bit(&mut self, ack_bit: u8) -> BackendResult<()> {
         let frame = wire::encode_ack(self.state.channel(), ack_bit);
-        self.send_frame(frame).await?;
-        Ok(())
+        self.send_frame(frame).await
     }
 
     async fn send_encrypted_request(&mut self, encoded: EncodedMessage) -> BackendResult<()> {
@@ -826,10 +911,7 @@ impl BleBackend {
     }
 
     fn should_ack(&self, header: &wire::WireHeader) -> bool {
-        !matches!(
-            header.magic,
-            MAGIC_CREATE_CHANNEL_RESPONSE | wire::MAGIC_READ_ACK
-        )
+        should_ack_magic(header.magic)
     }
 }
 

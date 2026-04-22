@@ -402,6 +402,53 @@ fn thp_v2_chunk_reassembly_recovers_after_bad_continuation() {
     assert_eq!(reassembled.as_deref(), Some(frame2.as_slice()));
 }
 
+fn parsed_message(magic: u8, seq_bit: u8, crc: [u8; 4]) -> ParsedMessage {
+    ParsedMessage {
+        header: wire::WireHeader {
+            raw_magic: magic | (seq_bit << 4),
+            magic,
+            ack_bit: 0,
+            seq_bit,
+            channel: 0x1234,
+        },
+        response: WireResponse::Ack,
+        crc,
+    }
+}
+
+#[test]
+fn recent_replayable_response_requires_matching_magic_and_crc() {
+    let mut state = ThpWireState::new();
+    state.on_receive(wire::MAGIC_CONTROL_ENCRYPTED);
+
+    let recent = Some(RecentReplayableResponse {
+        magic: wire::MAGIC_CONTROL_ENCRYPTED,
+        crc: [1, 2, 3, 4],
+    });
+    let duplicate = parsed_message(wire::MAGIC_CONTROL_ENCRYPTED, 0, [1, 2, 3, 4]);
+    let wrong_crc = parsed_message(wire::MAGIC_CONTROL_ENCRYPTED, 0, [4, 3, 2, 1]);
+    let wrong_magic = parsed_message(wire::MAGIC_HANDSHAKE_INIT_RESPONSE, 0, [1, 2, 3, 4]);
+
+    assert!(should_replay_recent_request(&duplicate, &state, recent));
+    assert!(!should_replay_recent_request(&wrong_crc, &state, recent));
+    assert!(!should_replay_recent_request(&wrong_magic, &state, recent));
+}
+
+#[test]
+fn error_frames_are_never_replayed_or_acked() {
+    let mut state = ThpWireState::new();
+    state.on_receive(wire::MAGIC_CONTROL_ENCRYPTED);
+
+    let recent = Some(RecentReplayableResponse {
+        magic: wire::MAGIC_ERROR,
+        crc: [9, 9, 9, 9],
+    });
+    let error = parsed_message(wire::MAGIC_ERROR, 0, [9, 9, 9, 9]);
+
+    assert!(!should_replay_recent_request(&error, &state, recent));
+    assert!(!should_ack_magic(wire::MAGIC_ERROR));
+}
+
 fn hex_to_bytes(s: &str) -> Vec<u8> {
     let stripped = s.strip_prefix("0x").unwrap_or(s);
     if stripped.is_empty() {
