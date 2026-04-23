@@ -312,6 +312,7 @@ pub fn encode_create_channel_request(nonce: &[u8; 8]) -> Vec<u8> {
 pub struct DecodedFrame {
     pub message: WireMessage,
     pub consumed: usize,
+    pub crc: [u8; CRC_LENGTH],
 }
 
 pub fn decode_frame(data: &[u8], expected_channel: Option<u16>) -> Result<DecodedFrame, WireError> {
@@ -344,6 +345,7 @@ pub fn decode_frame(data: &[u8], expected_channel: Option<u16>) -> Result<Decode
     if computed.finalize().to_be_bytes() != crc {
         return Err(WireError::CrcMismatch);
     }
+    let crc = crc.try_into().expect("CRC length is fixed");
     let ack_bit = if raw_magic & ACK_BIT > 0 { 1 } else { 0 };
     let seq_bit = if raw_magic & SEQ_BIT > 0 { 1 } else { 0 };
     let magic = clear_control_bits(raw_magic);
@@ -357,15 +359,20 @@ pub fn decode_frame(data: &[u8], expected_channel: Option<u16>) -> Result<Decode
     Ok(DecodedFrame {
         message: WireMessage { header, payload },
         consumed: payload_end + CRC_LENGTH,
+        crc,
     })
 }
 
 pub struct ParsedMessage {
     pub header: WireHeader,
     pub response: WireResponse,
+    pub crc: [u8; CRC_LENGTH],
 }
 
-pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> {
+pub fn parse_response(
+    message: WireMessage,
+    crc: [u8; CRC_LENGTH],
+) -> Result<ParsedMessage, WireError> {
     let header = message.header.clone();
     let response = match message.header.magic {
         MAGIC_CREATE_CHANNEL_RESPONSE => {
@@ -432,7 +439,11 @@ pub fn parse_response(message: WireMessage) -> Result<ParsedMessage, WireError> 
         }
         other => return Err(WireError::UnexpectedMagic(other)),
     };
-    Ok(ParsedMessage { header, response })
+    Ok(ParsedMessage {
+        header,
+        response,
+        crc,
+    })
 }
 
 pub fn encode_handshake_init_request(
@@ -502,7 +513,8 @@ mod tests {
         let decoded = decode_frame(&frame, None).expect("decode frame");
         assert_eq!(decoded.consumed, frame.len());
 
-        let parsed = parse_response(decoded.message).expect("parse response");
+        let crc = decoded.crc;
+        let parsed = parse_response(decoded.message, crc).expect("parse response");
         assert_eq!(parsed.header.magic, MAGIC_CREATE_CHANNEL_RESPONSE);
         match parsed.response {
             WireResponse::CreateChannel {
@@ -530,7 +542,8 @@ mod tests {
         let header = WireHeader::new(MAGIC_READ_ACK, 0x0042, 1, 0);
         let frame = encode_frame(header, &[]);
         let decoded = decode_frame(&frame, Some(0x0042)).expect("decode");
-        let parsed = parse_response(decoded.message).expect("parse");
+        let crc = decoded.crc;
+        let parsed = parse_response(decoded.message, crc).expect("parse");
         assert!(matches!(parsed.response, WireResponse::Ack));
     }
 
@@ -539,7 +552,8 @@ mod tests {
         let header = WireHeader::new(MAGIC_HANDSHAKE_COMPLETION_RESPONSE, 0x0042, 0, 0);
         let frame = encode_frame(header, &[0xAA; 1]);
         let decoded = decode_frame(&frame, Some(0x0042)).expect("decode");
-        match parse_response(decoded.message) {
+        let crc = decoded.crc;
+        match parse_response(decoded.message, crc) {
             Err(WireError::ShortPacket) => {}
             Err(other) => panic!("unexpected error: {other}"),
             Ok(_) => panic!("short payload should fail"),
@@ -608,7 +622,8 @@ mod tests {
         let response_header = WireHeader::new(MAGIC_CREATE_CHANNEL_RESPONSE, DEFAULT_CHANNEL, 0, 0);
         let frame = encode_frame(response_header, &payload);
         let decoded = decode_frame(&frame, None).expect("decode frame");
-        let parsed = parse_response(decoded.message).expect("parse response");
+        let crc = decoded.crc;
+        let parsed = parse_response(decoded.message, crc).expect("parse response");
         state.on_receive(parsed.header.magic);
         state.set_expected_responses(&[]);
         assert_eq!(state.recv_bit(), 0); // create-channel does not toggle sync bits
@@ -649,7 +664,8 @@ mod tests {
         let init_header = WireHeader::new(MAGIC_HANDSHAKE_INIT_RESPONSE, state.channel(), 0, 0);
         let frame = encode_frame(init_header, &init_payload);
         let decoded = decode_frame(&frame, Some(state.channel())).expect("decode init frame");
-        let parsed = parse_response(decoded.message).expect("parse init response");
+        let crc = decoded.crc;
+        let parsed = parse_response(decoded.message, crc).expect("parse init response");
         state.on_receive(parsed.header.magic);
         state.set_expected_responses(&[]);
         assert_eq!(state.recv_bit(), 1);
@@ -667,7 +683,8 @@ mod tests {
         );
 
         let decoded = decode_frame(&completion_frame, Some(state.channel())).unwrap();
-        let parsed = parse_response(decoded.message).unwrap();
+        let crc = decoded.crc;
+        let parsed = parse_response(decoded.message, crc).unwrap();
         state.on_receive(parsed.header.magic);
         state.set_expected_responses(&[]);
         assert_eq!(state.recv_bit(), 0);
