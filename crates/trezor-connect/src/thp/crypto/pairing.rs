@@ -245,8 +245,6 @@ pub fn get_cpace_host_keys<R: Rng + CryptoRng>(
 }
 
 pub fn get_shared_secret(public_key: &[u8; 32], private_key: &[u8; 32]) -> [u8; 32] {
-    // Match Trezor Suite implementation exactly: shared_secret = X25519(private, public),
-    // then tag = SHA-256(shared_secret).
     let secret = curve25519(private_key, public_key);
     sha256(&secret)
 }
@@ -484,7 +482,6 @@ mod tests {
 
         let keys = get_cpace_host_keys(code, &handshake_hash, &mut rng);
 
-        // Derive the generator deterministically per spec.
         let mut sha = Sha512::new();
         sha.update([0x08, 0x43, 0x50, 0x61, 0x63, 0x65, 0x32, 0x35, 0x35, 0x06]);
         sha.update(code);

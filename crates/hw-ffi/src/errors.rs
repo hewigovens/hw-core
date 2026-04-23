@@ -1,4 +1,3 @@
-/// Simplified error surface exposed via UniFFI bindings.
 #[derive(Debug, uniffi::Error, thiserror::Error, Clone)]
 #[uniffi(flat_error)]
 pub enum HWCoreError {

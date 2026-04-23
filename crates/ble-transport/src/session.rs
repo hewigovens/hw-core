@@ -85,8 +85,6 @@ impl BleSession {
 
         #[cfg(not(target_os = "android"))]
         {
-            // Keep iOS/macOS behavior where a small probe write helps surface
-            // pairing/auth failures before THP starts.
             peripheral
                 .write(&write_char, PROOF_OF_CONNECTION, WriteType::WithResponse)
                 .await?;
@@ -120,8 +118,6 @@ impl BleSession {
         let mtu_hint = profile.mtu_hint.map(|m| m as usize).unwrap_or(244);
         #[cfg(target_os = "android")]
         let mtu = {
-            // btleplug 0.12 negotiates ATT MTU during connect() on Android.
-            // Use the negotiated MTU payload size, but keep our profile/env caps.
             let negotiated_payload = peripheral.mtu().saturating_sub(3) as usize;
             let safe_cap = std::env::var("HWCORE_BLE_ANDROID_TX_MTU")
                 .ok()

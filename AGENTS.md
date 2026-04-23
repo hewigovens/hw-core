@@ -36,6 +36,12 @@ cargo fmt --all
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
+## Comments and Docstrings
+
+- Comments and docstrings are opt-in, not default.
+- When needed, keep them to a single line.
+- Prefer no comment unless it explains intent, invariants, or safety that the code cannot make obvious on its own.
+
 ## Source of Truth for Behavior
 
 - When debugging protocol/flow mismatches, always check the Trezor Suite implementation first: `~/workspace/github/trezor-suite`

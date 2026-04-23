@@ -21,7 +21,6 @@ pub(super) fn hash_of_two(first: &[u8], second: &[u8]) -> [u8; 32] {
 }
 
 pub(super) fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
-    // HMAC-SHA256 accepts any key length per RFC 2104
     let mut ctx =
         <HmacSha256 as hmac::KeyInit>::new_from_slice(key).expect("HMAC accepts any key size");
     ctx.update(data);
@@ -31,7 +30,6 @@ pub(super) fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
 pub(super) fn hkdf(chaining_key: &[u8], input: &[u8]) -> ([u8; 32], [u8; 32]) {
     let temp_key = hmac_sha256(chaining_key, input);
     let output1 = hmac_sha256(&temp_key, &[0x01]);
-    // HMAC-SHA256 accepts any key length per RFC 2104
     let mut ctx = <HmacSha256 as hmac::KeyInit>::new_from_slice(&temp_key)
         .expect("HMAC accepts any key size");
     ctx.update(&output1);

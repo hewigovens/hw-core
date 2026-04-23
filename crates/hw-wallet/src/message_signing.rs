@@ -6,7 +6,6 @@ use crate::eip712::{build_sign_typed_data_request, build_sign_typed_hash_request
 use crate::error::{WalletError, WalletResult};
 use crate::message::build_sign_message_request;
 
-/// Builds a validated ETH EIP-191 message-signing request.
 pub fn build_eth_eip191_request(
     path: Vec<u32>,
     message: &str,
@@ -16,7 +15,6 @@ pub fn build_eth_eip191_request(
     build_sign_message_request(Chain::Ethereum, path, message, is_hex, chunkify)
 }
 
-/// Builds a validated ETH EIP-712 typed-data request from the full JSON payload.
 pub fn build_eth_eip712_json_request(
     path: Vec<u32>,
     data_json: &str,
@@ -25,7 +23,6 @@ pub fn build_eth_eip712_json_request(
     build_sign_typed_data_request(path, data_json, metamask_v4_compat)
 }
 
-/// Builds a validated ETH EIP-712 typed-data request from pre-hashed inputs.
 pub fn build_eth_eip712_hash_request(
     path: Vec<u32>,
     domain_separator_hash: &str,
@@ -34,8 +31,6 @@ pub fn build_eth_eip712_hash_request(
     build_sign_typed_hash_request(path, domain_separator_hash, message_hash)
 }
 
-/// Builds a validated ETH EIP-712 typed-data request from either full JSON or
-/// pre-hashed inputs.
 pub fn build_eth_eip712_request(
     path: Vec<u32>,
     data_json: Option<&str>,

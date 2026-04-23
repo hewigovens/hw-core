@@ -1,15 +1,3 @@
-//! Integration tests that exercise the full BLE→THP stack against the Trezor
-//! T3W1 emulator via the bluez-emu-bridge.
-//!
-//! These tests are `#[ignore]`d by default — they require:
-//!   - Linux (D-Bus + BlueZ mock)
-//!   - The T3W1 emulator binary (set `TREZOR_EMU_BINARY`)
-//!   - The vendored bluez-emu-bridge (set `BRIDGE_DIR`)
-//!   - Python 3 with `trezor`, `dbus-fast`, `click`, `typing-extensions`
-//!
-//! Run with:
-//!   cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
-
 use std::process::Command;
 
 #[path = "../../../tests/fixtures/emulator_harness.rs"]
@@ -38,7 +26,6 @@ fn run_hw_cli(harness: &EmulatorHarness, args: &[&str]) -> (String, String) {
     (stdout, stderr)
 }
 
-/// Full BLE scan → connect → THP handshake → get ETH address.
 #[test]
 #[ignore = "requires T3W1 emulator binary and Linux D-Bus (see CONTRIBUTING)"]
 fn emu_ble_get_eth_address() {
@@ -59,14 +46,12 @@ fn emu_ble_get_eth_address() {
         ],
     );
 
-    // SLIP-14 test seed produces a deterministic ETH address
     assert!(
         stdout.contains("0x"),
         "expected ETH address in output, got: {stdout}"
     );
 }
 
-/// Full BLE scan → connect → THP handshake → sign ETH transaction.
 #[test]
 #[ignore = "requires T3W1 emulator binary and Linux D-Bus (see CONTRIBUTING)"]
 fn emu_ble_sign_eth_tx() {

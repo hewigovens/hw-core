@@ -152,7 +152,6 @@ where
 
         let outcome = self.backend.handshake_init(request).await?;
 
-        // Extract fields needed for the completion request before moving outcome.
         let completion_request = HandshakeCompletionRequest {
             host_pubkey: outcome.host_encrypted_static_pubkey.clone(),
             encrypted_payload: outcome.encrypted_payload,
@@ -207,8 +206,7 @@ where
                 self.state.set_phase(Phase::Pairing);
             }
             HandshakeCompletionState::Paired => {
-                // Mirror Suite behavior: paired handshake completion still requires
-                // connection finalization (credential request + end request).
+                // Mirror Suite: paired handshake completion still needs finalization.
                 self.state.set_is_paired(true);
                 self.state.set_phase(Phase::Pairing);
             }
@@ -296,10 +294,7 @@ where
         'pairing_flow: loop {
             match select_response {
                 super::types::SelectMethodResponse::End => {
-                    // The firmware already sent ThpEndResponse and exited the
-                    // pairing context (e.g. SkipPairing).  No need to send
-                    // ThpEndRequest — doing so would hit a Failure because the
-                    // pairing handler is no longer running.
+                    // Firmware already exited pairing context; no end_request needed.
                     self.state.set_is_paired(true);
                     self.state.set_phase(Phase::Paired);
                     return Ok(());

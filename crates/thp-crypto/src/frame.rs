@@ -6,7 +6,6 @@ const CRC_LEN: usize = 4;
 const MIN_MTU: usize = HEADER_LEN + CRC_LEN;
 const MAX_PAYLOAD_LEN: usize = 1 << 20; // 1 MiB hard guard for now.
 
-/// Logical THP transport frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThpFrame {
     pub msg_id: u32,

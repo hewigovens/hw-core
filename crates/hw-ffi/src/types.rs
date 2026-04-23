@@ -256,10 +256,7 @@ pub struct SignTxResult {
     pub v: u32,
     pub r: Vec<u8>,
     pub s: Vec<u8>,
-    /// Per-input signatures collected during signing, indexed by input.
-    ///
-    /// Populated for Bitcoin (one entry per signed input); empty for
-    /// Ethereum and Solana, which return a single signature via `r`/`s`.
+    /// Per-input Bitcoin signatures, indexed by the device's `signature_index`.
     pub signatures: Vec<Vec<u8>>,
     pub tx_hash: Option<Vec<u8>>,
     pub recovered_address: Option<String>,

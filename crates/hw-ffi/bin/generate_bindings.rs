@@ -13,11 +13,11 @@ use uniffi_bindgen::bindings::{self, GenerateOptions, TargetLanguage};
     disable_help_subcommand = true
 )]
 struct Args {
-    /// Path to the compiled hw-ffi dynamic library.
+    /// Path to a compiled `hw-ffi` dynamic library.
     #[arg(long, value_name = "PATH", conflicts_with = "auto")]
     lib: Option<PathBuf>,
 
-    /// Force auto-discovery of the compiled library in target/{debug,release}.
+    /// Auto-discover the library under `target/{debug,release}`.
     #[arg(long, conflicts_with = "lib")]
     auto: bool,
 

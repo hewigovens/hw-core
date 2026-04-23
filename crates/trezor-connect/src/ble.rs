@@ -75,7 +75,6 @@ struct ChunkAccumulator {
 
 impl ChunkAccumulator {
     fn start(chunk: &[u8]) -> Option<Self> {
-        // A valid THP V2 first chunk needs: magic (1) + channel (2) + len (2).
         if chunk.len() < 5 {
             return None;
         }
@@ -766,7 +765,6 @@ impl BleBackend {
         }
     }
 
-    /// Send a pairing tag and receive the parsed tag response.
     async fn send_and_receive_tag(
         &mut self,
         encoded: EncodedMessage,
@@ -785,8 +783,6 @@ impl BleBackend {
         .await
     }
 
-    /// Read and decrypt the next meaningful device message, handling ACK,
-    /// ButtonRequest, and Failure automatically.
     async fn read_signing_message(&mut self) -> BackendResult<(u16, Vec<u8>)> {
         loop {
             let parsed = self.read_next().await?;

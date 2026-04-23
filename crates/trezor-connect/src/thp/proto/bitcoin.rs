@@ -20,7 +20,6 @@ pub const MESSAGE_TYPE_BITCOIN_MESSAGE_SIGNATURE: u16 = 40;
 pub const MESSAGE_TYPE_BITCOIN_SIGN_TX: u16 = 15;
 pub const MESSAGE_TYPE_BITCOIN_TX_REQUEST: u16 = 21;
 pub const MESSAGE_TYPE_BITCOIN_TX_ACK: u16 = 22;
-/// `TxAckPaymentRequest` — sent in response to a `TXPAYMENTREQ` firmware request.
 pub const MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST: u16 = 37;
 
 #[derive(Clone, PartialEq, Message)]
@@ -228,9 +227,6 @@ struct BitcoinTxAckTransaction {
     branch_id: Option<u32>,
 }
 
-// ── Multisig proto structs ───────────────────────────────────────────────────
-
-/// Matches Trezor's `HDNodeType` from `messages-common.proto`.
 #[derive(Clone, PartialEq, Message)]
 struct ProtoHDNodeType {
     #[prost(uint32, required, tag = "1")]
@@ -247,7 +243,6 @@ struct ProtoHDNodeType {
     public_key: Vec<u8>,
 }
 
-/// Matches `MultisigRedeemScriptType.HDNodePathType`.
 #[derive(Clone, PartialEq, Message)]
 struct ProtoHDNodePathType {
     #[prost(message, required, tag = "1")]
@@ -256,30 +251,21 @@ struct ProtoHDNodePathType {
     address_n: Vec<u32>,
 }
 
-/// Matches Trezor's `MultisigRedeemScriptType` from `messages-bitcoin.proto`.
 #[derive(Clone, PartialEq, Message)]
 struct ProtoMultisigRedeemScriptType {
-    /// Deprecated pubkeys-with-paths (use `nodes` + `address_n` instead).
     #[prost(message, repeated, tag = "1")]
     pubkeys: Vec<ProtoHDNodePathType>,
-    /// Existing partial signatures (empty bytes = missing).
     #[prost(bytes = "vec", repeated, tag = "2")]
     signatures: Vec<Vec<u8>>,
-    /// Required threshold (`m` in m-of-n).
     #[prost(uint32, required, tag = "3")]
     m: u32,
-    /// Cosigner HD nodes (preferred flat representation).
     #[prost(message, repeated, tag = "4")]
     nodes: Vec<ProtoHDNodeType>,
-    /// Common derivation suffix applied to every node in `nodes`.
     #[prost(uint32, repeated, packed = "false", tag = "5")]
     address_n: Vec<u32>,
-    /// Ordering policy for `pubkeys`.
     #[prost(enumeration = "ProtoMultisigPubkeysOrder", optional, tag = "6")]
     pubkeys_order: Option<i32>,
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
 #[repr(i32)]
@@ -367,8 +353,6 @@ enum BitcoinOutputScriptTypeProto {
     PayToTaproot = 6,
 }
 
-// ── TxAckPaymentRequest proto structs ────────────────────────────────────────
-
 #[derive(Clone, PartialEq, Message)]
 struct ProtoTextMemo {
     #[prost(string, optional, tag = "1")]
@@ -432,8 +416,6 @@ struct ProtoTxAckPaymentRequest {
     #[prost(bytes = "vec", required, tag = "5")]
     signature: Vec<u8>,
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 pub(super) fn encode_get_address_request(
     request: &GetAddressRequest,
@@ -968,12 +950,6 @@ pub fn encode_bitcoin_tx_ack_prev_extra_data(
     })
 }
 
-/// Encodes a `TxAckPaymentRequest` response to a firmware `TXPAYMENTREQ` request.
-///
-/// The firmware sends `TxRequest { type: TXPAYMENTREQ, details.request_index: N }` and
-/// expects the host to reply with the payment-request data at index N from the caller-
-/// supplied list.  Most signing flows have no payment requests; this encoder is only
-/// invoked when the firmware explicitly asks for one.
 pub fn encode_bitcoin_tx_ack_payment_request(
     pr: &BtcPaymentRequest,
 ) -> Result<EncodedMessage, ProtoMappingError> {
