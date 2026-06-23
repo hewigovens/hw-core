@@ -20,7 +20,7 @@ jobs:
   ios-ci:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install Rust with iOS target
         uses: dtolnay/rust-toolchain@stable
         with:
