@@ -30,7 +30,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 tracing = { workspace = true }
 trezor-connect = { workspace = true, features = ["ble"] }
-uniffi = { version = "0.31.0", features = ["tokio"] }
+uniffi = { version = "0.32.0", features = ["tokio"] }
 uuid = { workspace = true }
 anyhow = { workspace = true, optional = true }
 clap = { workspace = true, optional = true }
