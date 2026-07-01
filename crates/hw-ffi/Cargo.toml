@@ -30,12 +30,12 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 tracing = { workspace = true }
 trezor-connect = { workspace = true, features = ["ble"] }
-uniffi = { version = "0.31.0", features = ["tokio"] }
+uniffi = { version = "0.32.0", features = ["tokio"] }
 uuid = { workspace = true }
 anyhow = { workspace = true, optional = true }
 clap = { workspace = true, optional = true }
 camino = { version = "1", optional = true }
-uniffi_bindgen = { version = "0.31.0", features = [
+uniffi_bindgen = { version = "0.32.0", features = [
     "cargo-metadata",
 ], optional = true }
 

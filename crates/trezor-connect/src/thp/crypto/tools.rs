@@ -1,4 +1,4 @@
-use aes_gcm::aead::{AeadInPlace, Error as AeadError, KeyInit, Tag};
+use aes_gcm::aead::{AeadInOut, Error as AeadError, KeyInit, Tag};
 use aes_gcm::{Aes256Gcm, Nonce};
 use hmac::{Hmac, Mac};
 use num_bigint::{BigInt, Sign};
@@ -53,7 +53,8 @@ pub fn aes256gcm_encrypt(
     let cipher = Aes256Gcm::new(key.into());
     let nonce = Nonce::from(*iv);
     let mut buffer = plaintext.to_vec();
-    let tag: Tag<Aes256Gcm> = cipher.encrypt_in_place_detached(&nonce, aad, &mut buffer)?;
+    let tag: Tag<Aes256Gcm> =
+        cipher.encrypt_inout_detached(&nonce, aad, buffer.as_mut_slice().into())?;
     let mut tag_bytes = [0u8; 16];
     tag_bytes.copy_from_slice(tag.as_ref());
     Ok((buffer, tag_bytes))
@@ -70,7 +71,7 @@ pub fn aes256gcm_decrypt(
     let nonce = Nonce::from(*iv);
     let mut buffer = ciphertext.to_vec();
     let tag_array = Tag::<Aes256Gcm>::from(*tag);
-    cipher.decrypt_in_place_detached(&nonce, aad, &mut buffer, &tag_array)?;
+    cipher.decrypt_inout_detached(&nonce, aad, buffer.as_mut_slice().into(), &tag_array)?;
     Ok(buffer)
 }
 
