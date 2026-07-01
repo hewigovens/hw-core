@@ -16,7 +16,9 @@ async fn emu_ble_ffi_connect_ready_and_get_eth_address() {
     let harness = EmulatorHarness::start();
     set_dbus_system_bus_address(harness.dbus_system_bus_address());
 
-    let manager = BleManagerHandle::new().await.expect("create BLE manager");
+    let manager = BleManagerHandle::create()
+        .await
+        .expect("create BLE manager");
     let devices = manager
         .discover_trezor(8_000)
         .await
@@ -63,7 +65,9 @@ async fn emu_ble_ffi_sign_eth_message() {
     let harness = EmulatorHarness::start();
     set_dbus_system_bus_address(harness.dbus_system_bus_address());
 
-    let manager = BleManagerHandle::new().await.expect("create BLE manager");
+    let manager = BleManagerHandle::create()
+        .await
+        .expect("create BLE manager");
     let devices = manager
         .discover_trezor(8_000)
         .await
