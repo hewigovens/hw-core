@@ -914,7 +914,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 log("Auto-connect: scanning for remembered device $targetId")
 
                 if (bleManager == null) {
-                    bleManager = BleManagerHandle.new()
+                    bleManager = BleManagerHandle.create()
                     log("BLE manager initialized")
                 }
                 val mgr = bleManager ?: return@launch setError("Auto-connect failed: BLE manager unavailable")
@@ -1035,7 +1035,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                     return@launch setError("Scan failed: Bluetooth is off. Turn it on and try again.")
                 }
                 if (bleManager == null) {
-                    bleManager = BleManagerHandle.new()
+                    bleManager = BleManagerHandle.create()
                     log("BLE manager initialized")
                 }
                 val mgr = bleManager ?: return@launch setError("Scan failed: BLE manager unavailable")

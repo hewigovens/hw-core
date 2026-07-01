@@ -46,7 +46,7 @@ pub struct BleManagerHandle {
 #[uniffi::export(async_runtime = "tokio")]
 impl BleManagerHandle {
     #[uniffi::constructor]
-    pub async fn new() -> Result<Self, HWCoreError> {
+    pub async fn create() -> Result<Self, HWCoreError> {
         crate::init_platform_tracing_once();
         let manager = BleManager::new().await.map_err(HWCoreError::from)?;
         Ok(Self { manager })

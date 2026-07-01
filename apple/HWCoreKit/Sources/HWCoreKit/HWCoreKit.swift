@@ -12,7 +12,7 @@ public final class HWCoreKit: @unchecked Sendable {
     ) async throws -> HWCoreKit {
         do {
             try validateBluetoothUsageDescription()
-            let manager = try await BleManagerHandle()
+            let manager = try await BleManagerHandle.create()
             return HWCoreKit(manager: manager, config: config, logger: logger)
         } catch {
             throw mapError(error)
