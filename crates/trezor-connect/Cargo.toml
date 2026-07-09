@@ -24,7 +24,7 @@ aes-gcm = { workspace = true }
 sha2 = { workspace = true }
 hmac = "0.13"
 x25519-dalek = { workspace = true }
-num-bigint = "0.4"
+num-bigint = "0.5"
 num-traits = "0.2"
 hex = { workspace = true }
 serde_json = { workspace = true }
