@@ -49,4 +49,4 @@ tokio = "1"
 tracing = "0.1"
 trezor-connect = { version = "0.1.0", path = "crates/trezor-connect" }
 uuid = { version = "1", features = ["serde"] }
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
