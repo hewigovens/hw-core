@@ -17,7 +17,7 @@ use crate::thp::crypto::curve25519::{
 };
 use crate::thp::crypto::pairing::{
     HandshakeInitInput, HandshakeInitResponse, get_cpace_host_keys, get_shared_secret,
-    handle_handshake_init, validate_code_entry_tag, validate_qr_code_tag,
+    handle_handshake_init, validate_code_entry_tag, validate_nfc_tag, validate_qr_code_tag,
 };
 use crate::thp::crypto::{aes256gcm_decrypt, aes256gcm_encrypt, get_iv_from_nonce};
 use crate::thp::eip712::{build_struct_ack, resolve_value_for_member_path};
@@ -56,6 +56,8 @@ const MESSAGE_TYPE_FAILURE: u16 = 3;
 const MESSAGE_TYPE_BUTTON_REQUEST: u16 = messages::ThpMessageType::ButtonRequest as i32 as u16;
 const MESSAGE_TYPE_BUTTON_ACK: u16 = messages::ThpMessageType::ButtonAck as i32 as u16;
 const MIN_THP_FRAME_SIZE: usize = 9; // 1 magic + 2 channel + 2 len + 4 crc
+const MAX_THP_RESPONSE_PAYLOAD_SIZE: usize = u16::MAX as usize - 4; // Length includes CRC.
+const MAX_THP_CONTINUATION_FRAMES: usize = 10;
 const THP_CONTROL_BITS_MASK: u8 = (1 << 3) | (1 << 4);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -171,6 +173,68 @@ fn ingest_thp_v2_chunk(pending: &mut Option<ChunkAccumulator>, chunk: &[u8]) -> 
         *pending = Some(next);
     }
     None
+}
+
+fn continuation_limit_error(bytes: usize, frames: usize) -> BackendError {
+    BackendError::Transport(format!(
+        "THP response continuation limit exceeded: {bytes} bytes across {frames} frames (max {MAX_THP_RESPONSE_PAYLOAD_SIZE} bytes or {MAX_THP_CONTINUATION_FRAMES} frames)"
+    ))
+}
+
+fn clear_continuation(continuation: &mut Vec<u8>, continuation_frames: &mut usize) {
+    continuation.clear();
+    *continuation_frames = 0;
+}
+
+fn clear_receive_state(
+    rx_buffer: &mut Vec<u8>,
+    continuation: &mut Vec<u8>,
+    continuation_frames: &mut usize,
+    pending_chunk: &mut Option<ChunkAccumulator>,
+) {
+    rx_buffer.clear();
+    clear_continuation(continuation, continuation_frames);
+    *pending_chunk = None;
+}
+
+fn append_continuation(
+    continuation: &mut Vec<u8>,
+    continuation_frames: &mut usize,
+    chunk: &mut Vec<u8>,
+) -> BackendResult<()> {
+    let bytes = continuation.len().saturating_add(chunk.len());
+    let frames = continuation_frames.saturating_add(1);
+    if bytes > MAX_THP_RESPONSE_PAYLOAD_SIZE || frames > MAX_THP_CONTINUATION_FRAMES {
+        clear_continuation(continuation, continuation_frames);
+        return Err(continuation_limit_error(bytes, frames));
+    }
+
+    continuation.append(chunk);
+    *continuation_frames = frames;
+    Ok(())
+}
+
+fn merge_continuation(
+    continuation: &mut Vec<u8>,
+    continuation_frames: &mut usize,
+    payload: &mut Vec<u8>,
+) -> BackendResult<()> {
+    if *continuation_frames == 0 {
+        return Ok(());
+    }
+
+    let bytes = continuation.len().saturating_add(payload.len());
+    if bytes > MAX_THP_RESPONSE_PAYLOAD_SIZE {
+        let frames = *continuation_frames;
+        clear_continuation(continuation, continuation_frames);
+        return Err(continuation_limit_error(bytes, frames));
+    }
+
+    let mut merged = std::mem::take(continuation);
+    merged.append(payload);
+    *payload = merged;
+    *continuation_frames = 0;
+    Ok(())
 }
 
 fn decode_failure_as_backend_error(payload: &[u8]) -> BackendError {
@@ -441,6 +505,8 @@ pub struct BleBackend {
     state: ThpWireState,
     rx_buffer: Vec<u8>,
     continuation: Vec<u8>,
+    continuation_frames: usize,
+    nfc_secret: Option<[u8; 16]>,
     pending_chunk: Option<ChunkAccumulator>,
     last_sent_sync_frame: Option<Vec<u8>>,
     recent_response: Option<RecentReplayableResponse>,
@@ -456,6 +522,8 @@ impl BleBackend {
             state: ThpWireState::new(),
             rx_buffer: Vec::new(),
             continuation: Vec::new(),
+            continuation_frames: 0,
+            nfc_secret: None,
             pending_chunk: None,
             last_sent_sync_frame: None,
             recent_response: None,
@@ -485,6 +553,15 @@ impl BleBackend {
 
     fn transport_error(err: impl std::fmt::Display) -> BackendError {
         BackendError::Transport(err.to_string())
+    }
+
+    fn reset_receive_state(&mut self) {
+        clear_receive_state(
+            &mut self.rx_buffer,
+            &mut self.continuation,
+            &mut self.continuation_frames,
+            &mut self.pending_chunk,
+        );
     }
 
     fn device_error_from_code(code: u8) -> BackendError {
@@ -608,7 +685,14 @@ impl BleBackend {
 
     async fn read_next(&mut self) -> BackendResult<ParsedMessage> {
         loop {
-            if let Some(mut parsed) = self.try_parse()? {
+            let parsed = match self.try_parse() {
+                Ok(parsed) => parsed,
+                Err(err) => {
+                    self.reset_receive_state();
+                    return Err(err);
+                }
+            };
+            if let Some(mut parsed) = parsed {
                 if should_replay_recent_request(&parsed, &self.state, self.recent_response) {
                     debug!(
                         magic = format_args!("0x{:02x}", parsed.header.magic),
@@ -616,47 +700,69 @@ impl BleBackend {
                         got_seq = parsed.header.seq_bit,
                         "BLE THP retransmitted recent response; re-ACKing and replaying last outbound"
                     );
-                    self.send_ack_with_bit(parsed.header.seq_bit).await?;
-                    if let Some(frame) = self.last_sent_sync_frame.clone() {
-                        self.send_frame(frame).await?;
+                    if let Err(err) = self.send_ack_with_bit(parsed.header.seq_bit).await {
+                        self.reset_receive_state();
+                        return Err(err);
+                    }
+                    if let Some(frame) = self.last_sent_sync_frame.clone()
+                        && let Err(err) = self.send_frame(frame).await
+                    {
+                        self.reset_receive_state();
+                        return Err(err);
                     }
                     continue;
                 }
                 if is_replayable_response_magic(parsed.header.magic)
                     && parsed.header.seq_bit != self.state.recv_bit()
                 {
-                    return Err(BackendError::Transport(format!(
+                    let err = BackendError::Transport(format!(
                         "unexpected seq bit {} for THP frame 0x{:02x}; expected {}",
                         parsed.header.seq_bit,
                         parsed.header.magic,
                         self.state.recv_bit()
-                    )));
+                    ));
+                    self.reset_receive_state();
+                    return Err(err);
                 }
                 match &mut parsed.response {
                     WireResponse::Ack => continue,
                     WireResponse::Continuation(chunk) => {
-                        self.continuation.append(chunk);
+                        if let Err(err) = append_continuation(
+                            &mut self.continuation,
+                            &mut self.continuation_frames,
+                            chunk,
+                        ) {
+                            self.reset_receive_state();
+                            return Err(err);
+                        }
                         continue;
                     }
                     WireResponse::Protobuf { payload } => {
-                        if !self.continuation.is_empty() {
-                            let mut merged = std::mem::take(&mut self.continuation);
-                            merged.extend(payload.iter());
-                            *payload = merged;
+                        if let Err(err) = merge_continuation(
+                            &mut self.continuation,
+                            &mut self.continuation_frames,
+                            payload,
+                        ) {
+                            self.reset_receive_state();
+                            return Err(err);
                         }
                         self.remember_recent_response(&parsed);
                         return Ok(parsed);
                     }
                     _ => {
-                        if !self.continuation.is_empty() {
+                        if self.continuation_frames > 0 {
                             debug!(
-                                "discarding {} accumulated continuation bytes on non-protobuf response",
-                                self.continuation.len()
+                                "discarding {} accumulated continuation bytes across {} frames on non-protobuf response",
+                                self.continuation.len(),
+                                self.continuation_frames
                             );
                         }
-                        self.continuation.clear();
-                        if self.should_ack(&parsed.header) {
-                            self.send_ack(&parsed.header).await?;
+                        clear_continuation(&mut self.continuation, &mut self.continuation_frames);
+                        if self.should_ack(&parsed.header)
+                            && let Err(err) = self.send_ack(&parsed.header).await
+                        {
+                            self.reset_receive_state();
+                            return Err(err);
                         }
                         self.remember_recent_response(&parsed);
                         return Ok(parsed);
@@ -669,10 +775,17 @@ impl BleBackend {
                 link.read()
             };
 
-            let chunk = time::timeout(self.handshake_timeout, read_future)
-                .await
-                .map_err(|_| BackendError::TransportTimeout)?
-                .map_err(Self::transport_error)?;
+            let chunk = match time::timeout(self.handshake_timeout, read_future).await {
+                Ok(Ok(chunk)) => chunk,
+                Ok(Err(err)) => {
+                    self.reset_receive_state();
+                    return Err(Self::transport_error(err));
+                }
+                Err(_) => {
+                    self.reset_receive_state();
+                    return Err(BackendError::TransportTimeout);
+                }
+            };
             debug!(
                 "BLE THP RX chunk: first=0x{:02x} len={}",
                 chunk.first().copied().unwrap_or(0),

@@ -16,6 +16,6 @@ anyhow = { workspace = true }
 btleplug = { workspace = true, optional = true }
 futures = "0.3"
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 tracing = { workspace = true }
 uuid = { workspace = true }

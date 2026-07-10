@@ -37,6 +37,9 @@ prost = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 crc32fast = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 parking_lot = { workspace = true }
