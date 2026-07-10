@@ -2,9 +2,7 @@ use btleplug::api::{Characteristic, Peripheral as _, WriteType};
 use btleplug::platform::Peripheral;
 #[cfg(not(target_os = "android"))]
 use futures::StreamExt;
-#[cfg(not(target_os = "android"))]
 use tokio::time::{self, Duration};
-#[cfg(not(target_os = "android"))]
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::debug;
 use uuid::Uuid;
@@ -30,9 +28,7 @@ pub struct BleSession {
     write_char: Characteristic,
     notify_char: Characteristic,
     push_char: Option<Characteristic>,
-    #[cfg(not(target_os = "android"))]
-    receiver: mpsc::Receiver<Vec<u8>>,
-    #[cfg(not(target_os = "android"))]
+    receiver: mpsc::Receiver<BleResult<Vec<u8>>>,
     notify_task: JoinHandle<()>,
     mtu: usize,
 }
@@ -95,10 +91,45 @@ impl BleSession {
             peripheral.subscribe(push_char).await?;
         }
 
+        #[cfg(target_os = "android")]
+        let (rx, notify_task) = {
+            let peripheral = peripheral.clone();
+            let notify_char = notify_char.clone();
+            let (tx, rx) = mpsc::channel::<BleResult<Vec<u8>>>(64);
+            // Keep the JNI read future alive across caller timeouts; channel receives are cancel-safe.
+            let notify_task = tokio::spawn(async move {
+                while !tx.is_closed() {
+                    let read_result = peripheral.read(&notify_char).await;
+                    if tx.is_closed() {
+                        break;
+                    }
+                    match read_result {
+                        Ok(data) if data.is_empty() => {}
+                        Ok(data) => {
+                            debug!(
+                                characteristic = %notify_char.uuid,
+                                bytes = data.len(),
+                                "BLE notification received"
+                            );
+                            if tx.send(Ok(data)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Err(err.into())).await;
+                            break;
+                        }
+                    }
+                }
+                debug!("BLE notification reader ended");
+            });
+            (rx, notify_task)
+        };
+
         #[cfg(not(target_os = "android"))]
         let (rx, notify_task) = {
             let mut notifications = peripheral.notifications().await?;
-            let (tx, rx) = mpsc::channel(64);
+            let (tx, rx) = mpsc::channel::<BleResult<Vec<u8>>>(64);
             let notify_task = tokio::spawn(async move {
                 while let Some(event) = notifications.next().await {
                     debug!(
@@ -106,7 +137,7 @@ impl BleSession {
                         bytes = event.value.len(),
                         "BLE notification received"
                     );
-                    if tx.send(event.value).await.is_err() {
+                    if tx.send(Ok(event.value)).await.is_err() {
                         break;
                     }
                 }
@@ -144,9 +175,7 @@ impl BleSession {
             write_char,
             notify_char,
             push_char,
-            #[cfg(not(target_os = "android"))]
             receiver: rx,
-            #[cfg(not(target_os = "android"))]
             notify_task,
             mtu,
         })
@@ -170,9 +199,7 @@ impl BleSession {
             write_char: self.write_char,
             notify_char: self.notify_char,
             push_char: self.push_char,
-            #[cfg(not(target_os = "android"))]
             receiver: self.receiver,
-            #[cfg(not(target_os = "android"))]
             notify_task: self.notify_task,
             mtu: self.mtu,
         }
@@ -189,9 +216,7 @@ pub struct BleLink {
     write_char: Characteristic,
     notify_char: Characteristic,
     push_char: Option<Characteristic>,
-    #[cfg(not(target_os = "android"))]
-    receiver: mpsc::Receiver<Vec<u8>>,
-    #[cfg(not(target_os = "android"))]
+    receiver: mpsc::Receiver<BleResult<Vec<u8>>>,
     notify_task: JoinHandle<()>,
     mtu: usize,
 }
@@ -201,6 +226,9 @@ impl BleLink {
         if !self.peripheral.is_connected().await? {
             return Ok(());
         }
+        self.receiver.close();
+        self.notify_task.abort();
+        let _ = (&mut self.notify_task).await;
         self.peripheral.unsubscribe(&self.notify_char).await?;
         if let Some(push_char) = &self.push_char {
             self.peripheral.unsubscribe(push_char).await?;
@@ -225,28 +253,9 @@ impl BleLink {
     }
 
     pub async fn read(&mut self) -> anyhow::Result<Vec<u8>> {
-        #[cfg(target_os = "android")]
-        {
-            loop {
-                let data = self.peripheral.read(&self.notify_char).await?;
-                if !data.is_empty() {
-                    debug!(bytes = data.len(), source = "read-notify", "BLE read chunk");
-                    return Ok(data);
-                }
-            }
-        }
-
-        #[cfg(not(target_os = "android"))]
-        loop {
-            match time::timeout(Duration::from_millis(250), self.receiver.recv()).await {
-                Ok(Some(data)) => {
-                    debug!(bytes = data.len(), source = "notify", "BLE read chunk");
-                    return Ok(data);
-                }
-                Ok(None) => return Err(BleError::NotificationStreamClosed.into()),
-                Err(_) => {}
-            }
-        }
+        let data = receive_notification(&mut self.receiver).await?;
+        debug!(bytes = data.len(), source = "notify", "BLE read chunk");
+        Ok(data)
     }
 
     pub fn mtu(&self) -> usize {
@@ -255,13 +264,9 @@ impl BleLink {
 }
 
 impl Drop for BleLink {
-    #[cfg(not(target_os = "android"))]
     fn drop(&mut self) {
         self.notify_task.abort();
     }
-
-    #[cfg(target_os = "android")]
-    fn drop(&mut self) {}
 }
 
 pub struct BleBackend {
@@ -284,6 +289,18 @@ impl BleBackend {
     }
 }
 
+async fn receive_notification(
+    receiver: &mut mpsc::Receiver<BleResult<Vec<u8>>>,
+) -> BleResult<Vec<u8>> {
+    loop {
+        match time::timeout(Duration::from_millis(250), receiver.recv()).await {
+            Ok(Some(result)) => return result,
+            Ok(None) => return Err(BleError::NotificationStreamClosed),
+            Err(_) => {}
+        }
+    }
+}
+
 fn find_characteristic(
     characteristics: &std::collections::BTreeSet<Characteristic>,
     service_uuid: Uuid,
@@ -293,4 +310,33 @@ fn find_characteristic(
         .iter()
         .find(|c| c.service_uuid == service_uuid && c.uuid == uuid)
         .cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::oneshot;
+
+    #[tokio::test]
+    async fn timed_out_consumer_keeps_persistent_notification_reader() {
+        let (tx, mut rx) = mpsc::channel::<BleResult<Vec<u8>>>(1);
+        let (started_tx, started_rx) = oneshot::channel();
+        let (deliver_tx, deliver_rx) = oneshot::channel();
+        let producer = tokio::spawn(async move {
+            started_tx.send(()).unwrap();
+            deliver_rx.await.unwrap();
+            tx.send(Ok(vec![0x42])).await.unwrap();
+        });
+
+        started_rx.await.unwrap();
+        assert!(
+            time::timeout(Duration::from_millis(1), receive_notification(&mut rx))
+                .await
+                .is_err()
+        );
+        deliver_tx.send(()).unwrap();
+
+        assert_eq!(receive_notification(&mut rx).await.unwrap(), vec![0x42]);
+        producer.await.unwrap();
+    }
 }

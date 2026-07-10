@@ -188,6 +188,161 @@ fn thp_v2_chunk_reassembly_roundtrip() {
 }
 
 #[test]
+fn fragmented_protobuf_reassembles_beyond_continuation_frame_limit() {
+    let payload = vec![0xa5; 256];
+    let frame = wire::encode_protobuf_request(0x1234, 0, &payload);
+    let chunks = chunk_v2_frame(&frame, 12);
+    assert!(chunks.len() > MAX_THP_CONTINUATION_FRAMES);
+
+    let mut pending = None;
+    let mut reassembled = None;
+    for chunk in chunks {
+        if let Some(full) = ingest_thp_v2_chunk(&mut pending, &chunk) {
+            reassembled = Some(full);
+        }
+    }
+
+    let decoded = wire::decode_frame(reassembled.as_deref().unwrap(), Some(0x1234)).unwrap();
+    let parsed = wire::parse_response(decoded.message, decoded.crc).unwrap();
+    let WireResponse::Protobuf {
+        payload: reassembled_payload,
+    } = parsed.response
+    else {
+        panic!("expected protobuf response");
+    };
+    assert_eq!(reassembled_payload, payload);
+}
+
+#[test]
+fn continuation_payloads_merge_with_final_protobuf() {
+    let mut continuation = Vec::new();
+    let mut continuation_frames = 0;
+    let mut first = vec![1, 2];
+    let mut second = vec![3, 4];
+    let mut payload = vec![5, 6];
+
+    append_continuation(&mut continuation, &mut continuation_frames, &mut first).unwrap();
+    append_continuation(&mut continuation, &mut continuation_frames, &mut second).unwrap();
+    merge_continuation(&mut continuation, &mut continuation_frames, &mut payload).unwrap();
+
+    assert_eq!(payload, vec![1, 2, 3, 4, 5, 6]);
+    assert!(continuation.is_empty());
+    assert_eq!(continuation_frames, 0);
+}
+
+#[test]
+fn continuation_byte_limit_accepts_boundary_and_rejects_overflow_with_cleanup() {
+    let final_payload_len = 17;
+    let mut continuation = Vec::new();
+    let mut continuation_frames = 0;
+    let mut boundary_chunk = vec![0xaa; MAX_THP_RESPONSE_PAYLOAD_SIZE - final_payload_len];
+    let mut payload = vec![0xbb; final_payload_len];
+
+    append_continuation(
+        &mut continuation,
+        &mut continuation_frames,
+        &mut boundary_chunk,
+    )
+    .unwrap();
+    merge_continuation(&mut continuation, &mut continuation_frames, &mut payload).unwrap();
+    assert_eq!(payload.len(), MAX_THP_RESPONSE_PAYLOAD_SIZE);
+
+    let mut full_chunk = vec![0xcc; MAX_THP_RESPONSE_PAYLOAD_SIZE];
+    append_continuation(&mut continuation, &mut continuation_frames, &mut full_chunk).unwrap();
+    let mut overflow_payload = vec![0xdd];
+    let err = merge_continuation(
+        &mut continuation,
+        &mut continuation_frames,
+        &mut overflow_payload,
+    )
+    .unwrap_err();
+    let BackendError::Transport(message) = err else {
+        panic!("expected transport error");
+    };
+    assert_eq!(
+        message,
+        format!(
+            "THP response continuation limit exceeded: {} bytes across 1 frames (max {MAX_THP_RESPONSE_PAYLOAD_SIZE} bytes or {MAX_THP_CONTINUATION_FRAMES} frames)",
+            MAX_THP_RESPONSE_PAYLOAD_SIZE + 1
+        )
+    );
+    assert!(continuation.is_empty());
+    assert_eq!(continuation_frames, 0);
+
+    let mut replacement = vec![0xee];
+    append_continuation(
+        &mut continuation,
+        &mut continuation_frames,
+        &mut replacement,
+    )
+    .unwrap();
+    let mut recovered_payload = vec![0xef];
+    merge_continuation(
+        &mut continuation,
+        &mut continuation_frames,
+        &mut recovered_payload,
+    )
+    .unwrap();
+    assert_eq!(recovered_payload, vec![0xee, 0xef]);
+}
+
+#[test]
+fn continuation_frame_limit_rejects_overflow_with_cleanup() {
+    let mut continuation = Vec::new();
+    let mut continuation_frames = 0;
+    for _ in 0..MAX_THP_CONTINUATION_FRAMES {
+        let mut chunk = Vec::new();
+        append_continuation(&mut continuation, &mut continuation_frames, &mut chunk).unwrap();
+    }
+
+    let mut overflow = Vec::new();
+    let err = append_continuation(&mut continuation, &mut continuation_frames, &mut overflow)
+        .unwrap_err();
+    let BackendError::Transport(message) = err else {
+        panic!("expected transport error");
+    };
+    assert_eq!(
+        message,
+        format!(
+            "THP response continuation limit exceeded: 0 bytes across 11 frames (max {MAX_THP_RESPONSE_PAYLOAD_SIZE} bytes or {MAX_THP_CONTINUATION_FRAMES} frames)"
+        )
+    );
+    assert!(continuation.is_empty());
+    assert_eq!(continuation_frames, 0);
+
+    let mut replacement = vec![0xee];
+    append_continuation(
+        &mut continuation,
+        &mut continuation_frames,
+        &mut replacement,
+    )
+    .unwrap();
+}
+
+#[test]
+fn terminal_receive_cleanup_discards_logical_and_physical_fragments() {
+    let frame = wire::encode_protobuf_request(0x1234, 0, &[0xaa; 64]);
+    let chunks = chunk_v2_frame(&frame, 12);
+    let mut pending_chunk = None;
+    assert!(ingest_thp_v2_chunk(&mut pending_chunk, &chunks[0]).is_none());
+
+    let mut rx_buffer = vec![0x01, 0x02];
+    let mut continuation = vec![0x03, 0x04];
+    let mut continuation_frames = 2;
+    clear_receive_state(
+        &mut rx_buffer,
+        &mut continuation,
+        &mut continuation_frames,
+        &mut pending_chunk,
+    );
+
+    assert!(rx_buffer.is_empty());
+    assert!(continuation.is_empty());
+    assert_eq!(continuation_frames, 0);
+    assert!(pending_chunk.is_none());
+}
+
+#[test]
 fn handles_tx_orig_input_request() {
     let btc = sample_btc_sign_tx();
     let ref_txs_by_hash = build_ref_txs_index(&btc);

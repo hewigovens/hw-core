@@ -1,5 +1,73 @@
 use super::*;
 
+const NFC_SECRET_LENGTH: usize = 16;
+const NFC_HANDSHAKE_HASH_LENGTH: usize = 16;
+
+fn build_nfc_data(
+    secret: &[u8; NFC_SECRET_LENGTH],
+    handshake_hash: &[u8],
+) -> BackendResult<Vec<u8>> {
+    let handshake_hash = handshake_hash
+        .get(..NFC_HANDSHAKE_HASH_LENGTH)
+        .ok_or_else(|| {
+            BackendError::Transport(format!(
+                "NFC pairing requires at least {NFC_HANDSHAKE_HASH_LENGTH} handshake hash bytes"
+            ))
+        })?;
+    let mut data = Vec::with_capacity(NFC_SECRET_LENGTH + NFC_HANDSHAKE_HASH_LENGTH);
+    data.extend_from_slice(secret);
+    data.extend_from_slice(handshake_hash);
+    Ok(data)
+}
+
+fn prepare_nfc_pairing(
+    stored_secret: &mut Option<[u8; NFC_SECRET_LENGTH]>,
+    secret: [u8; NFC_SECRET_LENGTH],
+    handshake_hash: &[u8],
+) -> BackendResult<Vec<u8>> {
+    let nfc_data = build_nfc_data(&secret, handshake_hash)?;
+    *stored_secret = Some(secret);
+    Ok(nfc_data)
+}
+
+fn validated_nfc_pairing_response(
+    handshake_hash: &[u8],
+    secret: &[u8; NFC_SECRET_LENGTH],
+    response_tag: Vec<u8>,
+) -> PairingTagResponse {
+    if let Err(err) = validate_nfc_tag(handshake_hash, &hex::encode(&response_tag), secret) {
+        debug!("NFC tag validation failed: {err}");
+        return PairingTagResponse::Retry("pairing tag mismatch".into());
+    }
+
+    PairingTagResponse::Accepted {
+        secret: response_tag,
+    }
+}
+
+fn record_bitcoin_signature(
+    signatures: &mut Vec<Vec<u8>>,
+    input_count: usize,
+    signature_index: u32,
+    signature: &[u8],
+) -> BackendResult<()> {
+    let invalid_index = || {
+        BackendError::Device(format!(
+            "device returned Bitcoin signature index {signature_index} for input count {input_count}"
+        ))
+    };
+    let index = usize::try_from(signature_index).map_err(|_| invalid_index())?;
+    if index >= input_count {
+        return Err(invalid_index());
+    }
+    let required_len = index.checked_add(1).ok_or_else(invalid_index)?;
+    if signatures.len() < required_len {
+        signatures.resize(required_len, Vec::new());
+    }
+    signatures[index] = signature.to_vec();
+    Ok(())
+}
+
 impl ThpBackend for BleBackend {
     async fn create_channel(
         &mut self,
@@ -63,6 +131,7 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: HandshakeInitRequest,
     ) -> BackendResult<HandshakeInitOutcome> {
+        self.nfc_secret = None;
         let handshake_hash = self
             .state
             .handshake_hash()
@@ -283,10 +352,25 @@ impl ThpBackend for BleBackend {
                 Ok(Ok(response))
             })
             .await?;
-        let response = match outcome {
+        let mut response = match outcome {
             Ok(response) => response,
             Err(err) => return Err(err),
         };
+
+        if request.method == PairingMethod::Nfc
+            && let SelectMethodResponse::PairingPreparationsFinished { nfc_data } = &mut response
+        {
+            let handshake_hash = self
+                .state
+                .handshake_hash()
+                .ok_or_else(|| BackendError::Transport("missing handshake hash".into()))?;
+            let secret = rand::random::<[u8; NFC_SECRET_LENGTH]>();
+            *nfc_data = Some(prepare_nfc_pairing(
+                &mut self.nfc_secret,
+                secret,
+                &handshake_hash,
+            )?);
+        }
 
         Ok(response)
     }
@@ -381,7 +465,15 @@ impl ThpBackend for BleBackend {
                     Ok(response) => response,
                 };
 
-                Ok(to_pairing_tag_response(response))
+                let secret = self
+                    .nfc_secret
+                    .as_ref()
+                    .ok_or_else(|| BackendError::Transport("missing NFC pairing secret".into()))?;
+                Ok(validated_nfc_pairing_response(
+                    &handshake_hash,
+                    secret,
+                    response.secret,
+                ))
             }
             PairingTagRequest::CodeEntry {
                 code,
@@ -762,11 +854,12 @@ impl ThpBackend for BleBackend {
                     if let Some(signature) = tx_request.signature.as_ref() {
                         last_signature = Some(signature.clone());
                         if let Some(idx) = tx_request.signature_index {
-                            let idx = idx as usize;
-                            if signatures.len() <= idx {
-                                signatures.resize(idx + 1, Vec::new());
-                            }
-                            signatures[idx] = signature.clone();
+                            record_bitcoin_signature(
+                                &mut signatures,
+                                btc.inputs.len(),
+                                idx,
+                                signature,
+                            )?;
                         }
                     }
 
@@ -805,10 +898,98 @@ impl ThpBackend for BleBackend {
     }
 
     async fn abort(&mut self) -> BackendResult<()> {
+        self.nfc_secret = None;
         self.transport.reset();
+        self.reset_receive_state();
         self.inner
             .abort()
             .await
             .map_err(|e| BackendError::Transport(e.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn nfc_response_tag(handshake_hash: &[u8], secret: &[u8]) -> Vec<u8> {
+        let mut hasher = Sha256::new();
+        hasher.update([messages::ThpPairingMethod::Nfc as u8]);
+        hasher.update(handshake_hash);
+        hasher.update(secret);
+        hasher.finalize()[..NFC_HANDSHAKE_HASH_LENGTH].to_vec()
+    }
+
+    #[test]
+    fn nfc_pairing_data_and_response_match_suite_layout() {
+        let handshake_hash = [0x21; 32];
+        let secret = [0x34; NFC_SECRET_LENGTH];
+        let mut stored_secret = None;
+        let nfc_data = prepare_nfc_pairing(&mut stored_secret, secret, &handshake_hash).unwrap();
+
+        assert_eq!(stored_secret, Some(secret));
+        assert_eq!(&nfc_data[..NFC_SECRET_LENGTH], &secret);
+        assert_eq!(
+            &nfc_data[NFC_SECRET_LENGTH..],
+            &handshake_hash[..NFC_HANDSHAKE_HASH_LENGTH]
+        );
+
+        let response_tag = nfc_response_tag(&handshake_hash, &secret);
+        assert!(matches!(
+            validated_nfc_pairing_response(&handshake_hash, &secret, response_tag),
+            PairingTagResponse::Accepted { .. }
+        ));
+    }
+
+    #[test]
+    fn nfc_pairing_preparations_replace_previous_secret() {
+        let handshake_hash = [0x21; 32];
+        let old_secret = [0x34; NFC_SECRET_LENGTH];
+        let new_secret = [0x56; NFC_SECRET_LENGTH];
+        let mut stored_secret = Some(old_secret);
+
+        let nfc_data =
+            prepare_nfc_pairing(&mut stored_secret, new_secret, &handshake_hash).unwrap();
+
+        assert_eq!(stored_secret, Some(new_secret));
+        assert_eq!(&nfc_data[..NFC_SECRET_LENGTH], &new_secret);
+    }
+
+    #[test]
+    fn nfc_pairing_retries_mismatched_device_tag() {
+        let handshake_hash = [0x21; 32];
+        let secret = [0x34; NFC_SECRET_LENGTH];
+        let response = validated_nfc_pairing_response(&handshake_hash, &secret, vec![0; 16]);
+
+        assert!(matches!(response, PairingTagResponse::Retry(_)));
+    }
+
+    #[test]
+    fn bitcoin_signature_index_accepts_last_input() {
+        let mut signatures = Vec::new();
+
+        record_bitcoin_signature(&mut signatures, 2, 1, &[0xaa, 0xbb]).unwrap();
+
+        assert_eq!(signatures, vec![Vec::<u8>::new(), vec![0xaa, 0xbb]]);
+    }
+
+    #[test]
+    fn bitcoin_signature_index_rejects_out_of_range_without_resizing() {
+        for signature_index in [1, u32::MAX] {
+            let mut signatures = vec![vec![0x11]];
+            let err = record_bitcoin_signature(&mut signatures, 1, signature_index, &[0xaa, 0xbb])
+                .unwrap_err();
+
+            let BackendError::Device(message) = err else {
+                panic!("expected device error");
+            };
+            assert_eq!(
+                message,
+                format!(
+                    "device returned Bitcoin signature index {signature_index} for input count 1"
+                )
+            );
+            assert_eq!(signatures, vec![vec![0x11]]);
+        }
     }
 }
