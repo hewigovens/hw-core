@@ -229,7 +229,7 @@ fn normalize_recovery_id(v: u32) -> WalletResult<RecoveryId> {
 }
 
 fn verifying_key_to_checksum_address(verifying_key: &VerifyingKey) -> WalletResult<String> {
-    let pubkey = verifying_key.to_encoded_point(false);
+    let pubkey = verifying_key.to_sec1_point(false);
     let bytes = pubkey.as_bytes();
     if bytes.len() != 65 || bytes[0] != 0x04 {
         return Err(WalletError::Signing(
@@ -316,7 +316,7 @@ mod tests {
             hex::decode("4c0883a69102937d6231471b5dbb6204fe512961708279ef4f8f6f1842f5f6d4")
                 .unwrap();
         let signing_key = SigningKey::from_slice(&key_bytes).unwrap();
-        let (signature, recovery_id) = signing_key.sign_prehash_recoverable(&tx_hash).unwrap();
+        let (signature, recovery_id) = signing_key.sign_prehash_recoverable(&tx_hash);
         let response = SignTxResponse {
             chain: Chain::Ethereum,
             v: u32::from(recovery_id.to_byte()),
