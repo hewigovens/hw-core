@@ -15,7 +15,7 @@ ble-transport = { workspace = true, features = [
 bs58 = { workspace = true }
 hex = { workspace = true }
 hw-chain = { workspace = true }
-k256 = { version = "0.13", features = ["ecdsa"] }
+k256 = { version = "0.14", features = ["ecdsa"] }
 rlp = "0.6.1"
 serde = { workspace = true }
 serde_json = { workspace = true }

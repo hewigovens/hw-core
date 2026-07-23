@@ -22,10 +22,12 @@ jobs:
   emu-ble:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
 
       - name: Install system deps
         run: |
@@ -43,10 +45,10 @@ jobs:
           echo "${{ github.workspace }}/.venv/bin" >> $GITHUB_PATH
 
       - name: Run sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
       - name: Restore cargo cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "ci-rust"
 
@@ -64,7 +66,7 @@ jobs:
       - name: Patch emulator binary for Ubuntu
         run: |
           # Install libjpeg62-turbo from Debian bookworm (not in Ubuntu 24.04 repos)
-          wget -q http://deb.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb
+          wget -q --max-redirect=0 https://deb.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb
           sudo dpkg -i libjpeg62-turbo_2.1.5-2_amd64.deb
           rm libjpeg62-turbo_2.1.5-2_amd64.deb
           # Rewrite Nix interpreter and rpath to use system libraries
@@ -74,7 +76,7 @@ jobs:
           ldd tests/fixtures/trezor-emu-core-T3W1
 
       - name: Build
-        run: cargo build --workspace
+        run: cargo build --workspace --locked
 
       - name: Run emulator integration tests
         env:
