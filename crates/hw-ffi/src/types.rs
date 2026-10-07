@@ -107,7 +107,6 @@ pub type HandshakeCache = RawHandshakeCache;
 #[uniffi::remote(Record)]
 pub struct HandshakeCache {
     pub channel: u16,
-    pub handshake_hash: Vec<u8>,
     pub pairing_methods: Vec<PairingMethod>,
 }
 

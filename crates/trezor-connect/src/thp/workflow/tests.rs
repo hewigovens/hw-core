@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 struct MockBackend {
     create_channel_resp: CreateChannelResponse,
-    handshake_outcome: HandshakeInitOutcome,
+    handshake_hash: Vec<u8>,
+    selected_credential: Option<KnownCredential>,
     handshake_state: HandshakeCompletionState,
     credential_response: Option<CredentialResponse>,
     require_end_before_session: bool,
@@ -21,15 +22,14 @@ struct MockBackend {
     pairing_requested: Mutex<bool>,
     end_called: Mutex<bool>,
     session_passphrases: Mutex<Vec<Option<String>>>,
+    channel_requests: Mutex<Vec<bool>>,
 }
 
 impl MockBackend {
     fn autopair() -> Self {
         Self {
             create_channel_resp: CreateChannelResponse {
-                nonce: [1u8; 8],
                 channel: 1,
-                handshake_hash: b"hash".to_vec(),
                 properties: ThpProperties {
                     internal_model: "T2T1".into(),
                     model_variant: 0,
@@ -38,31 +38,12 @@ impl MockBackend {
                     pairing_methods: vec![PairingMethod::SkipPairing],
                 },
             },
-            handshake_outcome: HandshakeInitOutcome {
-                host_encrypted_static_pubkey: vec![1, 2, 3],
-                encrypted_payload: vec![4, 5, 6],
-                trezor_encrypted_static_pubkey: vec![7, 8, 9],
-                handshake_hash: b"hash".to_vec(),
-                host_key: vec![10],
-                trezor_key: vec![11],
-                host_static_key: vec![12],
-                host_static_public_key: vec![13],
-                pairing_methods: vec![PairingMethod::SkipPairing],
-                credentials: vec![KnownCredential {
-                    credential: "cred1".into(),
-                    trezor_static_public_key: Some(vec![0x11; 32]),
-                    autoconnect: true,
-                }],
-                selected_credential: Some(KnownCredential {
-                    credential: "cred1".into(),
-                    trezor_static_public_key: Some(vec![0x11; 32]),
-                    autoconnect: true,
-                }),
-                nfc_data: None,
-                handshake_commitment: None,
-                trezor_cpace_public_key: None,
-                code_entry_challenge: None,
-            },
+            handshake_hash: b"hash".to_vec(),
+            selected_credential: Some(KnownCredential {
+                credential: "cred1".into(),
+                trezor_static_public_key: Some(vec![0x11; 32]),
+                autoconnect: true,
+            }),
             handshake_state: HandshakeCompletionState::AutoPaired,
             credential_response: Some(CredentialResponse {
                 trezor_static_public_key: vec![0x11; 32],
@@ -79,15 +60,14 @@ impl MockBackend {
             pairing_requested: Mutex::new(false),
             end_called: Mutex::new(false),
             session_passphrases: Mutex::new(Vec::new()),
+            channel_requests: Mutex::new(Vec::new()),
         }
     }
 
     fn paired_connection_flow() -> Self {
         Self {
             create_channel_resp: CreateChannelResponse {
-                nonce: [4u8; 8],
                 channel: 4,
-                handshake_hash: b"paired".to_vec(),
                 properties: ThpProperties {
                     internal_model: "T3W1".into(),
                     model_variant: 1,
@@ -96,31 +76,12 @@ impl MockBackend {
                     pairing_methods: vec![PairingMethod::CodeEntry],
                 },
             },
-            handshake_outcome: HandshakeInitOutcome {
-                host_encrypted_static_pubkey: vec![1, 2, 3],
-                encrypted_payload: vec![4, 5, 6],
-                trezor_encrypted_static_pubkey: vec![7, 8, 9],
-                handshake_hash: b"paired".to_vec(),
-                host_key: vec![10],
-                trezor_key: vec![11],
-                host_static_key: vec![12],
-                host_static_public_key: vec![13],
-                pairing_methods: vec![PairingMethod::CodeEntry],
-                credentials: vec![KnownCredential {
-                    credential: "paired-cred".into(),
-                    trezor_static_public_key: Some(vec![0x55; 32]),
-                    autoconnect: false,
-                }],
-                selected_credential: Some(KnownCredential {
-                    credential: "paired-cred".into(),
-                    trezor_static_public_key: Some(vec![0x55; 32]),
-                    autoconnect: false,
-                }),
-                nfc_data: None,
-                handshake_commitment: None,
-                trezor_cpace_public_key: None,
-                code_entry_challenge: None,
-            },
+            handshake_hash: b"paired".to_vec(),
+            selected_credential: Some(KnownCredential {
+                credential: "paired-cred".into(),
+                trezor_static_public_key: Some(vec![0x55; 32]),
+                autoconnect: false,
+            }),
             handshake_state: HandshakeCompletionState::Paired,
             credential_response: Some(CredentialResponse {
                 trezor_static_public_key: vec![0x56; 32],
@@ -137,6 +98,7 @@ impl MockBackend {
             pairing_requested: Mutex::new(false),
             end_called: Mutex::new(false),
             session_passphrases: Mutex::new(Vec::new()),
+            channel_requests: Mutex::new(Vec::new()),
         }
     }
 
@@ -145,9 +107,7 @@ impl MockBackend {
         select.push_back(SelectMethodResponse::PairingPreparationsFinished { nfc_data: None });
         Self {
             create_channel_resp: CreateChannelResponse {
-                nonce: [2u8; 8],
                 channel: 2,
-                handshake_hash: b"pair".to_vec(),
                 properties: ThpProperties {
                     internal_model: "T2T1".into(),
                     model_variant: 0,
@@ -156,23 +116,8 @@ impl MockBackend {
                     pairing_methods: vec![PairingMethod::QrCode],
                 },
             },
-            handshake_outcome: HandshakeInitOutcome {
-                host_encrypted_static_pubkey: vec![1, 2, 3],
-                encrypted_payload: vec![4, 5, 6],
-                trezor_encrypted_static_pubkey: vec![7, 8, 9],
-                handshake_hash: b"pair".to_vec(),
-                host_key: vec![10],
-                trezor_key: vec![11],
-                host_static_key: vec![12],
-                host_static_public_key: vec![13],
-                pairing_methods: vec![PairingMethod::QrCode],
-                credentials: vec![],
-                selected_credential: None,
-                nfc_data: None,
-                handshake_commitment: None,
-                trezor_cpace_public_key: None,
-                code_entry_challenge: None,
-            },
+            handshake_hash: b"pair".to_vec(),
+            selected_credential: None,
             handshake_state: HandshakeCompletionState::RequiresPairing,
             credential_response: Some(CredentialResponse {
                 trezor_static_public_key: vec![0x22; 32],
@@ -191,6 +136,7 @@ impl MockBackend {
             pairing_requested: Mutex::new(false),
             end_called: Mutex::new(false),
             session_passphrases: Mutex::new(Vec::new()),
+            channel_requests: Mutex::new(Vec::new()),
         }
     }
 
@@ -201,9 +147,7 @@ impl MockBackend {
         });
         Self {
             create_channel_resp: CreateChannelResponse {
-                nonce: [3u8; 8],
                 channel: 3,
-                handshake_hash: b"code-entry".to_vec(),
                 properties: ThpProperties {
                     internal_model: "T3W1".into(),
                     model_variant: 1,
@@ -212,23 +156,8 @@ impl MockBackend {
                     pairing_methods: vec![PairingMethod::CodeEntry],
                 },
             },
-            handshake_outcome: HandshakeInitOutcome {
-                host_encrypted_static_pubkey: vec![1, 2, 3],
-                encrypted_payload: vec![4, 5, 6],
-                trezor_encrypted_static_pubkey: vec![7, 8, 9],
-                handshake_hash: b"code-entry".to_vec(),
-                host_key: vec![10],
-                trezor_key: vec![11],
-                host_static_key: vec![12],
-                host_static_public_key: vec![13],
-                pairing_methods: vec![PairingMethod::CodeEntry],
-                credentials: vec![],
-                selected_credential: None,
-                nfc_data: None,
-                handshake_commitment: None,
-                trezor_cpace_public_key: None,
-                code_entry_challenge: None,
-            },
+            handshake_hash: b"code-entry".to_vec(),
+            selected_credential: None,
             handshake_state: HandshakeCompletionState::RequiresPairing,
             credential_response: Some(CredentialResponse {
                 trezor_static_public_key: vec![0x33; 32],
@@ -249,6 +178,7 @@ impl MockBackend {
             pairing_requested: Mutex::new(false),
             end_called: Mutex::new(false),
             session_passphrases: Mutex::new(Vec::new()),
+            channel_requests: Mutex::new(Vec::new()),
         }
     }
 }
@@ -258,24 +188,15 @@ impl ThpBackend for MockBackend {
         &mut self,
         request: CreateChannelRequest,
     ) -> BackendResult<CreateChannelResponse> {
-        let mut resp = self.create_channel_resp.clone();
-        resp.nonce = request.nonce;
-        Ok(resp)
+        self.channel_requests.lock().push(request.try_to_unlock);
+        Ok(self.create_channel_resp.clone())
     }
 
-    async fn handshake_init(
-        &mut self,
-        _request: HandshakeInitRequest,
-    ) -> BackendResult<HandshakeInitOutcome> {
-        Ok(self.handshake_outcome.clone())
-    }
-
-    async fn handshake_complete(
-        &mut self,
-        _request: HandshakeCompletionRequest,
-    ) -> BackendResult<HandshakeCompletionResponse> {
-        Ok(HandshakeCompletionResponse {
+    async fn handshake(&mut self, _request: HandshakeRequest) -> BackendResult<HandshakeResponse> {
+        Ok(HandshakeResponse {
             state: self.handshake_state,
+            handshake_hash: self.handshake_hash.clone(),
+            selected_credential: self.selected_credential.clone(),
         })
     }
 
@@ -807,7 +728,11 @@ async fn handshake_persists_host_state_to_storage() {
     let storage = Arc::new(InMemoryStorage::new(HostSnapshot::default()));
     let config = HostConfig {
         pairing_methods: vec![PairingMethod::SkipPairing],
-        known_credentials: vec![],
+        known_credentials: vec![KnownCredential {
+            credential: "other-device".into(),
+            trezor_static_public_key: Some(vec![0x77; 32]),
+            autoconnect: false,
+        }],
         static_key: None,
         host_name: "host".into(),
         app_name: "app".into(),
@@ -820,10 +745,18 @@ async fn handshake_persists_host_state_to_storage() {
     workflow.handshake(false).await.expect("handshake");
 
     let persisted = storage.snapshot();
-    assert_eq!(persisted.static_key, Some(vec![12]));
+    let static_key = persisted.static_key.expect("host static key persisted");
+    assert_eq!(static_key.len(), 32);
     assert_eq!(persisted.known_credentials.len(), 1);
-    assert_eq!(persisted.known_credentials[0].credential, "cred1");
+    assert_eq!(persisted.known_credentials[0].credential, "other-device");
     assert!(storage.persist_calls() >= 1);
+
+    // A second handshake must reuse the persisted host key.
+    let (backend, config, _) = workflow.into_parts();
+    let mut workflow = ThpWorkflow::new(backend, config);
+    workflow.create_channel().await.expect("create channel");
+    workflow.handshake(false).await.expect("handshake");
+    assert_eq!(workflow.host_config().static_key, Some(static_key));
 }
 
 #[tokio::test]
@@ -895,4 +828,27 @@ async fn sign_tx_requires_paired_phase() {
         .await
         .expect_err("should fail before pairing");
     assert!(matches!(err, ThpWorkflowError::InvalidPhase));
+}
+
+#[tokio::test]
+async fn handshake_reallocates_channel_only_when_unlock_flag_differs() {
+    let config = HostConfig {
+        pairing_methods: vec![PairingMethod::SkipPairing],
+        known_credentials: vec![],
+        static_key: None,
+        host_name: "host".into(),
+        app_name: "app".into(),
+    };
+
+    let mut workflow = ThpWorkflow::new(MockBackend::autopair(), config.clone());
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(true).await.unwrap();
+    let (backend, _, _) = workflow.into_parts();
+    assert_eq!(*backend.channel_requests.lock(), vec![true]);
+
+    let mut workflow = ThpWorkflow::new(MockBackend::autopair(), config);
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    let (backend, _, _) = workflow.into_parts();
+    assert_eq!(*backend.channel_requests.lock(), vec![true, false]);
 }

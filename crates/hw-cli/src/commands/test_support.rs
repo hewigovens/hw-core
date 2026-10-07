@@ -6,9 +6,8 @@ use trezor_connect::thp::ThpWorkflow;
 use trezor_connect::thp::types::{
     CodeEntryChallengeRequest, CodeEntryChallengeResponse, CreateChannelRequest,
     CreateChannelResponse, CreateSessionRequest, CreateSessionResponse, CredentialRequest,
-    CredentialResponse, GetAddressRequest, GetAddressResponse, HandshakeCompletionRequest,
-    HandshakeCompletionResponse, HandshakeCompletionState, HandshakeInitOutcome,
-    HandshakeInitRequest, KnownCredential, PairingRequest, PairingRequestApproved,
+    CredentialResponse, GetAddressRequest, GetAddressResponse, HandshakeCompletionState,
+    HandshakeRequest, HandshakeResponse, KnownCredential, PairingRequest, PairingRequestApproved,
     PairingTagRequest, PairingTagResponse, SelectMethodRequest, SelectMethodResponse,
     SignMessageRequest, SignMessageResponse, SignTxRequest, SignTxResponse, SignTypedDataRequest,
     SignTypedDataResponse, ThpProperties,
@@ -90,37 +89,15 @@ impl MockBackend {
         self.sign_typed_data_response = Some(response);
         self
     }
-
-    fn handshake_outcome(&self) -> HandshakeInitOutcome {
-        HandshakeInitOutcome {
-            host_encrypted_static_pubkey: vec![1, 2, 3],
-            encrypted_payload: vec![4, 5, 6],
-            trezor_encrypted_static_pubkey: vec![7, 8, 9],
-            handshake_hash: self.handshake_hash.clone(),
-            host_key: vec![0x11; 32],
-            trezor_key: vec![0x22; 32],
-            host_static_key: vec![0x33; 32],
-            host_static_public_key: vec![0x44; 32],
-            pairing_methods: vec![PairingMethod::CodeEntry],
-            credentials: self.selected_credential.clone().into_iter().collect(),
-            selected_credential: self.selected_credential.clone(),
-            nfc_data: None,
-            handshake_commitment: None,
-            trezor_cpace_public_key: None,
-            code_entry_challenge: None,
-        }
-    }
 }
 
 impl ThpBackend for MockBackend {
     async fn create_channel(
         &mut self,
-        request: CreateChannelRequest,
+        _request: CreateChannelRequest,
     ) -> BackendResult<CreateChannelResponse> {
         Ok(CreateChannelResponse {
-            nonce: request.nonce,
             channel: 0xBEEF,
-            handshake_hash: self.handshake_hash.clone(),
             properties: ThpProperties {
                 internal_model: "T3W1".into(),
                 model_variant: 1,
@@ -131,19 +108,11 @@ impl ThpBackend for MockBackend {
         })
     }
 
-    async fn handshake_init(
-        &mut self,
-        _request: HandshakeInitRequest,
-    ) -> BackendResult<HandshakeInitOutcome> {
-        Ok(self.handshake_outcome())
-    }
-
-    async fn handshake_complete(
-        &mut self,
-        _request: HandshakeCompletionRequest,
-    ) -> BackendResult<HandshakeCompletionResponse> {
-        Ok(HandshakeCompletionResponse {
+    async fn handshake(&mut self, _request: HandshakeRequest) -> BackendResult<HandshakeResponse> {
+        Ok(HandshakeResponse {
             state: self.handshake_completion_state,
+            handshake_hash: self.handshake_hash.clone(),
+            selected_credential: self.selected_credential.clone(),
         })
     }
 

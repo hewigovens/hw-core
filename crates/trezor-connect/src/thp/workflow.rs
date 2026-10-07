@@ -7,16 +7,16 @@ use unicode_normalization::UnicodeNormalization;
 
 use super::{
     backend::ThpBackend,
+    crypto::curve25519::derive_public_from_private,
     error::{Result, ThpWorkflowError},
     state::{HandshakeCache, HandshakeCredentials, Phase, ThpState},
     storage::{HostSnapshot, ThpStorage},
     types::{
         CodeEntryChallengeRequest, CreateChannelRequest, CreateSessionRequest, GetAddressRequest,
-        GetAddressResponse, HandshakeCompletionRequest, HandshakeCompletionState,
-        HandshakeInitRequest, HostConfig, PairingController, PairingDecision, PairingMethod,
-        PairingPrompt, PairingTagRequest, SelectMethodRequest, SignMessageRequest,
-        SignMessageResponse, SignTxRequest, SignTxResponse, SignTypedDataRequest,
-        SignTypedDataResponse,
+        GetAddressResponse, HandshakeCompletionState, HandshakeRequest, HostConfig,
+        KnownCredential, PairingController, PairingDecision, PairingMethod, PairingPrompt,
+        PairingTagRequest, SelectMethodRequest, SignMessageRequest, SignMessageResponse,
+        SignTxRequest, SignTxResponse, SignTypedDataRequest, SignTypedDataResponse,
     },
 };
 
@@ -26,6 +26,7 @@ pub struct ThpWorkflow<B> {
     state: ThpState,
     rng: StdRng,
     storage: Option<Arc<dyn ThpStorage>>,
+    channel_try_to_unlock: Option<bool>,
 }
 
 impl<B> ThpWorkflow<B>
@@ -40,6 +41,7 @@ where
             state: ThpState::new(),
             rng: StdRng::from_rng(&mut os_rng),
             storage: None,
+            channel_try_to_unlock: None,
         }
     }
 
@@ -63,6 +65,7 @@ where
             state: ThpState::new(),
             rng: StdRng::from_rng(&mut rand::rng()),
             storage: Some(storage),
+            channel_try_to_unlock: None,
         })
     }
 
@@ -98,22 +101,20 @@ where
     }
 
     pub async fn create_channel(&mut self) -> Result<()> {
+        self.open_channel(true).await
+    }
+
+    async fn open_channel(&mut self, try_to_unlock: bool) -> Result<()> {
         if self.state.phase() != Phase::Handshake {
             return Err(ThpWorkflowError::InvalidPhase);
         }
 
-        let mut nonce = [0u8; 8];
-        self.rng.fill(&mut nonce);
         let response = self
             .backend
-            .create_channel(CreateChannelRequest { nonce })
+            .create_channel(CreateChannelRequest { try_to_unlock })
             .await?;
 
-        if response.nonce != nonce {
-            return Err(ThpWorkflowError::NonceMismatch);
-        }
-
-        let host_supported = if self.config.pairing_methods.is_empty() {
+        let host_supported: Vec<PairingMethod> = if self.config.pairing_methods.is_empty() {
             response.properties.pairing_methods
         } else {
             response
@@ -128,75 +129,59 @@ where
             return Err(ThpWorkflowError::NoCommonPairingMethod);
         }
 
-        let cache = HandshakeCache {
+        self.state.set_handshake_cache(HandshakeCache {
             channel: response.channel,
-            handshake_hash: response.handshake_hash,
             pairing_methods: host_supported,
-        };
-        self.state.set_handshake_cache(cache);
+        });
+        self.channel_try_to_unlock = Some(try_to_unlock);
         Ok(())
     }
 
     pub async fn handshake(&mut self, try_to_unlock: bool) -> Result<()> {
-        let cache = self
+        if self.state.handshake_cache().is_none() {
+            return Err(ThpWorkflowError::MissingHandshake);
+        }
+        // try_to_unlock is fixed when the channel is allocated.
+        if self.channel_try_to_unlock != Some(try_to_unlock) {
+            self.open_channel(try_to_unlock).await?;
+        }
+        let pairing_methods = self
             .state
             .handshake_cache()
+            .map(|cache| cache.pairing_methods.clone())
             .ok_or(ThpWorkflowError::MissingHandshake)?;
 
-        let request = HandshakeInitRequest {
-            try_to_unlock,
-            handshake_hash: cache.handshake_hash.clone(),
-            pairing_methods: cache.pairing_methods.clone(),
-            static_key: self.config.static_key.clone(),
-            known_credentials: self.config.known_credentials.clone(),
-        };
+        let static_key = self.host_static_key();
+        let response = self
+            .backend
+            .handshake(HandshakeRequest {
+                static_key,
+                known_credentials: self.config.known_credentials.clone(),
+            })
+            .await?;
+        self.channel_try_to_unlock = None;
 
-        let outcome = self.backend.handshake_init(request).await?;
-
-        let completion_request = HandshakeCompletionRequest {
-            host_pubkey: outcome.host_encrypted_static_pubkey.clone(),
-            encrypted_payload: outcome.encrypted_payload,
-        };
-
-        let autoconnect = outcome
-            .selected_credential
-            .as_ref()
-            .is_some_and(|c| c.autoconnect);
-        let first_method = outcome.pairing_methods.first().copied();
-
-        self.config.static_key = Some(outcome.host_static_key.clone());
-        self.config.known_credentials = outcome.credentials.clone();
-
-        let creds = HandshakeCredentials {
-            pairing_methods: outcome.pairing_methods,
-            handshake_hash: outcome.handshake_hash,
-            trezor_encrypted_static_pubkey: outcome.trezor_encrypted_static_pubkey,
-            host_encrypted_static_pubkey: outcome.host_encrypted_static_pubkey,
-            host_key: outcome.host_key,
-            trezor_key: outcome.trezor_key,
-            host_static_key: outcome.host_static_key,
-            host_static_public_key: outcome.host_static_public_key,
-            nfc_data: outcome.nfc_data,
-            handshake_commitment: outcome.handshake_commitment,
-            trezor_cpace_public_key: outcome.trezor_cpace_public_key,
-            code_entry_challenge: outcome.code_entry_challenge,
-            pairing_credentials: outcome.credentials,
-            selected_credential: outcome.selected_credential,
-        };
+        let selected_credential = response.selected_credential;
+        let autoconnect = selected_credential.as_ref().is_some_and(|c| c.autoconnect);
+        let pairing_credentials: Vec<KnownCredential> =
+            selected_credential.iter().cloned().collect();
 
         self.state
-            .set_pairing_credentials(creds.pairing_credentials.clone());
+            .set_pairing_credentials(pairing_credentials.clone());
         self.state.set_autoconnect_paired(autoconnect);
-
-        let selected_credential = creds.selected_credential.clone();
-        self.state.set_handshake_credentials(creds);
-        if let Some(method) = first_method {
+        if let Some(method) = pairing_methods.first().copied() {
             self.state.set_pairing_method(method);
         }
+        self.state.set_handshake_credentials(HandshakeCredentials {
+            pairing_methods,
+            handshake_hash: response.handshake_hash,
+            host_static_public_key: derive_public_from_private(&static_key).to_vec(),
+            pairing_credentials,
+            selected_credential: selected_credential.clone(),
+            ..HandshakeCredentials::default()
+        });
 
-        let completion = self.backend.handshake_complete(completion_request).await?;
-
-        match completion.state {
+        match response.state {
             HandshakeCompletionState::RequiresPairing => {
                 if let Some(selected) = selected_credential {
                     self.config
@@ -221,6 +206,21 @@ where
 
         self.persist_host_state().await?;
         Ok(())
+    }
+
+    fn host_static_key(&mut self) -> [u8; 32] {
+        if let Some(key) = self
+            .config
+            .static_key
+            .as_deref()
+            .and_then(|key| <[u8; 32]>::try_from(key).ok())
+        {
+            return key;
+        }
+        let mut key = [0u8; 32];
+        self.rng.fill(&mut key);
+        self.config.static_key = Some(key.to_vec());
+        key
     }
 
     pub async fn pairing(&mut self, controller: Option<&dyn PairingController>) -> Result<()> {

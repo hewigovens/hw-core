@@ -94,7 +94,6 @@ impl From<trezor_connect::thp::ThpWorkflowError> for HWCoreError {
             | ThpWorkflowError::MissingHandshake
             | ThpWorkflowError::MissingHandshakeCredentials
             | ThpWorkflowError::AlreadyPaired
-            | ThpWorkflowError::NonceMismatch
             | ThpWorkflowError::NoCommonPairingMethod
             | ThpWorkflowError::PairingAborted
             | ThpWorkflowError::PairingInteractionRequired

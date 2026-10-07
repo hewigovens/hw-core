@@ -15,8 +15,6 @@ pub enum ThpWorkflowError {
     MissingHandshakeCredentials,
     #[error("pairing already complete")]
     AlreadyPaired,
-    #[error("device reported nonce mismatch")]
-    NonceMismatch,
     #[error("no matching pairing methods between host and device")]
     NoCommonPairingMethod,
     #[error("pairing aborted by host")]

@@ -22,14 +22,12 @@ rust.dead_code = "warn"
 rust.unused_variables = "warn"
 
 [workspace.dependencies]
-aes-gcm = { version = "0.11.1", features = ["aes"] }
 anyhow = "1"
 async-trait = "0.1"
 btleplug = "0.13.4"
 ble-transport = { version = "0.1.0", path = "crates/ble-transport" }
 bs58 = "0.5"
 clap = { version = "4.6.7", features = ["derive"] }
-crc32fast = "1.5.2"
 hex = "0.4"
 hw-chain = { version = "0.1.0", path = "crates/hw-chain" }
 hw-wallet = { version = "0.1.0", path = "crates/hw-wallet" }

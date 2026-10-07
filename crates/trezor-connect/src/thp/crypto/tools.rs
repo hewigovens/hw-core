@@ -1,11 +1,6 @@
-use aes_gcm::aead::{AeadInOut, Error as AeadError, KeyInit, Tag};
-use aes_gcm::{Aes256Gcm, Nonce};
-use hmac::{Hmac, Mac};
 use num_bigint::{BigInt, Sign};
 use num_traits::{ToPrimitive, Zero};
 use sha2::{Digest, Sha256};
-
-pub(super) type HmacSha256 = Hmac<Sha256>;
 
 pub(super) fn sha256(data: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
@@ -18,61 +13,6 @@ pub(super) fn hash_of_two(first: &[u8], second: &[u8]) -> [u8; 32] {
     hasher.update(first);
     hasher.update(second);
     hasher.finalize().into()
-}
-
-pub(super) fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
-    let mut ctx =
-        <HmacSha256 as hmac::KeyInit>::new_from_slice(key).expect("HMAC accepts any key size");
-    ctx.update(data);
-    ctx.finalize().into_bytes().into()
-}
-
-pub(super) fn hkdf(chaining_key: &[u8], input: &[u8]) -> ([u8; 32], [u8; 32]) {
-    let temp_key = hmac_sha256(chaining_key, input);
-    let output1 = hmac_sha256(&temp_key, &[0x01]);
-    let mut ctx = <HmacSha256 as hmac::KeyInit>::new_from_slice(&temp_key)
-        .expect("HMAC accepts any key size");
-    ctx.update(&output1);
-    ctx.update(&[0x02]);
-    let output2 = ctx.finalize().into_bytes().into();
-    (output1, output2)
-}
-
-pub fn get_iv_from_nonce(nonce: u64) -> [u8; 12] {
-    let mut iv = [0u8; 12];
-    iv[4..].copy_from_slice(&nonce.to_be_bytes());
-    iv
-}
-
-pub fn aes256gcm_encrypt(
-    key: &[u8; 32],
-    iv: &[u8; 12],
-    aad: &[u8],
-    plaintext: &[u8],
-) -> Result<(Vec<u8>, [u8; 16]), AeadError> {
-    let cipher = Aes256Gcm::new(key.into());
-    let nonce = Nonce::from(*iv);
-    let mut buffer = plaintext.to_vec();
-    let tag: Tag<Aes256Gcm> =
-        cipher.encrypt_inout_detached(&nonce, aad, buffer.as_mut_slice().into())?;
-    let mut tag_bytes = [0u8; 16];
-    tag_bytes.copy_from_slice(tag.as_ref());
-    Ok((buffer, tag_bytes))
-}
-
-pub fn aes256gcm_decrypt(
-    key: &[u8; 32],
-    iv: &[u8; 12],
-    aad: &[u8],
-    ciphertext: &[u8],
-    tag: &[u8; 16],
-) -> Result<Vec<u8>, AeadError> {
-    let cipher = Aes256Gcm::new(key.into());
-    let nonce = Nonce::from(*iv);
-    let mut buffer = ciphertext.to_vec();
-    let tag_array = Tag::<Aes256Gcm>::from(*tag);
-    cipher.decrypt_inout_detached(&nonce, aad, buffer.as_mut_slice().into(), &tag_array)?;
-    Ok(buffer)
 }
 
 pub(super) fn big_endian_bytes_to_bigint(bytes: &[u8]) -> BigInt {

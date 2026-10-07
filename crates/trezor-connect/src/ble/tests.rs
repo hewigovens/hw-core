@@ -1,4 +1,8 @@
+use super::bitcoin::*;
 use super::*;
+use crate::thp::proto::{
+    BitcoinTxRequestType, DecodedBitcoinTxRequest, encode_bitcoin_tx_ack_prev_extra_data,
+};
 use serde::Deserialize;
 
 fn sample_btc_sign_tx() -> crate::thp::types::BtcSignTx {
@@ -167,179 +171,6 @@ fn prev_output_out_of_bounds_is_error() {
         err.to_string()
             .contains("TxOutput request index 2 out of bounds for previous transaction")
     );
-}
-
-#[test]
-fn thp_v2_chunk_reassembly_roundtrip() {
-    let frame = wire::encode_create_channel_request(&rand::random::<u64>().to_be_bytes());
-    let chunks = chunk_v2_frame(&frame, 12);
-    assert!(chunks.len() > 1, "expected multi-chunk frame for test");
-
-    let mut pending = None;
-    let mut reassembled = None;
-    for chunk in chunks {
-        if let Some(full) = ingest_thp_v2_chunk(&mut pending, &chunk) {
-            reassembled = Some(full);
-        }
-    }
-
-    assert!(pending.is_none(), "reassembly should complete");
-    assert_eq!(reassembled.as_deref(), Some(frame.as_slice()));
-}
-
-#[test]
-fn fragmented_protobuf_reassembles_beyond_continuation_frame_limit() {
-    let payload = vec![0xa5; 256];
-    let frame = wire::encode_protobuf_request(0x1234, 0, &payload);
-    let chunks = chunk_v2_frame(&frame, 12);
-    assert!(chunks.len() > MAX_THP_CONTINUATION_FRAMES);
-
-    let mut pending = None;
-    let mut reassembled = None;
-    for chunk in chunks {
-        if let Some(full) = ingest_thp_v2_chunk(&mut pending, &chunk) {
-            reassembled = Some(full);
-        }
-    }
-
-    let decoded = wire::decode_frame(reassembled.as_deref().unwrap(), Some(0x1234)).unwrap();
-    let parsed = wire::parse_response(decoded.message, decoded.crc).unwrap();
-    let WireResponse::Protobuf {
-        payload: reassembled_payload,
-    } = parsed.response
-    else {
-        panic!("expected protobuf response");
-    };
-    assert_eq!(reassembled_payload, payload);
-}
-
-#[test]
-fn continuation_payloads_merge_with_final_protobuf() {
-    let mut continuation = Vec::new();
-    let mut continuation_frames = 0;
-    let mut first = vec![1, 2];
-    let mut second = vec![3, 4];
-    let mut payload = vec![5, 6];
-
-    append_continuation(&mut continuation, &mut continuation_frames, &mut first).unwrap();
-    append_continuation(&mut continuation, &mut continuation_frames, &mut second).unwrap();
-    merge_continuation(&mut continuation, &mut continuation_frames, &mut payload).unwrap();
-
-    assert_eq!(payload, vec![1, 2, 3, 4, 5, 6]);
-    assert!(continuation.is_empty());
-    assert_eq!(continuation_frames, 0);
-}
-
-#[test]
-fn continuation_byte_limit_accepts_boundary_and_rejects_overflow_with_cleanup() {
-    let final_payload_len = 17;
-    let mut continuation = Vec::new();
-    let mut continuation_frames = 0;
-    let mut boundary_chunk = vec![0xaa; MAX_THP_RESPONSE_PAYLOAD_SIZE - final_payload_len];
-    let mut payload = vec![0xbb; final_payload_len];
-
-    append_continuation(
-        &mut continuation,
-        &mut continuation_frames,
-        &mut boundary_chunk,
-    )
-    .unwrap();
-    merge_continuation(&mut continuation, &mut continuation_frames, &mut payload).unwrap();
-    assert_eq!(payload.len(), MAX_THP_RESPONSE_PAYLOAD_SIZE);
-
-    let mut full_chunk = vec![0xcc; MAX_THP_RESPONSE_PAYLOAD_SIZE];
-    append_continuation(&mut continuation, &mut continuation_frames, &mut full_chunk).unwrap();
-    let mut overflow_payload = vec![0xdd];
-    let err = merge_continuation(
-        &mut continuation,
-        &mut continuation_frames,
-        &mut overflow_payload,
-    )
-    .unwrap_err();
-    let BackendError::Transport(message) = err else {
-        panic!("expected transport error");
-    };
-    assert_eq!(
-        message,
-        format!(
-            "THP response continuation limit exceeded: {} bytes across 1 frames (max {MAX_THP_RESPONSE_PAYLOAD_SIZE} bytes or {MAX_THP_CONTINUATION_FRAMES} frames)",
-            MAX_THP_RESPONSE_PAYLOAD_SIZE + 1
-        )
-    );
-    assert!(continuation.is_empty());
-    assert_eq!(continuation_frames, 0);
-
-    let mut replacement = vec![0xee];
-    append_continuation(
-        &mut continuation,
-        &mut continuation_frames,
-        &mut replacement,
-    )
-    .unwrap();
-    let mut recovered_payload = vec![0xef];
-    merge_continuation(
-        &mut continuation,
-        &mut continuation_frames,
-        &mut recovered_payload,
-    )
-    .unwrap();
-    assert_eq!(recovered_payload, vec![0xee, 0xef]);
-}
-
-#[test]
-fn continuation_frame_limit_rejects_overflow_with_cleanup() {
-    let mut continuation = Vec::new();
-    let mut continuation_frames = 0;
-    for _ in 0..MAX_THP_CONTINUATION_FRAMES {
-        let mut chunk = Vec::new();
-        append_continuation(&mut continuation, &mut continuation_frames, &mut chunk).unwrap();
-    }
-
-    let mut overflow = Vec::new();
-    let err = append_continuation(&mut continuation, &mut continuation_frames, &mut overflow)
-        .unwrap_err();
-    let BackendError::Transport(message) = err else {
-        panic!("expected transport error");
-    };
-    assert_eq!(
-        message,
-        format!(
-            "THP response continuation limit exceeded: 0 bytes across 11 frames (max {MAX_THP_RESPONSE_PAYLOAD_SIZE} bytes or {MAX_THP_CONTINUATION_FRAMES} frames)"
-        )
-    );
-    assert!(continuation.is_empty());
-    assert_eq!(continuation_frames, 0);
-
-    let mut replacement = vec![0xee];
-    append_continuation(
-        &mut continuation,
-        &mut continuation_frames,
-        &mut replacement,
-    )
-    .unwrap();
-}
-
-#[test]
-fn terminal_receive_cleanup_discards_logical_and_physical_fragments() {
-    let frame = wire::encode_protobuf_request(0x1234, 0, &[0xaa; 64]);
-    let chunks = chunk_v2_frame(&frame, 12);
-    let mut pending_chunk = None;
-    assert!(ingest_thp_v2_chunk(&mut pending_chunk, &chunks[0]).is_none());
-
-    let mut rx_buffer = vec![0x01, 0x02];
-    let mut continuation = vec![0x03, 0x04];
-    let mut continuation_frames = 2;
-    clear_receive_state(
-        &mut rx_buffer,
-        &mut continuation,
-        &mut continuation_frames,
-        &mut pending_chunk,
-    );
-
-    assert!(rx_buffer.is_empty());
-    assert!(continuation.is_empty());
-    assert_eq!(continuation_frames, 0);
-    assert!(pending_chunk.is_none());
 }
 
 #[test]
@@ -529,93 +360,17 @@ fn tx_payment_req_missing_entry_is_error() {
 }
 
 #[test]
-fn thp_v2_chunk_reassembly_recovers_after_bad_continuation() {
-    let frame1 = wire::encode_create_channel_request(&rand::random::<u64>().to_be_bytes());
-    let chunks1 = chunk_v2_frame(&frame1, 12);
-    assert!(chunks1.len() > 1, "expected multi-chunk frame for test");
-
-    let frame2 = wire::encode_create_channel_request(&rand::random::<u64>().to_be_bytes());
-    let chunks2 = chunk_v2_frame(&frame2, 12);
-    assert!(chunks2.len() > 1, "expected multi-chunk frame for test");
-
-    let mut pending = None;
-    assert!(ingest_thp_v2_chunk(&mut pending, &chunks1[0]).is_none());
-    assert!(pending.is_some(), "first chunk should start pending state");
-
-    let mut bad = chunks1[1].clone();
-    bad[1] ^= 0x01; // break channel bytes in continuation header
-    assert!(ingest_thp_v2_chunk(&mut pending, &bad).is_none());
-
-    let mut reassembled = None;
-    for chunk in chunks2 {
-        if let Some(full) = ingest_thp_v2_chunk(&mut pending, &chunk) {
-            reassembled = Some(full);
-        }
-    }
-
-    assert!(pending.is_none(), "reassembly should complete");
-    assert_eq!(reassembled.as_deref(), Some(frame2.as_slice()));
-}
-
-fn parsed_message(magic: u8, seq_bit: u8, crc: [u8; 4]) -> ParsedMessage {
-    ParsedMessage {
-        header: wire::WireHeader {
-            raw_magic: magic | (seq_bit << 4),
-            magic,
-            ack_bit: 0,
-            seq_bit,
-            channel: 0x1234,
-        },
-        response: WireResponse::Ack,
-        crc,
-    }
-}
-
-#[test]
-fn recent_replayable_response_requires_matching_magic_and_crc() {
-    let mut state = ThpWireState::new();
-    state.on_receive(wire::MAGIC_CONTROL_ENCRYPTED);
-
-    let recent = Some(RecentReplayableResponse {
-        magic: wire::MAGIC_CONTROL_ENCRYPTED,
-        crc: [1, 2, 3, 4],
-    });
-    let duplicate = parsed_message(wire::MAGIC_CONTROL_ENCRYPTED, 0, [1, 2, 3, 4]);
-    let wrong_crc = parsed_message(wire::MAGIC_CONTROL_ENCRYPTED, 0, [4, 3, 2, 1]);
-    let wrong_magic = parsed_message(wire::MAGIC_HANDSHAKE_INIT_RESPONSE, 0, [1, 2, 3, 4]);
-
-    assert!(should_replay_recent_request(&duplicate, &state, recent));
-    assert!(!should_replay_recent_request(&wrong_crc, &state, recent));
-    assert!(!should_replay_recent_request(&wrong_magic, &state, recent));
-}
-
-#[test]
-fn error_frames_are_never_replayed_or_acked() {
-    let mut state = ThpWireState::new();
-    state.on_receive(wire::MAGIC_CONTROL_ENCRYPTED);
-
-    let recent = Some(RecentReplayableResponse {
-        magic: wire::MAGIC_ERROR,
-        crc: [9, 9, 9, 9],
-    });
-    let error = parsed_message(wire::MAGIC_ERROR, 0, [9, 9, 9, 9]);
-
-    assert!(!should_replay_recent_request(&error, &state, recent));
-    assert!(!should_ack_magic(wire::MAGIC_ERROR));
-}
-
-#[test]
 fn thp_transport_error_codes_map_to_spec_meanings() {
     assert!(matches!(
-        BleBackend::device_error_from_code(1),
+        backend_error_from_transport(TransportError::TransportBusy),
         BackendError::TransportBusy
     ));
     assert!(matches!(
-        BleBackend::device_error_from_code(5),
+        backend_error_from_transport(TransportError::DeviceLocked),
         BackendError::DeviceLocked
     ));
     assert!(matches!(
-        BleBackend::device_error_from_code(3),
+        backend_error_from_transport(TransportError::DecryptionFailed),
         BackendError::DeviceError { code: 3, .. }
     ));
 }
@@ -1201,4 +956,62 @@ fn ref_tx_extra_data_fixture_sequence_yields_expected_chunks_and_signature() {
     let (ack_count, latest_signature) = run_fixture_request_sequence(&btc, &fixture);
     assert_eq!(ack_count, 5, "expected 5 ack responses in the sequence");
     assert_eq!(latest_signature, Some(hex_to_bytes("0x3045022100feedface")));
+}
+
+#[test]
+fn credential_lookup_always_uses_host_key_and_sends_matching_credential() {
+    use crate::thp::crypto::curve25519::{curve25519, get_curve25519_key_pair};
+    use sha2::{Digest, Sha256};
+
+    let mut rng = rand::rng();
+    let trezor_static = get_curve25519_key_pair(&mut rng);
+    let ephemeral = get_curve25519_key_pair(&mut rng).public_key;
+    let mask: [u8; 32] = Sha256::new()
+        .chain_update(trezor_static.public_key)
+        .chain_update(ephemeral)
+        .finalize()
+        .into();
+    let masked = curve25519(&mask, &trezor_static.public_key);
+
+    let credentials = SharedCredentials::default();
+    {
+        let mut inner = credentials.lock();
+        inner.static_key = [0x42; 32];
+        inner.known = vec![
+            KnownCredential {
+                credential: "0011".into(),
+                trezor_static_public_key: Some(vec![0x99; 32]),
+                autoconnect: false,
+            },
+            KnownCredential {
+                credential: "aabb".into(),
+                trezor_static_public_key: Some(trezor_static.public_key.to_vec()),
+                autoconnect: true,
+            },
+        ];
+    }
+
+    let mut dest = [0u8; 160];
+    let found = credentials
+        .lookup(&ephemeral, &masked, &mut dest)
+        .expect("host key is always supplied");
+    assert_eq!(found.local_static_privkey, &[0x42; 32]);
+    let payload = messages::ThpHandshakeCompletionReqNoisePayload::decode(found.auth_credential)
+        .expect("noise payload");
+    assert_eq!(payload.host_pairing_credential, Some(vec![0xaa, 0xbb]));
+    assert_eq!(
+        credentials
+            .lock()
+            .selected
+            .as_ref()
+            .map(|c| c.credential.as_str()),
+        Some("aabb")
+    );
+
+    let found = credentials
+        .lookup(&ephemeral, &[0x01; 32], &mut dest)
+        .expect("host key is always supplied");
+    assert_eq!(found.local_static_privkey, &[0x42; 32]);
+    assert!(found.auth_credential.is_empty());
+    assert!(credentials.lock().selected.is_none());
 }
