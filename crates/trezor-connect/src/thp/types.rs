@@ -23,14 +23,12 @@ pub struct ThpProperties {
 
 #[derive(Debug, Clone)]
 pub struct CreateChannelRequest {
-    pub nonce: [u8; 8],
+    pub try_to_unlock: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct CreateChannelResponse {
-    pub nonce: [u8; 8],
     pub channel: u16,
-    pub handshake_hash: Vec<u8>,
     pub properties: ThpProperties,
 }
 
@@ -42,37 +40,9 @@ pub struct KnownCredential {
 }
 
 #[derive(Debug, Clone)]
-pub struct HandshakeInitRequest {
-    pub try_to_unlock: bool,
-    pub handshake_hash: Vec<u8>,
-    pub pairing_methods: Vec<PairingMethod>,
-    pub static_key: Option<Vec<u8>>,
+pub struct HandshakeRequest {
+    pub static_key: [u8; 32],
     pub known_credentials: Vec<KnownCredential>,
-}
-
-#[derive(Debug, Clone)]
-pub struct HandshakeInitOutcome {
-    pub host_encrypted_static_pubkey: Vec<u8>,
-    pub encrypted_payload: Vec<u8>,
-    pub trezor_encrypted_static_pubkey: Vec<u8>,
-    pub handshake_hash: Vec<u8>,
-    pub host_key: Vec<u8>,
-    pub trezor_key: Vec<u8>,
-    pub host_static_key: Vec<u8>,
-    pub host_static_public_key: Vec<u8>,
-    pub pairing_methods: Vec<PairingMethod>,
-    pub credentials: Vec<KnownCredential>,
-    pub selected_credential: Option<KnownCredential>,
-    pub nfc_data: Option<Vec<u8>>,
-    pub handshake_commitment: Option<Vec<u8>>,
-    pub trezor_cpace_public_key: Option<Vec<u8>>,
-    pub code_entry_challenge: Option<Vec<u8>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct HandshakeCompletionRequest {
-    pub host_pubkey: Vec<u8>,
-    pub encrypted_payload: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,8 +53,10 @@ pub enum HandshakeCompletionState {
 }
 
 #[derive(Debug, Clone)]
-pub struct HandshakeCompletionResponse {
+pub struct HandshakeResponse {
     pub state: HandshakeCompletionState,
+    pub handshake_hash: Vec<u8>,
+    pub selected_credential: Option<KnownCredential>,
 }
 
 #[derive(Debug, Clone)]

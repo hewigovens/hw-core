@@ -37,15 +37,7 @@ pub trait ThpBackend: Send {
         request: CreateChannelRequest,
     ) -> BackendResult<CreateChannelResponse>;
 
-    async fn handshake_init(
-        &mut self,
-        request: HandshakeInitRequest,
-    ) -> BackendResult<HandshakeInitOutcome>;
-
-    async fn handshake_complete(
-        &mut self,
-        request: HandshakeCompletionRequest,
-    ) -> BackendResult<HandshakeCompletionResponse>;
+    async fn handshake(&mut self, request: HandshakeRequest) -> BackendResult<HandshakeResponse>;
 
     async fn pairing_request(
         &mut self,

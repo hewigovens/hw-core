@@ -11,7 +11,6 @@ pub enum Phase {
 #[derive(Debug, Clone, Default)]
 pub struct HandshakeCache {
     pub channel: u16,
-    pub handshake_hash: Vec<u8>,
     pub pairing_methods: Vec<PairingMethod>,
 }
 
@@ -19,11 +18,6 @@ pub struct HandshakeCache {
 pub struct HandshakeCredentials {
     pub pairing_methods: Vec<PairingMethod>,
     pub handshake_hash: Vec<u8>,
-    pub trezor_encrypted_static_pubkey: Vec<u8>,
-    pub host_encrypted_static_pubkey: Vec<u8>,
-    pub host_key: Vec<u8>,
-    pub trezor_key: Vec<u8>,
-    pub host_static_key: Vec<u8>,
     pub host_static_public_key: Vec<u8>,
     pub nfc_data: Option<Vec<u8>>,
     pub handshake_commitment: Option<Vec<u8>>,

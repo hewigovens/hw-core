@@ -1,111 +1,35 @@
-use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use ble_transport::{BleBackend as TransportBackend, BleLink, BleSession, DeviceInfo};
-use hex;
 use prost::Message;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use tokio::time;
 use tracing::{debug, trace};
+use trezor_thp::ChannelIO;
+use trezor_thp::channel::buffered::Buffered;
+use trezor_thp::channel::host::{Channel, ChannelOpen, Mux};
+use trezor_thp::channel::{
+    MAX_RETRANSMISSION_COUNT, PRIVKEY_LEN, PacketInResult, PairingState, Phase, retransmit_after_ms,
+};
+use trezor_thp::credential::{CredentialStore, FoundCredential};
+use trezor_thp::error::TransportError;
 
-use crate::thp::Chain;
-use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
-use crate::thp::crypto::curve25519::{
-    Curve25519KeyPair, derive_public_from_private, get_curve25519_key_pair,
-};
-use crate::thp::crypto::pairing::{
-    HandshakeInitInput, HandshakeInitResponse, get_cpace_host_keys, get_shared_secret,
-    handle_handshake_init, validate_code_entry_tag, validate_nfc_tag, validate_qr_code_tag,
-};
-use crate::thp::crypto::{aes256gcm_decrypt, aes256gcm_encrypt, get_iv_from_nonce};
-use crate::thp::eip712::{build_struct_ack, resolve_value_for_member_path};
+use crate::thp::backend::{BackendError, BackendResult};
+use crate::thp::crypto::find_known_pairing_credentials;
 use crate::thp::messages;
-use crate::thp::proto::to_pairing_tag_response;
-use crate::thp::proto::{
-    BitcoinTxRequestType, DecodedBitcoinTxRequest, DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE,
-    EncodedMessage, MESSAGE_TYPE_BITCOIN_TX_REQUEST, MESSAGE_TYPE_ETHEREUM_TX_REQUEST,
-    MESSAGE_TYPE_SOLANA_TX_SIGNATURE, ProtoMappingError, decode_bitcoin_tx_request,
-    decode_code_entry_cpace_response, decode_credential_response, decode_get_address_response,
-    decode_get_nonce_response, decode_get_public_key_response, decode_pairing_request_approved,
-    decode_select_method_response, decode_sign_message_response, decode_sign_typed_data_message,
-    decode_sign_typed_data_response, decode_solana_tx_signature, decode_tag_response,
-    decode_tx_request, encode_bitcoin_tx_ack_input, encode_bitcoin_tx_ack_meta,
-    encode_bitcoin_tx_ack_orig_meta, encode_bitcoin_tx_ack_output,
-    encode_bitcoin_tx_ack_payment_request, encode_bitcoin_tx_ack_prev_extra_data,
-    encode_bitcoin_tx_ack_prev_input, encode_bitcoin_tx_ack_prev_meta,
-    encode_bitcoin_tx_ack_prev_output, encode_code_entry_challenge, encode_code_entry_tag,
-    encode_credential_request, encode_end_request, encode_get_address_request,
-    encode_get_nonce_request, encode_get_public_key_request, encode_nfc_tag,
-    encode_pairing_request, encode_qr_tag, encode_select_method, encode_sign_message_request,
-    encode_sign_tx_request, encode_sign_typed_data_request, encode_tx_ack,
-    encode_typed_data_struct_ack, encode_typed_data_value_ack,
-};
-use crate::thp::types::*;
-use crate::thp::wire::{
-    self, MAGIC_CONTROL_ENCRYPTED, MAGIC_CREATE_CHANNEL_REQUEST, MAGIC_CREATE_CHANNEL_RESPONSE,
-    MAGIC_HANDSHAKE_COMPLETION_REQUEST, MAGIC_HANDSHAKE_INIT_REQUEST, ParsedMessage, ThpWireState,
-    WireError, WireResponse,
-};
-use sha2::{Digest, Sha256};
+use crate::thp::proto::{EncodedMessage, ProtoMappingError};
+use crate::thp::types::{HandshakeCompletionState, KnownCredential};
 
+const SESSION_ID: u8 = 0;
 const MESSAGE_TYPE_SUCCESS: u16 = 2;
 const MESSAGE_TYPE_CREATE_SESSION: u16 = 1000;
 const MESSAGE_TYPE_FAILURE: u16 = 3;
 const MESSAGE_TYPE_BUTTON_REQUEST: u16 = messages::ThpMessageType::ButtonRequest as i32 as u16;
 const MESSAGE_TYPE_BUTTON_ACK: u16 = messages::ThpMessageType::ButtonAck as i32 as u16;
-const MIN_THP_FRAME_SIZE: usize = 9; // 1 magic + 2 channel + 2 len + 4 crc
-const MAX_THP_RESPONSE_PAYLOAD_SIZE: usize = u16::MAX as usize - 4; // Length includes CRC.
-const MAX_THP_CONTINUATION_FRAMES: usize = 10;
-const THP_CONTROL_BITS_MASK: u8 = (1 << 3) | (1 << 4);
-const THP_ERROR_TRANSPORT_BUSY: u8 = 1;
-const THP_ERROR_UNALLOCATED_CHANNEL: u8 = 2;
-const THP_ERROR_DECRYPTION_FAILED: u8 = 3;
-const THP_ERROR_DEVICE_LOCKED: u8 = 5;
 const FAILURE_PIN_EXPECTED: i32 = 5;
 const FAILURE_BUSY: i32 = 15;
 const FAILURE_FIRMWARE_ERROR: i32 = 99;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct RecentReplayableResponse {
-    magic: u8,
-    crc: [u8; 4],
-}
-
-fn is_replayable_request_magic(magic: u8) -> bool {
-    matches!(
-        magic,
-        MAGIC_HANDSHAKE_INIT_REQUEST | MAGIC_HANDSHAKE_COMPLETION_REQUEST | MAGIC_CONTROL_ENCRYPTED
-    )
-}
-
-fn is_replayable_response_magic(magic: u8) -> bool {
-    matches!(
-        magic,
-        wire::MAGIC_HANDSHAKE_INIT_RESPONSE
-            | wire::MAGIC_HANDSHAKE_COMPLETION_RESPONSE
-            | wire::MAGIC_CONTROL_ENCRYPTED
-            | wire::MAGIC_CONTROL_DECRYPTED
-    )
-}
-
-fn should_replay_recent_request(
-    parsed: &ParsedMessage,
-    state: &ThpWireState,
-    recent: Option<RecentReplayableResponse>,
-) -> bool {
-    is_replayable_response_magic(parsed.header.magic)
-        && parsed.header.seq_bit != state.recv_bit()
-        && recent
-            .is_some_and(|recent| recent.magic == parsed.header.magic && recent.crc == parsed.crc)
-}
-
-fn should_ack_magic(magic: u8) -> bool {
-    !matches!(
-        magic,
-        MAGIC_CREATE_CHANNEL_RESPONSE | wire::MAGIC_READ_ACK | wire::MAGIC_ERROR
-    )
-}
+const MAX_BUSY_BACKOFF_MS: u64 = 500;
 
 #[derive(Clone, PartialEq, Message)]
 struct FailureProto {
@@ -115,407 +39,260 @@ struct FailureProto {
     message: Option<String>,
 }
 
-#[derive(Debug)]
-struct ChunkAccumulator {
-    expected_total: usize,
-    continuation_header: [u8; 3],
-    frame: Vec<u8>,
-}
-
-impl ChunkAccumulator {
-    fn start(chunk: &[u8]) -> Option<Self> {
-        if chunk.len() < 5 {
-            return None;
-        }
-        let expected_total = 5 + u16::from_be_bytes([chunk[3], chunk[4]]) as usize;
-        if expected_total < MIN_THP_FRAME_SIZE {
-            return None;
-        }
-        let mut frame = Vec::with_capacity(expected_total);
-        let first_copy = expected_total.min(chunk.len());
-        frame.extend_from_slice(&chunk[..first_copy]);
-        Some(Self {
-            expected_total,
-            continuation_header: [wire::MAGIC_CONTINUATION, chunk[1], chunk[2]],
-            frame,
-        })
-    }
-}
-
-fn ingest_thp_v2_chunk(pending: &mut Option<ChunkAccumulator>, chunk: &[u8]) -> Option<Vec<u8>> {
-    if let Some(mut state) = pending.take() {
-        if chunk.len() < state.continuation_header.len()
-            || chunk[..state.continuation_header.len()] != state.continuation_header
-        {
-            debug!("BLE THP V2 bad continuation header; restarting accumulator");
-            if let Some(next) = ChunkAccumulator::start(chunk) {
-                if next.frame.len() >= next.expected_total {
-                    return Some(next.frame[..next.expected_total].to_vec());
-                }
-                *pending = Some(next);
-            }
-            return None;
-        }
-
-        let remaining = state.expected_total.saturating_sub(state.frame.len());
-        let payload_available = chunk.len().saturating_sub(state.continuation_header.len());
-        let payload_to_copy = remaining.min(payload_available);
-        let payload_start = state.continuation_header.len();
-        state
-            .frame
-            .extend_from_slice(&chunk[payload_start..payload_start + payload_to_copy]);
-
-        if state.frame.len() >= state.expected_total {
-            return Some(state.frame[..state.expected_total].to_vec());
-        }
-        *pending = Some(state);
-        return None;
-    }
-
-    if let Some(next) = ChunkAccumulator::start(chunk) {
-        if next.frame.len() >= next.expected_total {
-            return Some(next.frame[..next.expected_total].to_vec());
-        }
-        *pending = Some(next);
-    }
-    None
-}
-
-fn continuation_limit_error(bytes: usize, frames: usize) -> BackendError {
-    BackendError::Transport(format!(
-        "THP response continuation limit exceeded: {bytes} bytes across {frames} frames (max {MAX_THP_RESPONSE_PAYLOAD_SIZE} bytes or {MAX_THP_CONTINUATION_FRAMES} frames)"
-    ))
-}
-
-fn clear_continuation(continuation: &mut Vec<u8>, continuation_frames: &mut usize) {
-    continuation.clear();
-    *continuation_frames = 0;
-}
-
-fn clear_receive_state(
-    rx_buffer: &mut Vec<u8>,
-    continuation: &mut Vec<u8>,
-    continuation_frames: &mut usize,
-    pending_chunk: &mut Option<ChunkAccumulator>,
-) {
-    rx_buffer.clear();
-    clear_continuation(continuation, continuation_frames);
-    *pending_chunk = None;
-}
-
-fn append_continuation(
-    continuation: &mut Vec<u8>,
-    continuation_frames: &mut usize,
-    chunk: &mut Vec<u8>,
-) -> BackendResult<()> {
-    let bytes = continuation.len().saturating_add(chunk.len());
-    let frames = continuation_frames.saturating_add(1);
-    if bytes > MAX_THP_RESPONSE_PAYLOAD_SIZE || frames > MAX_THP_CONTINUATION_FRAMES {
-        clear_continuation(continuation, continuation_frames);
-        return Err(continuation_limit_error(bytes, frames));
-    }
-
-    continuation.append(chunk);
-    *continuation_frames = frames;
-    Ok(())
-}
-
-fn merge_continuation(
-    continuation: &mut Vec<u8>,
-    continuation_frames: &mut usize,
-    payload: &mut Vec<u8>,
-) -> BackendResult<()> {
-    if *continuation_frames == 0 {
-        return Ok(());
-    }
-
-    let bytes = continuation.len().saturating_add(payload.len());
-    if bytes > MAX_THP_RESPONSE_PAYLOAD_SIZE {
-        let frames = *continuation_frames;
-        clear_continuation(continuation, continuation_frames);
-        return Err(continuation_limit_error(bytes, frames));
-    }
-
-    let mut merged = std::mem::take(continuation);
-    merged.append(payload);
-    *payload = merged;
-    *continuation_frames = 0;
-    Ok(())
-}
-
 fn decode_failure_as_backend_error(payload: &[u8]) -> BackendError {
-    match FailureProto::decode(payload) {
-        Ok(msg) => {
-            if let Some(code) = msg.code {
-                match code {
-                    FAILURE_PIN_EXPECTED => return BackendError::PinExpected,
-                    FAILURE_BUSY => return BackendError::DeviceBusy,
-                    FAILURE_FIRMWARE_ERROR => return BackendError::DeviceFirmwareError,
-                    _ => {}
-                }
-                let message = msg.message.unwrap_or_default();
-                BackendError::DeviceError {
-                    code: code as u32,
-                    message,
-                }
-            } else {
-                BackendError::Device(
-                    msg.message
-                        .unwrap_or_else(|| "firmware reported failure".into()),
-                )
-            }
-        }
-        Err(_) => BackendError::Device("firmware reported failure".into()),
+    let Ok(msg) = FailureProto::decode(payload) else {
+        return BackendError::Device("firmware reported failure".into());
+    };
+    match msg.code {
+        Some(FAILURE_PIN_EXPECTED) => BackendError::PinExpected,
+        Some(FAILURE_BUSY) => BackendError::DeviceBusy,
+        Some(FAILURE_FIRMWARE_ERROR) => BackendError::DeviceFirmwareError,
+        Some(code) => BackendError::DeviceError {
+            code: code as u32,
+            message: msg.message.unwrap_or_default(),
+        },
+        None => BackendError::Device(
+            msg.message
+                .unwrap_or_else(|| "firmware reported failure".into()),
+        ),
     }
 }
 
-#[derive(Debug)]
-enum BitcoinTxRequestHandling {
-    Ack(EncodedMessage),
-    Finished,
-    Continue,
+fn backend_error_from_transport(error: TransportError) -> BackendError {
+    match error {
+        TransportError::TransportBusy => BackendError::TransportBusy,
+        TransportError::DeviceLocked => BackendError::DeviceLocked,
+        TransportError::UnallocatedChannel => BackendError::DeviceError {
+            code: u8::from(error).into(),
+            message: "unallocated channel".into(),
+        },
+        TransportError::DecryptionFailed => BackendError::DeviceError {
+            code: u8::from(error).into(),
+            message: "decryption failed".into(),
+        },
+    }
 }
 
-fn request_index(tx_request: &DecodedBitcoinTxRequest, request_name: &str) -> BackendResult<usize> {
-    tx_request
-        .request_index
-        .map(|value| value as usize)
-        .ok_or_else(|| {
-            BackendError::Transport(format!("{request_name} request missing request_index"))
+fn thp_error(error: trezor_thp::Error) -> BackendError {
+    let reason = match error {
+        trezor_thp::Error::UnexpectedInput => "unexpected input",
+        trezor_thp::Error::NotReady => "channel not ready",
+        trezor_thp::Error::MalformedData => "malformed data",
+        trezor_thp::Error::InvalidChecksum => "invalid checksum",
+        trezor_thp::Error::InsufficientBuffer => "insufficient buffer",
+        trezor_thp::Error::CryptoError => "crypto error",
+    };
+    BackendError::Transport(format!("THP: {reason}"))
+}
+
+fn mapping_error(error: ProtoMappingError) -> BackendError {
+    BackendError::Transport(error.to_string())
+}
+
+pub(crate) enum NoiseBackend {}
+
+impl trezor_thp::Backend for NoiseBackend {
+    type DH = trezor_noise_rust_crypto::X25519;
+    type Cipher = trezor_noise_rust_crypto::Aes256Gcm;
+    type Hash = trezor_noise_rust_crypto::Sha256;
+
+    fn random_bytes(dest: &mut [u8]) {
+        rand::fill(dest);
+    }
+}
+
+#[derive(Default)]
+struct HostCredentials {
+    static_key: [u8; PRIVKEY_LEN],
+    known: Vec<KnownCredential>,
+    selected: Option<KnownCredential>,
+}
+
+/// Always supplies the persistent host key so issued credentials stay bound to it.
+#[derive(Clone, Default)]
+struct SharedCredentials(Arc<Mutex<HostCredentials>>);
+
+impl SharedCredentials {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HostCredentials> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl CredentialStore for SharedCredentials {
+    fn lookup<'a>(
+        &self,
+        ephemeral_pubkey: &[u8],
+        masked_static_pubkey: &[u8],
+        dest: &'a mut [u8],
+    ) -> Option<FoundCredential<'a>> {
+        let mut credentials = self.lock();
+        let ephemeral: &[u8; 32] = ephemeral_pubkey.try_into().ok()?;
+        let masked: &[u8; 32] = masked_static_pubkey.try_into().ok()?;
+        let selected = find_known_pairing_credentials(&credentials.known, masked, ephemeral)
+            .into_iter()
+            .next();
+        let payload = messages::ThpHandshakeCompletionReqNoisePayload {
+            host_pairing_credential: selected
+                .as_ref()
+                .and_then(|c| hex::decode(&c.credential).ok()),
+        }
+        .encode_to_vec();
+        credentials.selected = selected;
+
+        if dest.len() < PRIVKEY_LEN + payload.len() {
+            return None;
+        }
+        let (key, rest) = dest.split_at_mut(PRIVKEY_LEN);
+        key.copy_from_slice(&credentials.static_key);
+        rest[..payload.len()].copy_from_slice(&payload);
+        let key: &'a [u8] = key;
+        let rest: &'a [u8] = rest;
+        Some(FoundCredential {
+            local_static_privkey: key.try_into().ok()?,
+            auth_credential: &rest[..payload.len()],
         })
-}
-
-fn build_ref_txs_index(
-    btc: &crate::thp::types::BtcSignTx,
-) -> HashMap<&[u8], &crate::thp::types::BtcRefTx> {
-    btc.ref_txs
-        .iter()
-        .map(|tx| (tx.hash.as_slice(), tx))
-        .collect()
-}
-
-fn build_orig_txs_index(
-    btc: &crate::thp::types::BtcSignTx,
-) -> HashMap<&[u8], &crate::thp::types::BtcOrigTx> {
-    btc.orig_txs
-        .iter()
-        .map(|tx| (tx.hash.as_slice(), tx))
-        .collect()
-}
-
-fn find_ref_tx<'a>(
-    ref_txs_by_hash: &'a HashMap<&'a [u8], &'a crate::thp::types::BtcRefTx>,
-    tx_hash: &[u8],
-    request_name: &str,
-) -> BackendResult<&'a crate::thp::types::BtcRefTx> {
-    ref_txs_by_hash.get(tx_hash).copied().ok_or_else(|| {
-        BackendError::Transport(format!(
-            "{request_name} request references unknown previous transaction hash {}",
-            hex::encode(tx_hash)
-        ))
-    })
-}
-
-fn find_orig_tx<'a>(
-    orig_txs_by_hash: &'a HashMap<&'a [u8], &'a crate::thp::types::BtcOrigTx>,
-    tx_hash: &[u8],
-    request_name: &str,
-) -> BackendResult<&'a crate::thp::types::BtcOrigTx> {
-    orig_txs_by_hash.get(tx_hash).copied().ok_or_else(|| {
-        BackendError::Transport(format!(
-            "{request_name} request references unknown original transaction hash {}",
-            hex::encode(tx_hash)
-        ))
-    })
-}
-
-fn handle_bitcoin_tx_request(
-    btc: &crate::thp::types::BtcSignTx,
-    ref_txs_by_hash: &HashMap<&[u8], &crate::thp::types::BtcRefTx>,
-    orig_txs_by_hash: &HashMap<&[u8], &crate::thp::types::BtcOrigTx>,
-    tx_request: &DecodedBitcoinTxRequest,
-) -> BackendResult<BitcoinTxRequestHandling> {
-    match tx_request.request_type {
-        Some(BitcoinTxRequestType::TxInput) => {
-            let index = request_index(tx_request, "TxInput")?;
-            let ack = if let Some(ref_tx_hash) = tx_request.tx_hash.as_ref() {
-                let ref_tx = find_ref_tx(ref_txs_by_hash, ref_tx_hash, "TxInput")?;
-                let input = ref_tx.inputs.get(index).ok_or_else(|| {
-                    BackendError::Transport(format!(
-                        "TxInput request index {} out of bounds for previous transaction {} (inputs={})",
-                        index,
-                        hex::encode(ref_tx_hash),
-                        ref_tx.inputs.len()
-                    ))
-                })?;
-                encode_bitcoin_tx_ack_prev_input(input)
-            } else {
-                let input = btc.inputs.get(index).ok_or_else(|| {
-                    BackendError::Transport(format!(
-                        "TxInput request index {} out of bounds (inputs={})",
-                        index,
-                        btc.inputs.len()
-                    ))
-                })?;
-                encode_bitcoin_tx_ack_input(input)
-            }
-            .map_err(BleBackend::transport_error)?;
-            Ok(BitcoinTxRequestHandling::Ack(ack))
-        }
-        Some(BitcoinTxRequestType::TxOutput) => {
-            let index = request_index(tx_request, "TxOutput")?;
-            let ack = if let Some(ref_tx_hash) = tx_request.tx_hash.as_ref() {
-                let ref_tx = find_ref_tx(ref_txs_by_hash, ref_tx_hash, "TxOutput")?;
-                let output = ref_tx.bin_outputs.get(index).ok_or_else(|| {
-                    BackendError::Transport(format!(
-                        "TxOutput request index {} out of bounds for previous transaction {} (outputs={})",
-                        index,
-                        hex::encode(ref_tx_hash),
-                        ref_tx.bin_outputs.len()
-                    ))
-                })?;
-                encode_bitcoin_tx_ack_prev_output(output)
-            } else {
-                let output = btc.outputs.get(index).ok_or_else(|| {
-                    BackendError::Transport(format!(
-                        "TxOutput request index {} out of bounds (outputs={})",
-                        index,
-                        btc.outputs.len()
-                    ))
-                })?;
-                encode_bitcoin_tx_ack_output(output)
-            }
-            .map_err(BleBackend::transport_error)?;
-            Ok(BitcoinTxRequestHandling::Ack(ack))
-        }
-        Some(BitcoinTxRequestType::TxMeta) => {
-            let ack = if let Some(ref_tx_hash) = tx_request.tx_hash.as_ref() {
-                if let Some(orig_tx) = orig_txs_by_hash.get(ref_tx_hash.as_slice()).copied() {
-                    encode_bitcoin_tx_ack_orig_meta(orig_tx)
-                } else {
-                    let ref_tx = find_ref_tx(ref_txs_by_hash, ref_tx_hash, "TxMeta")?;
-                    encode_bitcoin_tx_ack_prev_meta(ref_tx)
-                }
-            } else {
-                encode_bitcoin_tx_ack_meta(
-                    btc.version,
-                    btc.lock_time,
-                    btc.inputs.len(),
-                    btc.outputs.len(),
-                )
-            }
-            .map_err(BleBackend::transport_error)?;
-            Ok(BitcoinTxRequestHandling::Ack(ack))
-        }
-        Some(BitcoinTxRequestType::TxExtraData) => {
-            let ref_tx_hash = tx_request.tx_hash.as_ref().ok_or_else(|| {
-                BackendError::Transport(
-                    "TxExtraData request missing tx_hash for previous transaction".into(),
-                )
-            })?;
-            let extra_data_len = tx_request.extra_data_len.ok_or_else(|| {
-                BackendError::Transport("TxExtraData request missing extra_data_len".into())
-            })? as usize;
-            let extra_data_offset = tx_request.extra_data_offset.ok_or_else(|| {
-                BackendError::Transport("TxExtraData request missing extra_data_offset".into())
-            })? as usize;
-            let extra_data =
-                if let Some(orig_tx) = orig_txs_by_hash.get(ref_tx_hash.as_slice()).copied() {
-                    orig_tx.extra_data.as_deref()
-                } else {
-                    let ref_tx = find_ref_tx(ref_txs_by_hash, ref_tx_hash, "TxExtraData")?;
-                    ref_tx.extra_data.as_deref()
-                }
-                .ok_or_else(|| {
-                    BackendError::Transport(format!(
-                        "TxExtraData requested for transaction {} without extra_data",
-                        hex::encode(ref_tx_hash)
-                    ))
-                })?;
-            let end = extra_data_offset
-                .checked_add(extra_data_len)
-                .ok_or_else(|| {
-                    BackendError::Transport("TxExtraData request range overflows usize".into())
-                })?;
-            if end > extra_data.len() {
-                return Err(BackendError::Transport(format!(
-                    "TxExtraData request range [{}, {}) out of bounds for previous transaction {} (extra_data_len={})",
-                    extra_data_offset,
-                    end,
-                    hex::encode(ref_tx_hash),
-                    extra_data.len()
-                )));
-            }
-            let ack = encode_bitcoin_tx_ack_prev_extra_data(&extra_data[extra_data_offset..end])
-                .map_err(BleBackend::transport_error)?;
-            Ok(BitcoinTxRequestHandling::Ack(ack))
-        }
-        Some(BitcoinTxRequestType::TxFinished) => Ok(BitcoinTxRequestHandling::Finished),
-        Some(BitcoinTxRequestType::TxOrigInput) => {
-            let orig_tx_hash = tx_request.tx_hash.as_ref().ok_or_else(|| {
-                BackendError::Transport("TxOrigInput request missing tx_hash".into())
-            })?;
-            let orig_tx = find_orig_tx(orig_txs_by_hash, orig_tx_hash, "TxOrigInput")?;
-            let index = request_index(tx_request, "TxOrigInput")?;
-            let input = orig_tx.inputs.get(index).ok_or_else(|| {
-                BackendError::Transport(format!(
-                    "TxOrigInput request index {} out of bounds for original transaction {} (inputs={})",
-                    index,
-                    hex::encode(orig_tx_hash),
-                    orig_tx.inputs.len()
-                ))
-            })?;
-            let ack = encode_bitcoin_tx_ack_input(input).map_err(BleBackend::transport_error)?;
-            Ok(BitcoinTxRequestHandling::Ack(ack))
-        }
-        Some(BitcoinTxRequestType::TxOrigOutput) => {
-            let orig_tx_hash = tx_request.tx_hash.as_ref().ok_or_else(|| {
-                BackendError::Transport("TxOrigOutput request missing tx_hash".into())
-            })?;
-            let orig_tx = find_orig_tx(orig_txs_by_hash, orig_tx_hash, "TxOrigOutput")?;
-            let index = request_index(tx_request, "TxOrigOutput")?;
-            let output = orig_tx.outputs.get(index).ok_or_else(|| {
-                BackendError::Transport(format!(
-                    "TxOrigOutput request index {} out of bounds for original transaction {} (outputs={})",
-                    index,
-                    hex::encode(orig_tx_hash),
-                    orig_tx.outputs.len()
-                ))
-            })?;
-            let ack = encode_bitcoin_tx_ack_output(output).map_err(BleBackend::transport_error)?;
-            Ok(BitcoinTxRequestHandling::Ack(ack))
-        }
-        Some(BitcoinTxRequestType::TxPaymentReq) => {
-            let index = request_index(tx_request, "TxPaymentReq")?;
-            let pr = btc.payment_reqs.get(index).ok_or_else(|| {
-                BackendError::Transport(format!(
-                    "TxPaymentReq request index {} out of bounds (payment_reqs={})",
-                    index,
-                    btc.payment_reqs.len()
-                ))
-            })?;
-            let ack =
-                encode_bitcoin_tx_ack_payment_request(pr).map_err(BleBackend::transport_error)?;
-            Ok(BitcoinTxRequestHandling::Ack(ack))
-        }
-        None => Ok(BitcoinTxRequestHandling::Continue),
     }
 }
 
-type ResponseOrReason<T> = std::result::Result<T, BackendError>;
+trait PumpChannel: ChannelIO {
+    fn retry_count(&self) -> Option<u8>;
+}
+
+impl PumpChannel for Mux<NoiseBackend> {
+    fn retry_count(&self) -> Option<u8> {
+        None
+    }
+}
+
+impl PumpChannel for ChannelOpen<SharedCredentials, NoiseBackend> {
+    fn retry_count(&self) -> Option<u8> {
+        self.sending_retry()
+    }
+}
+
+impl PumpChannel for Channel<NoiseBackend> {
+    fn retry_count(&self) -> Option<u8> {
+        self.sending_retry()
+    }
+}
+
+/// Packet I/O for the THP pump; `recv_packet` returns `None` when `wait` elapses.
+#[allow(async_fn_in_trait)]
+trait PacketLink {
+    async fn send_packet(&mut self, packet: &[u8]) -> BackendResult<()>;
+    async fn recv_packet(&mut self, wait: Duration) -> BackendResult<Option<Vec<u8>>>;
+}
+
+impl PacketLink for BleLink {
+    async fn send_packet(&mut self, packet: &[u8]) -> BackendResult<()> {
+        self.write(packet)
+            .await
+            .map_err(|e| BackendError::Transport(e.to_string()))
+    }
+
+    async fn recv_packet(&mut self, wait: Duration) -> BackendResult<Option<Vec<u8>>> {
+        match time::timeout(wait, self.read()).await {
+            Ok(Ok(packet)) => Ok(Some(packet)),
+            Ok(Err(err)) => Err(BackendError::Transport(err.to_string())),
+            Err(_) => Ok(None),
+        }
+    }
+}
+
+async fn flush<L: PacketLink, C: ChannelIO>(
+    link: &mut L,
+    channel: &mut Buffered<C>,
+) -> BackendResult<()> {
+    while channel.packet_out_ready() {
+        let packet = channel.packet_out().map_err(thp_error)?;
+        link.send_packet(&packet).await?;
+    }
+    Ok(())
+}
+
+fn can_retransmit(retry: Option<u8>) -> bool {
+    retry.is_some_and(|r| r.saturating_add(1) < MAX_RETRANSMISSION_COUNT)
+}
+
+/// Sends pending packets and feeds incoming ones until `done` holds, retransmitting unacked messages.
+async fn pump<L: PacketLink, C: PumpChannel>(
+    link: &mut L,
+    channel: &mut Buffered<C>,
+    response_timeout: Duration,
+    mut done: impl FnMut(&Buffered<C>, &PacketInResult) -> bool,
+) -> BackendResult<()> {
+    loop {
+        flush(link, channel).await?;
+        let retry = channel.retry_count();
+        let wait = retry.map_or(response_timeout, |r| {
+            Duration::from_millis(retransmit_after_ms(r).into())
+        });
+        let Some(packet) = link.recv_packet(wait).await? else {
+            if !can_retransmit(retry) {
+                return Err(BackendError::TransportTimeout);
+            }
+            channel.message_retransmit().map_err(thp_error)?;
+            continue;
+        };
+        let result = channel.packet_in(&packet);
+        match &result {
+            PacketInResult::TransportError {
+                error: TransportError::TransportBusy,
+            } if can_retransmit(retry) => {
+                let backoff = rand::random_range(0..MAX_BUSY_BACKOFF_MS);
+                debug!("THP transport busy; resending in {backoff}ms");
+                time::sleep(Duration::from_millis(backoff)).await;
+                channel.message_retransmit().map_err(thp_error)?;
+                continue;
+            }
+            PacketInResult::TransportError { error } => {
+                return Err(backend_error_from_transport(*error));
+            }
+            PacketInResult::Failed { error } => return Err(thp_error(*error)),
+            PacketInResult::Ignored { .. } => trace!("THP ignored packet"),
+            _ => {}
+        }
+        if done(channel, &result) {
+            return flush(link, channel).await;
+        }
+    }
+}
+
+/// Reads the next device message, acknowledging any ButtonRequest on the way.
+async fn receive_message<L: PacketLink>(
+    link: &mut L,
+    channel: &mut Buffered<Channel<NoiseBackend>>,
+    timeout: Duration,
+) -> BackendResult<(u16, Vec<u8>)> {
+    loop {
+        pump(link, channel, timeout, |_, result| result.got_message()).await?;
+        // trezor-thp queues the ACK when the message is consumed, so flush after message_out.
+        let (_session, message_type, payload) = channel.message_out().map_err(thp_error)?;
+        trace!(message_type, len = payload.len(), "THP receive");
+        if message_type != MESSAGE_TYPE_BUTTON_REQUEST {
+            flush(link, channel).await?;
+            return Ok((message_type, payload));
+        }
+        debug!("THP ButtonRequest; sending ButtonAck");
+        channel
+            .message_in(SESSION_ID, MESSAGE_TYPE_BUTTON_ACK, &[])
+            .map_err(thp_error)?;
+    }
+}
+
+enum ThpChannel {
+    Closed,
+    Opening(Box<Buffered<ChannelOpen<SharedCredentials, NoiseBackend>>>),
+    Open(Box<Buffered<Channel<NoiseBackend>>>),
+}
 
 pub struct BleBackend {
     inner: TransportBackend,
     device: DeviceInfo,
     handshake_timeout: Duration,
-    state: ThpWireState,
-    rx_buffer: Vec<u8>,
-    continuation: Vec<u8>,
-    continuation_frames: usize,
+    channel: ThpChannel,
+    credentials: SharedCredentials,
     nfc_secret: Option<[u8; 16]>,
-    pending_chunk: Option<ChunkAccumulator>,
-    last_sent_sync_frame: Option<Vec<u8>>,
-    recent_response: Option<RecentReplayableResponse>,
 }
 
 impl BleBackend {
@@ -524,14 +301,9 @@ impl BleBackend {
             inner: TransportBackend::new(link),
             device,
             handshake_timeout: Duration::from_secs(10),
-            state: ThpWireState::new(),
-            rx_buffer: Vec::new(),
-            continuation: Vec::new(),
-            continuation_frames: 0,
+            channel: ThpChannel::Closed,
+            credentials: SharedCredentials::default(),
             nfc_secret: None,
-            pending_chunk: None,
-            last_sent_sync_frame: None,
-            recent_response: None,
         }
     }
 
@@ -556,541 +328,123 @@ impl BleBackend {
         self.handshake_timeout = timeout;
     }
 
-    fn transport_error(err: impl std::fmt::Display) -> BackendError {
-        BackendError::Transport(err.to_string())
+    fn open_channel(&mut self) -> BackendResult<&mut Buffered<Channel<NoiseBackend>>> {
+        match &mut self.channel {
+            ThpChannel::Open(channel) => Ok(channel),
+            _ => Err(BackendError::Transport(
+                "THP channel is not established".into(),
+            )),
+        }
     }
 
-    fn reset_receive_state(&mut self) {
-        clear_receive_state(
-            &mut self.rx_buffer,
-            &mut self.continuation,
-            &mut self.continuation_frames,
-            &mut self.pending_chunk,
+    fn send(&mut self, message: &EncodedMessage) -> BackendResult<()> {
+        trace!(
+            message_type = message.message_type,
+            len = message.payload.len(),
+            "THP send"
         );
+        self.open_channel()?
+            .message_in(SESSION_ID, message.message_type, &message.payload)
+            .map_err(thp_error)
     }
 
-    fn device_error_from_code(code: u8) -> BackendError {
-        let message = match code {
-            THP_ERROR_TRANSPORT_BUSY => return BackendError::TransportBusy,
-            THP_ERROR_DEVICE_LOCKED => return BackendError::DeviceLocked,
-            THP_ERROR_UNALLOCATED_CHANNEL => "unallocated channel".to_string(),
-            THP_ERROR_DECRYPTION_FAILED => "decryption failed".to_string(),
-            _ => format!("device returned THP error code {code}"),
-        };
-        BackendError::DeviceError {
-            code: code as u32,
-            message,
-        }
-    }
-
-    async fn send_frame(&mut self, frame: Vec<u8>) -> BackendResult<()> {
-        let magic = frame.first().copied().unwrap_or(0);
-        let base_magic = magic & !THP_CONTROL_BITS_MASK;
-        if base_magic == wire::MAGIC_READ_ACK {
-            trace!("BLE THP TX frame: magic=0x{magic:02x} len={}", frame.len());
-        } else {
-            debug!("BLE THP TX frame: magic=0x{magic:02x} len={}", frame.len());
-        }
-        if is_replayable_request_magic(base_magic) {
-            self.last_sent_sync_frame = Some(frame.clone());
-        }
-        let mtu = {
-            let link = self.inner.link_mut();
-            link.mtu()
-        };
-        let chunks = chunk_v2_frame(&frame, mtu);
-
-        for chunk in chunks {
-            let write_future = {
-                let link = self.inner.link_mut();
-                link.write(&chunk)
-            };
-
-            if let Err(err) = write_future.await {
-                return Err(Self::transport_error(err));
-            }
-        }
-        Ok(())
-    }
-
-    fn try_parse(&mut self) -> BackendResult<Option<ParsedMessage>> {
-        trim_zero_padding(&mut self.rx_buffer);
-        if self.rx_buffer.is_empty() {
-            return Ok(None);
-        }
-
-        let expected_channel = if self.state.is_default_channel() {
-            None
-        } else {
-            Some(self.state.channel())
-        };
-
-        match wire::decode_frame(&self.rx_buffer, expected_channel) {
-            Ok(decoded) => {
-                self.rx_buffer.drain(..decoded.consumed);
-                trim_zero_padding(&mut self.rx_buffer);
-                let crc = decoded.crc;
-                let parsed =
-                    wire::parse_response(decoded.message, crc).map_err(Self::transport_error)?;
-                Ok(Some(parsed))
-            }
-            Err(WireError::ShortPacket) => Ok(None),
-            Err(WireError::UnexpectedChannel { expected, actual }) => {
-                match wire::decode_frame(&self.rx_buffer, None) {
-                    Ok(decoded) => {
-                        debug!(
-                            expected_channel = format_args!("0x{expected:04x}"),
-                            received_channel = format_args!("0x{actual:04x}"),
-                            consumed = decoded.consumed,
-                            "BLE THP ignoring frame on foreign channel"
-                        );
-                        self.rx_buffer.drain(..decoded.consumed);
-                    }
-                    Err(_) => {
-                        debug!(
-                            expected_channel = format_args!("0x{expected:04x}"),
-                            received_channel = format_args!("0x{actual:04x}"),
-                            "BLE THP channel mismatch without recoverable frame; dropping one byte to resync"
-                        );
-                        self.rx_buffer.drain(..1);
-                    }
-                }
-                trim_zero_padding(&mut self.rx_buffer);
-                Ok(None)
-            }
-            Err(WireError::CrcMismatch) => {
-                debug!("BLE THP CRC mismatch while parsing RX buffer; dropping one byte to resync");
-                self.rx_buffer.drain(..1);
-                trim_zero_padding(&mut self.rx_buffer);
-                Ok(None)
-            }
-            Err(WireError::UnexpectedMagic(magic)) => {
-                debug!(
-                    "BLE THP unexpected magic 0x{magic:02x} while parsing RX buffer; dropping one byte to resync"
-                );
-                self.rx_buffer.drain(..1);
-                trim_zero_padding(&mut self.rx_buffer);
-                Ok(None)
-            }
-            Err(err) => Err(Self::transport_error(err)),
-        }
-    }
-
-    fn ingest_chunk(&mut self, chunk: &[u8]) {
-        if let Some(frame) = ingest_thp_v2_chunk(&mut self.pending_chunk, chunk) {
-            self.rx_buffer.extend_from_slice(&frame);
-        }
-    }
-
-    fn remember_recent_response(&mut self, parsed: &ParsedMessage) {
-        if is_replayable_response_magic(parsed.header.magic) {
-            self.recent_response = Some(RecentReplayableResponse {
-                magic: parsed.header.magic,
-                crc: parsed.crc,
-            });
-        }
-    }
-
-    async fn read_next(&mut self) -> BackendResult<ParsedMessage> {
-        loop {
-            let parsed = match self.try_parse() {
-                Ok(parsed) => parsed,
-                Err(err) => {
-                    self.reset_receive_state();
-                    return Err(err);
-                }
-            };
-            if let Some(mut parsed) = parsed {
-                if should_replay_recent_request(&parsed, &self.state, self.recent_response) {
-                    debug!(
-                        magic = format_args!("0x{:02x}", parsed.header.magic),
-                        expected_seq = self.state.recv_bit(),
-                        got_seq = parsed.header.seq_bit,
-                        "BLE THP retransmitted recent response; re-ACKing and replaying last outbound"
-                    );
-                    if let Err(err) = self.send_ack_with_bit(parsed.header.seq_bit).await {
-                        self.reset_receive_state();
-                        return Err(err);
-                    }
-                    if let Some(frame) = self.last_sent_sync_frame.clone()
-                        && let Err(err) = self.send_frame(frame).await
-                    {
-                        self.reset_receive_state();
-                        return Err(err);
-                    }
-                    continue;
-                }
-                if is_replayable_response_magic(parsed.header.magic)
-                    && parsed.header.seq_bit != self.state.recv_bit()
-                {
-                    let err = BackendError::Transport(format!(
-                        "unexpected seq bit {} for THP frame 0x{:02x}; expected {}",
-                        parsed.header.seq_bit,
-                        parsed.header.magic,
-                        self.state.recv_bit()
-                    ));
-                    self.reset_receive_state();
-                    return Err(err);
-                }
-                match &mut parsed.response {
-                    WireResponse::Ack => continue,
-                    WireResponse::Continuation(chunk) => {
-                        if let Err(err) = append_continuation(
-                            &mut self.continuation,
-                            &mut self.continuation_frames,
-                            chunk,
-                        ) {
-                            self.reset_receive_state();
-                            return Err(err);
-                        }
-                        continue;
-                    }
-                    WireResponse::Protobuf { payload } => {
-                        if let Err(err) = merge_continuation(
-                            &mut self.continuation,
-                            &mut self.continuation_frames,
-                            payload,
-                        ) {
-                            self.reset_receive_state();
-                            return Err(err);
-                        }
-                        self.remember_recent_response(&parsed);
-                        return Ok(parsed);
-                    }
-                    _ => {
-                        if self.continuation_frames > 0 {
-                            debug!(
-                                "discarding {} accumulated continuation bytes across {} frames on non-protobuf response",
-                                self.continuation.len(),
-                                self.continuation_frames
-                            );
-                        }
-                        clear_continuation(&mut self.continuation, &mut self.continuation_frames);
-                        if self.should_ack(&parsed.header)
-                            && let Err(err) = self.send_ack(&parsed.header).await
-                        {
-                            self.reset_receive_state();
-                            return Err(err);
-                        }
-                        self.remember_recent_response(&parsed);
-                        return Ok(parsed);
-                    }
-                }
-            }
-
-            let read_future = {
-                let link = self.inner.link_mut();
-                link.read()
-            };
-
-            let chunk = match time::timeout(self.handshake_timeout, read_future).await {
-                Ok(Ok(chunk)) => chunk,
-                Ok(Err(err)) => {
-                    self.reset_receive_state();
-                    return Err(Self::transport_error(err));
-                }
-                Err(_) => {
-                    self.reset_receive_state();
-                    return Err(BackendError::TransportTimeout);
-                }
-            };
-            debug!(
-                "BLE THP RX chunk: first=0x{:02x} len={}",
-                chunk.first().copied().unwrap_or(0),
-                chunk.len()
-            );
-            self.ingest_chunk(&chunk);
-        }
-    }
-
-    fn to_array<const N: usize>(&self, bytes: &[u8]) -> BackendResult<[u8; N]> {
-        if bytes.len() != N {
-            return Err(BackendError::Transport(format!(
-                "expected {N} bytes, got {}",
-                bytes.len()
-            )));
-        }
-        let mut out = [0u8; N];
-        out.copy_from_slice(bytes);
-        Ok(out)
-    }
-
-    fn host_key(&self) -> BackendResult<[u8; 32]> {
-        self.state
-            .host_key()
-            .ok_or_else(|| BackendError::Transport("missing host encryption key".into()))
-    }
-
-    fn trezor_key(&self) -> BackendResult<[u8; 32]> {
-        self.state
-            .trezor_key()
-            .ok_or_else(|| BackendError::Transport("missing device encryption key".into()))
-    }
-
-    fn encrypt_host_message(
-        &mut self,
-        message_type: u16,
-        payload: &[u8],
-    ) -> BackendResult<Vec<u8>> {
-        let key = self.host_key()?;
-        let session_id = self.state.session_id();
-        let nonce = self.state.send_nonce();
-        let iv = get_iv_from_nonce(nonce);
-
-        let mut plaintext = Vec::with_capacity(1 + 2 + payload.len());
-        plaintext.push(session_id);
-        plaintext.extend_from_slice(&message_type.to_be_bytes());
-        plaintext.extend_from_slice(payload);
-
-        let (cipher, tag) = aes256gcm_encrypt(&key, &iv, &[], &plaintext)
-            .map_err(|_| BackendError::Transport("failed to encrypt THP payload".into()))?;
-
-        let mut ciphertext = cipher;
-        ciphertext.extend_from_slice(&tag);
-
-        let frame =
-            wire::encode_protobuf_request(self.state.channel(), self.state.send_bit(), &ciphertext);
-        Ok(frame)
-    }
-
-    fn decrypt_device_message(&mut self, payload: &[u8]) -> BackendResult<(u16, Vec<u8>)> {
-        if payload.len() < 1 + 2 + 16 {
+    async fn receive_raw(&mut self) -> BackendResult<(u16, Vec<u8>)> {
+        let timeout = self.handshake_timeout;
+        let link = self.inner.link_mut();
+        let ThpChannel::Open(channel) = &mut self.channel else {
             return Err(BackendError::Transport(
-                "device payload too short for THP message".into(),
+                "THP channel is not established".into(),
             ));
+        };
+        receive_message(link, channel, timeout).await
+    }
+
+    async fn receive(&mut self) -> BackendResult<(u16, Vec<u8>)> {
+        let (message_type, payload) = self.receive_raw().await?;
+        if message_type == MESSAGE_TYPE_FAILURE {
+            return Err(decode_failure_as_backend_error(&payload));
         }
-
-        let key = self.trezor_key()?;
-        let nonce = self.state.recv_nonce();
-        let iv = get_iv_from_nonce(nonce);
-
-        let tag_offset = payload.len() - 16;
-        let ciphertext = &payload[..tag_offset];
-        let tag = &payload[tag_offset..];
-        let tag_array = self.to_array::<16>(tag)?;
-
-        let plaintext = aes256gcm_decrypt(&key, &iv, &[], ciphertext, &tag_array).map_err(|e| {
-            BackendError::Transport(format!("failed to decrypt device payload: {e}"))
-        })?;
-
-        if plaintext.len() < 3 {
-            return Err(BackendError::Transport(
-                "decrypted payload too short".into(),
-            ));
-        }
-
-        let session_id = plaintext[0];
-        if session_id != self.state.session_id() {
-            debug!(
-                expected = self.state.session_id(),
-                received = session_id,
-                "BLE THP response session id differs from local state"
-            );
-        }
-
-        let message_type = u16::from_be_bytes([plaintext[1], plaintext[2]]);
-        Ok((message_type, plaintext[3..].to_vec()))
+        Ok((message_type, payload))
     }
 
-    async fn send_ack(&mut self, _header: &wire::WireHeader) -> BackendResult<()> {
-        self.send_ack_with_bit(self.state.recv_ack_bit()).await
+    async fn request(&mut self, message: EncodedMessage) -> BackendResult<(u16, Vec<u8>)> {
+        self.send(&message)?;
+        self.receive().await
     }
 
-    async fn send_ack_with_bit(&mut self, ack_bit: u8) -> BackendResult<()> {
-        let frame = wire::encode_ack(self.state.channel(), ack_bit);
-        self.send_frame(frame).await
-    }
-
-    async fn send_encrypted_request(&mut self, encoded: EncodedMessage) -> BackendResult<()> {
-        debug!(
-            "BLE THP TX encrypted message_type={} ({}) payload_len={}",
-            encoded.message_type,
-            thp_message_name(encoded.message_type),
-            encoded.payload.len()
-        );
-        let frame = self.encrypt_host_message(encoded.message_type, &encoded.payload)?;
-        self.send_frame(frame).await?;
-        self.state.on_send(MAGIC_CONTROL_ENCRYPTED);
-        Ok(())
-    }
-
-    async fn send_button_ack(&mut self) -> BackendResult<()> {
-        debug!("BLE THP sending ButtonAck");
-        self.send_encrypted_request(EncodedMessage {
-            message_type: MESSAGE_TYPE_BUTTON_ACK,
-            payload: Vec::new(),
-        })
-        .await
-    }
-
-    async fn parse_encrypted_response<T>(
+    async fn call<T>(
         &mut self,
-        mut parsed: ParsedMessage,
-        decoder: impl Fn(u16, &[u8]) -> Result<T, ProtoMappingError>,
+        message: Result<EncodedMessage, ProtoMappingError>,
+        decode: impl FnOnce(u16, &[u8]) -> Result<T, ProtoMappingError>,
     ) -> BackendResult<T> {
-        loop {
-            let (message_type, payload) = match parsed.response {
-                WireResponse::Protobuf { payload } => {
-                    if self.should_ack(&parsed.header) {
-                        self.send_ack(&parsed.header).await?;
-                    }
-                    let res = self.decrypt_device_message(&payload)?;
-                    self.state.on_receive(parsed.header.magic);
-                    res
-                }
-                WireResponse::Error(code) => {
-                    return Err(Self::device_error_from_code(code));
-                }
-                other => {
-                    debug!(
-                        "BLE THP ignoring out-of-phase frame while awaiting encrypted response: {:?}",
-                        other
-                    );
-                    parsed = self.read_next().await?;
-                    continue;
-                }
-            };
-
-            debug!(
-                "BLE THP RX encrypted message_type={} ({}) payload_len={}",
-                message_type,
-                thp_message_name(message_type),
-                payload.len()
-            );
-
-            if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
-                debug!("BLE THP received ButtonRequest; acknowledging to continue workflow");
-                self.send_button_ack().await?;
-                parsed = self.read_next().await?;
-                continue;
-            }
-
-            let result = decoder(message_type, &payload).map_err(Self::transport_error)?;
-            self.state.set_expected_responses(&[]);
-            return Ok(result);
-        }
+        let (message_type, payload) = self.request(message.map_err(mapping_error)?).await?;
+        decode(message_type, &payload).map_err(mapping_error)
     }
 
-    async fn send_and_receive_tag(
-        &mut self,
-        encoded: EncodedMessage,
-    ) -> BackendResult<ResponseOrReason<crate::thp::proto::ParsedTagResponse>> {
-        self.send_encrypted_request(encoded).await?;
-        let parsed = self.read_next().await?;
-        self.parse_encrypted_response(parsed, |message_type, payload| {
-            if message_type == MESSAGE_TYPE_FAILURE {
-                return Ok(Err(decode_failure_as_backend_error(payload)));
-            }
-            let message_type_enum = messages::ThpMessageType::try_from(message_type as i32)
-                .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
-            let parsed = decode_tag_response(message_type_enum, payload)?;
-            Ok(Ok(parsed))
+    async fn allocate_channel(&mut self, try_to_unlock: bool) -> BackendResult<()> {
+        let timeout = self.handshake_timeout;
+        let link = self.inner.link_mut();
+        let mut mux = Buffered::new(Mux::<NoiseBackend>::new());
+        mux.set_packet_len(link.mtu());
+        mux.request_channel(try_to_unlock);
+        pump(link, &mut mux, timeout, |_, result| result.got_channel()).await?;
+        let open = mux
+            .map(|mux| mux.complete(self.credentials.clone()))
+            .map_err(thp_error)?;
+        self.channel = ThpChannel::Opening(Box::new(open));
+        Ok(())
+    }
+
+    async fn run_handshake(&mut self) -> BackendResult<HandshakeCompletionState> {
+        let ThpChannel::Opening(mut open) =
+            std::mem::replace(&mut self.channel, ThpChannel::Closed)
+        else {
+            return Err(BackendError::Transport(
+                "THP handshake requires an allocated channel".into(),
+            ));
+        };
+        let timeout = self.handshake_timeout;
+        pump(self.inner.link_mut(), &mut open, timeout, |open, _| {
+            open.handshake_done() || open.handshake_failed()
         })
-        .await
-    }
-
-    async fn read_signing_message(&mut self) -> BackendResult<(u16, Vec<u8>)> {
-        loop {
-            let parsed = self.read_next().await?;
-            if self.should_ack(&parsed.header) {
-                self.send_ack(&parsed.header).await?;
-            }
-            let (message_type, payload) = match parsed.response {
-                WireResponse::Protobuf { payload } => {
-                    let result = self.decrypt_device_message(&payload)?;
-                    self.state.on_receive(parsed.header.magic);
-                    result
-                }
-                WireResponse::Error(code) => {
-                    return Err(Self::device_error_from_code(code));
-                }
-                other => {
-                    return Err(BackendError::Transport(format!(
-                        "unexpected response type {:?}",
-                        other
-                    )));
-                }
-            };
-
-            debug!(
-                "BLE THP signing RX message_type={} ({}) payload_len={}",
-                message_type,
-                thp_message_name(message_type),
-                payload.len()
-            );
-
-            if message_type == MESSAGE_TYPE_BUTTON_REQUEST {
-                debug!("BLE THP signing: ButtonRequest; sending ButtonAck");
-                self.send_button_ack().await?;
-                continue;
-            }
-            if message_type == MESSAGE_TYPE_FAILURE {
-                return Err(decode_failure_as_backend_error(&payload));
-            }
-            return Ok((message_type, payload));
+        .await?;
+        if open.handshake_failed() {
+            return Err(BackendError::Transport("THP handshake failed".into()));
         }
+        let channel = (*open).map(|open| open.complete()).map_err(thp_error)?;
+        let state = match channel.phase() {
+            Phase::PairingCredential {
+                handshake_pairing_state: PairingState::Unpaired,
+            } => HandshakeCompletionState::RequiresPairing,
+            Phase::PairingCredential {
+                handshake_pairing_state: PairingState::Paired,
+            }
+            | Phase::EncryptedTransport => HandshakeCompletionState::Paired,
+            Phase::PairingCredential {
+                handshake_pairing_state: PairingState::PairedAutoconnect,
+            } => HandshakeCompletionState::AutoPaired,
+        };
+        self.channel = ThpChannel::Open(Box::new(channel));
+        Ok(state)
     }
 
-    fn should_ack(&self, header: &wire::WireHeader) -> bool {
-        should_ack_magic(header.magic)
-    }
-}
-
-fn thp_message_name(message_type: u16) -> String {
-    match messages::ThpMessageType::try_from(message_type as i32) {
-        Ok(kind) => format!("{kind:?}"),
-        Err(_) => format!("Unknown({message_type})"),
-    }
-}
-
-fn chunk_v2_frame(frame: &[u8], mtu: usize) -> Vec<Vec<u8>> {
-    if mtu == 0 {
-        return vec![frame.to_vec()];
+    fn handshake_hash(&mut self) -> BackendResult<Vec<u8>> {
+        Ok(self.open_channel()?.handshake_hash().to_vec())
     }
 
-    if frame.len() <= mtu {
-        let mut chunk = vec![0u8; mtu];
-        chunk[..frame.len()].copy_from_slice(frame);
-        return vec![chunk];
+    fn end_pairing(&mut self) -> BackendResult<()> {
+        self.open_channel()?.end_pairing();
+        Ok(())
     }
 
-    let mut chunks = Vec::new();
-    chunks.push(frame[..mtu].to_vec());
-
-    let continuation_header = if frame.len() >= 3 {
-        [wire::MAGIC_CONTINUATION, frame[1], frame[2]]
-    } else {
-        [wire::MAGIC_CONTINUATION, 0, 0]
-    };
-
-    let mut position = mtu;
-    while position < frame.len() {
-        let payload_budget = mtu.saturating_sub(continuation_header.len());
-        if payload_budget == 0 {
-            break;
-        }
-        let end = (position + payload_budget).min(frame.len());
-        let payload = &frame[position..end];
-
-        let mut chunk = vec![0u8; mtu];
-        chunk[..continuation_header.len()].copy_from_slice(&continuation_header);
-        let payload_end = continuation_header.len() + payload.len();
-        chunk[continuation_header.len()..payload_end].copy_from_slice(payload);
-        chunks.push(chunk);
-        position = end;
-    }
-
-    chunks
-}
-
-fn trim_zero_padding(buffer: &mut Vec<u8>) {
-    let leading_zeros = buffer.iter().take_while(|b| **b == 0).count();
-    if leading_zeros > 0 {
-        buffer.drain(..leading_zeros);
+    fn reset_channel(&mut self) {
+        self.channel = ThpChannel::Closed;
+        self.nfc_secret = None;
     }
 }
 
 mod backend_impl;
+mod bitcoin;
 
 #[cfg(test)]
 mod tests;

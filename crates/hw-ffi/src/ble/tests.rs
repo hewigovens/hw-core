@@ -9,10 +9,9 @@ use trezor_connect::thp::backend::{BackendError, BackendResult, ThpBackend};
 use trezor_connect::thp::types::{
     CodeEntryChallengeRequest, CodeEntryChallengeResponse, CreateChannelRequest,
     CreateChannelResponse, CreateSessionRequest, CreateSessionResponse, CredentialRequest,
-    CredentialResponse, GetAddressResponse, HandshakeCompletionRequest,
-    HandshakeCompletionResponse, HandshakeCompletionState, HandshakeInitOutcome,
-    HandshakeInitRequest, KnownCredential, PairingRequest, PairingRequestApproved,
-    PairingTagRequest, PairingTagResponse, SelectMethodRequest, SelectMethodResponse,
+    CredentialResponse, GetAddressResponse, HandshakeCompletionState, HandshakeRequest,
+    HandshakeResponse, KnownCredential, PairingRequest, PairingRequestApproved, PairingTagRequest,
+    PairingTagResponse, SelectMethodRequest, SelectMethodResponse,
     SignMessageRequest as BackendSignMessageRequest, SignMessageResponse,
     SignTxRequest as BackendSignTxRequest, SignTxResponse,
     SignTypedDataRequest as BackendSignTypedDataRequest, SignTypedDataResponse, ThpProperties,
@@ -76,12 +75,10 @@ impl MockBackend {
 impl ThpBackend for MockBackend {
     async fn create_channel(
         &mut self,
-        request: CreateChannelRequest,
+        _request: CreateChannelRequest,
     ) -> BackendResult<CreateChannelResponse> {
         Ok(CreateChannelResponse {
-            nonce: request.nonce,
             channel: 0xBEEF,
-            handshake_hash: self.handshake_hash.clone(),
             properties: ThpProperties {
                 internal_model: "T3W1".into(),
                 model_variant: 1,
@@ -92,43 +89,15 @@ impl ThpBackend for MockBackend {
         })
     }
 
-    async fn handshake_init(
-        &mut self,
-        _request: HandshakeInitRequest,
-    ) -> BackendResult<HandshakeInitOutcome> {
-        Ok(HandshakeInitOutcome {
-            host_encrypted_static_pubkey: vec![1, 2, 3],
-            encrypted_payload: vec![4, 5, 6],
-            trezor_encrypted_static_pubkey: vec![7, 8, 9],
+    async fn handshake(&mut self, _request: HandshakeRequest) -> BackendResult<HandshakeResponse> {
+        Ok(HandshakeResponse {
+            state: self.completion_state,
             handshake_hash: self.handshake_hash.clone(),
-            host_key: vec![0x11; 32],
-            trezor_key: vec![0x22; 32],
-            host_static_key: vec![0x33; 32],
-            host_static_public_key: vec![0x44; 32],
-            pairing_methods: vec![PairingMethod::CodeEntry],
-            credentials: vec![KnownCredential {
-                credential: "cred".into(),
-                trezor_static_public_key: Some(vec![0x55; 32]),
-                autoconnect: false,
-            }],
             selected_credential: Some(KnownCredential {
                 credential: "cred".into(),
                 trezor_static_public_key: Some(vec![0x55; 32]),
                 autoconnect: false,
             }),
-            nfc_data: None,
-            handshake_commitment: None,
-            trezor_cpace_public_key: None,
-            code_entry_challenge: None,
-        })
-    }
-
-    async fn handshake_complete(
-        &mut self,
-        _request: HandshakeCompletionRequest,
-    ) -> BackendResult<HandshakeCompletionResponse> {
-        Ok(HandshakeCompletionResponse {
-            state: self.completion_state,
         })
     }
 

@@ -6,7 +6,6 @@ pub mod proto;
 pub mod state;
 pub mod storage;
 pub mod types;
-pub mod wire;
 pub mod workflow;
 
 pub use backend::{BackendError, ThpBackend};

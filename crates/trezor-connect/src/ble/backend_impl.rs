@@ -1,4 +1,39 @@
-use super::*;
+use prost::Message;
+use sha2::{Digest, Sha256};
+use tracing::debug;
+use trezor_thp::ChannelIO;
+
+use super::bitcoin::{
+    BitcoinTxRequestHandling, build_orig_txs_index, build_ref_txs_index, handle_bitcoin_tx_request,
+};
+use super::{
+    BleBackend, MESSAGE_TYPE_CREATE_SESSION, MESSAGE_TYPE_FAILURE, MESSAGE_TYPE_SUCCESS,
+    ThpChannel, decode_failure_as_backend_error, mapping_error,
+};
+use crate::thp::Chain;
+use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
+use crate::thp::crypto::{
+    get_cpace_host_keys, get_shared_secret, validate_code_entry_tag, validate_nfc_tag,
+    validate_qr_code_tag,
+};
+use crate::thp::eip712::{build_struct_ack, resolve_value_for_member_path};
+use crate::thp::messages;
+use crate::thp::proto::{
+    DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE, EncodedMessage, MESSAGE_TYPE_BITCOIN_TX_REQUEST,
+    MESSAGE_TYPE_ETHEREUM_TX_REQUEST, MESSAGE_TYPE_SOLANA_TX_SIGNATURE, ParsedTagResponse,
+    ProtoMappingError, decode_bitcoin_tx_request, decode_code_entry_cpace_response,
+    decode_credential_response, decode_device_properties, decode_get_address_response,
+    decode_get_nonce_response, decode_get_public_key_response, decode_pairing_request_approved,
+    decode_select_method_response, decode_sign_message_response, decode_sign_typed_data_message,
+    decode_sign_typed_data_response, decode_solana_tx_signature, decode_tag_response,
+    decode_tx_request, encode_code_entry_challenge, encode_code_entry_tag,
+    encode_credential_request, encode_end_request, encode_get_address_request,
+    encode_get_nonce_request, encode_get_public_key_request, encode_nfc_tag,
+    encode_pairing_request, encode_qr_tag, encode_select_method, encode_sign_message_request,
+    encode_sign_tx_request, encode_sign_typed_data_request, encode_tx_ack,
+    encode_typed_data_struct_ack, encode_typed_data_value_ack, to_pairing_tag_response,
+};
+use crate::thp::types::*;
 
 const NFC_SECRET_LENGTH: usize = 16;
 const NFC_HANDSHAKE_HASH_LENGTH: usize = 16;
@@ -73,242 +108,47 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: CreateChannelRequest,
     ) -> BackendResult<CreateChannelResponse> {
+        self.reset_channel();
+        self.allocate_channel(request.try_to_unlock).await?;
+        let ThpChannel::Opening(open) = &mut self.channel else {
+            return Err(BackendError::Transport(
+                "THP channel allocation failed".into(),
+            ));
+        };
+        let properties =
+            decode_device_properties(open.device_properties()).map_err(mapping_error)?;
+        if let (Ok(major), Ok(minor)) = (
+            u8::try_from(properties.protocol_version_major),
+            u8::try_from(properties.protocol_version_minor),
+        ) {
+            open.set_device_protocol_version(major, minor);
+        }
+        let channel = open.channel_id();
         debug!(
-            "THP create_channel start: nonce={}",
-            hex::encode(request.nonce)
+            "THP channel 0x{channel:04x}: methods={:?} protocol={}.{} model={}",
+            properties.pairing_methods,
+            properties.protocol_version_major,
+            properties.protocol_version_minor,
+            properties.internal_model,
         );
-        let frame = wire::encode_create_channel_request(&request.nonce);
-        self.send_frame(frame).await?;
-        self.state.on_send(MAGIC_CREATE_CHANNEL_REQUEST);
-
-        let parsed = self.read_next().await?;
-        let response = match parsed.response {
-            WireResponse::CreateChannel {
-                nonce,
-                channel,
-                properties,
-                handshake_hash,
-            } => {
-                if nonce != request.nonce {
-                    return Err(BackendError::Transport(
-                        "nonce mismatch in THP create channel".into(),
-                    ));
-                }
-                self.state.on_receive(parsed.header.magic);
-                self.state.set_channel(channel);
-                self.state.set_handshake_hash(handshake_hash);
-                debug!(
-                    "THP create_channel ok: channel=0x{:04x} methods={:?} protocol={}.{} model={} variant={}",
-                    channel,
-                    properties.pairing_methods,
-                    properties.protocol_version_major,
-                    properties.protocol_version_minor,
-                    properties.internal_model,
-                    properties.model_variant
-                );
-                CreateChannelResponse {
-                    nonce,
-                    channel,
-                    handshake_hash: handshake_hash.to_vec(),
-                    properties,
-                }
-            }
-            WireResponse::Error(code) => {
-                return Err(Self::device_error_from_code(code));
-            }
-            other => {
-                return Err(BackendError::Transport(format!(
-                    "unexpected response to create_channel: {:?}",
-                    other
-                )));
-            }
-        };
-
-        Ok(response)
-    }
-
-    async fn handshake_init(
-        &mut self,
-        request: HandshakeInitRequest,
-    ) -> BackendResult<HandshakeInitOutcome> {
-        self.nfc_secret = None;
-        let handshake_hash = self
-            .state
-            .handshake_hash()
-            .ok_or_else(|| BackendError::Transport("missing handshake hash".into()))?;
-
-        let mut rng = StdRng::from_rng(&mut rand::rng());
-
-        let (host_static_private, host_static_public, host_static_vec) =
-            if let Some(ref key) = request.static_key {
-                let array = self.to_array::<32>(key)?;
-                let public = derive_public_from_private(&array);
-                (array, public, key.clone())
-            } else {
-                let Curve25519KeyPair {
-                    private_key,
-                    public_key,
-                } = get_curve25519_key_pair(&mut rng);
-                (private_key, public_key, private_key.to_vec())
-            };
-
-        let Curve25519KeyPair {
-            private_key: host_ephemeral_private,
-            public_key: host_ephemeral_public,
-        } = get_curve25519_key_pair(&mut rng);
-
-        let frame = wire::encode_handshake_init_request(
-            self.state.channel(),
-            self.state.send_bit(),
-            &host_ephemeral_public,
-            request.try_to_unlock,
-        );
-        self.send_frame(frame).await?;
-        self.state.on_send(MAGIC_HANDSHAKE_INIT_REQUEST);
-
-        let parsed = self.read_next().await?;
-        let (trezor_ephemeral_pubkey, trezor_encrypted_static_pubkey, tag) = match parsed.response {
-            WireResponse::HandshakeInit {
-                trezor_ephemeral_pubkey,
-                trezor_encrypted_static_pubkey,
-                tag,
-            } => {
-                self.state.on_receive(parsed.header.magic);
-                self.state.set_expected_responses(&[]);
-                (trezor_ephemeral_pubkey, trezor_encrypted_static_pubkey, tag)
-            }
-            WireResponse::Error(code) => {
-                return Err(Self::device_error_from_code(code));
-            }
-            other => {
-                return Err(BackendError::Transport(format!(
-                    "unexpected response to handshake init: {:?}",
-                    other
-                )));
-            }
-        };
-
-        let encode_handshake_payload = |credential: Option<&str>| -> Vec<u8> {
-            let host_pairing_credential = credential.and_then(|c| hex::decode(c).ok());
-            let message = messages::ThpHandshakeCompletionReqNoisePayload {
-                host_pairing_credential,
-            };
-            let mut buf = Vec::new();
-            message
-                .encode(&mut buf)
-                .expect("encode to Vec is infallible");
-            buf
-        };
-
-        let handshake_response = HandshakeInitResponse {
-            trezor_ephemeral_pubkey,
-            trezor_encrypted_static_pubkey: &trezor_encrypted_static_pubkey,
-            tag,
-        };
-
-        let handshake_result = handle_handshake_init(HandshakeInitInput {
-            handshake_hash,
-            send_nonce: self.state.send_nonce(),
-            recv_nonce: self.state.recv_nonce(),
-            host_static_private,
-            host_static_public,
-            host_ephemeral_private,
-            host_ephemeral_public,
-            try_to_unlock: request.try_to_unlock,
-            known_credentials: &request.known_credentials,
-            response: handshake_response,
-            encode_handshake_payload: &encode_handshake_payload,
+        Ok(CreateChannelResponse {
+            channel,
+            properties,
         })
-        .map_err(Self::transport_error)?;
-
-        self.state
-            .set_keys(handshake_result.host_key, handshake_result.trezor_key);
-        self.state
-            .set_handshake_hash(handshake_result.handshake_hash);
-
-        let outcome = HandshakeInitOutcome {
-            host_encrypted_static_pubkey: handshake_result.host_encrypted_static_pubkey,
-            encrypted_payload: handshake_result.encrypted_payload,
-            trezor_encrypted_static_pubkey: handshake_result.trezor_encrypted_static_pubkey,
-            handshake_hash: handshake_result.handshake_hash.to_vec(),
-            host_key: handshake_result.host_key.to_vec(),
-            trezor_key: handshake_result.trezor_key.to_vec(),
-            host_static_key: host_static_vec,
-            host_static_public_key: host_static_public.to_vec(),
-            pairing_methods: request.pairing_methods,
-            credentials: handshake_result.credentials.clone(),
-            selected_credential: handshake_result.selected_credential.clone(),
-            nfc_data: None,
-            handshake_commitment: None,
-            trezor_cpace_public_key: None,
-            code_entry_challenge: None,
-        };
-
-        Ok(outcome)
     }
 
-    async fn handshake_complete(
-        &mut self,
-        request: HandshakeCompletionRequest,
-    ) -> BackendResult<HandshakeCompletionResponse> {
-        let frame = wire::encode_handshake_completion_request(
-            self.state.channel(),
-            self.state.send_bit(),
-            &request.host_pubkey,
-            &request.encrypted_payload,
-        );
-        self.send_frame(frame).await?;
-        self.state.on_send(MAGIC_HANDSHAKE_COMPLETION_REQUEST);
-
-        let parsed = self.read_next().await?;
-        let state = match parsed.response {
-            WireResponse::HandshakeCompletion {
-                encrypted_state,
-                tag,
-            } => {
-                self.state.on_receive(parsed.header.magic);
-                self.state.set_expected_responses(&[]);
-
-                let key = self.trezor_key()?;
-                let iv = [0u8; 12];
-                let plaintext = aes256gcm_decrypt(&key, &iv, &[], &[encrypted_state], &tag)
-                    .map_err(|_| {
-                        BackendError::Transport(
-                            "failed to decrypt handshake completion state".into(),
-                        )
-                    })?;
-                if plaintext.len() != 1 {
-                    return Err(BackendError::Transport(format!(
-                        "invalid decrypted handshake completion state length {}",
-                        plaintext.len()
-                    )));
-                }
-                plaintext[0]
-            }
-            WireResponse::Error(code) => {
-                return Err(Self::device_error_from_code(code));
-            }
-            other => {
-                return Err(BackendError::Transport(format!(
-                    "unexpected response to handshake completion: {:?}",
-                    other
-                )));
-            }
-        };
-
-        let completion_state = match state {
-            0 => HandshakeCompletionState::RequiresPairing,
-            1 => HandshakeCompletionState::Paired,
-            2 => HandshakeCompletionState::AutoPaired,
-            other => {
-                return Err(BackendError::Transport(format!(
-                    "unknown handshake completion state {other}"
-                )));
-            }
-        };
-
-        Ok(HandshakeCompletionResponse {
-            state: completion_state,
+    async fn handshake(&mut self, request: HandshakeRequest) -> BackendResult<HandshakeResponse> {
+        {
+            let mut credentials = self.credentials.lock();
+            credentials.static_key = request.static_key;
+            credentials.known = request.known_credentials;
+            credentials.selected = None;
+        }
+        let state = self.run_handshake().await?;
+        Ok(HandshakeResponse {
+            state,
+            handshake_hash: self.handshake_hash()?,
+            selected_credential: self.credentials.lock().selected.take(),
         })
     }
 
@@ -316,54 +156,31 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: PairingRequest,
     ) -> BackendResult<PairingRequestApproved> {
-        let encoded = encode_pairing_request(&request).map_err(Self::transport_error)?;
-        self.send_encrypted_request(encoded).await?;
-
-        let parsed = self.read_next().await?;
-        let response = self
-            .parse_encrypted_response(parsed, |message_type, payload| {
-                if message_type != messages::ThpMessageType::ThpPairingRequestApproved as i32 as u16
-                {
-                    return Err(ProtoMappingError::UnexpectedMessage(message_type));
-                }
-                decode_pairing_request_approved(payload)
-            })
-            .await?;
-
-        Ok(response)
+        self.call(encode_pairing_request(&request), |message_type, payload| {
+            if message_type != messages::ThpMessageType::ThpPairingRequestApproved as i32 as u16 {
+                return Err(ProtoMappingError::UnexpectedMessage(message_type));
+            }
+            decode_pairing_request_approved(payload)
+        })
+        .await
     }
 
     async fn select_pairing_method(
         &mut self,
         request: SelectMethodRequest,
     ) -> BackendResult<SelectMethodResponse> {
-        let encoded = encode_select_method(&request).map_err(Self::transport_error)?;
-        self.send_encrypted_request(encoded).await?;
-
-        let parsed = self.read_next().await?;
-        let outcome: ResponseOrReason<SelectMethodResponse> = self
-            .parse_encrypted_response(parsed, |message_type, payload| {
-                if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_as_backend_error(payload)));
-                }
-                let message_type_enum = messages::ThpMessageType::try_from(message_type as i32)
+        let mut response = self
+            .call(encode_select_method(&request), |message_type, payload| {
+                let message_type = messages::ThpMessageType::try_from(message_type as i32)
                     .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
-                let response = decode_select_method_response(message_type_enum, payload)?;
-                Ok(Ok(response))
+                decode_select_method_response(message_type, payload)
             })
             .await?;
-        let mut response = match outcome {
-            Ok(response) => response,
-            Err(err) => return Err(err),
-        };
 
         if request.method == PairingMethod::Nfc
             && let SelectMethodResponse::PairingPreparationsFinished { nfc_data } = &mut response
         {
-            let handshake_hash = self
-                .state
-                .handshake_hash()
-                .ok_or_else(|| BackendError::Transport("missing handshake hash".into()))?;
+            let handshake_hash = self.handshake_hash()?;
             let secret = rand::random::<[u8; NFC_SECRET_LENGTH]>();
             *nfc_data = Some(prepare_nfc_pairing(
                 &mut self.nfc_secret,
@@ -371,7 +188,6 @@ impl ThpBackend for BleBackend {
                 &handshake_hash,
             )?);
         }
-
         Ok(response)
     }
 
@@ -379,39 +195,16 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: CodeEntryChallengeRequest,
     ) -> BackendResult<CodeEntryChallengeResponse> {
-        debug!(
-            "BLE THP TX code-entry challenge payload_len={}",
-            request.challenge.len()
-        );
-        let encoded =
-            encode_code_entry_challenge(&request.challenge).map_err(Self::transport_error)?;
-        self.send_encrypted_request(encoded).await?;
-
-        let parsed = self.read_next().await?;
-        let outcome: ResponseOrReason<CodeEntryChallengeResponse> = self
-            .parse_encrypted_response(parsed, |message_type, payload| {
-                if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_as_backend_error(payload)));
-                }
+        self.call(
+            encode_code_entry_challenge(&request.challenge),
+            |message_type, payload| {
                 if message_type != messages::ThpMessageType::ThpCodeEntryCpaceTrezor as i32 as u16 {
                     return Err(ProtoMappingError::UnexpectedMessage(message_type));
                 }
-                let response = decode_code_entry_cpace_response(payload)?;
-                Ok(Ok(response))
-            })
-            .await?;
-        let response = match outcome {
-            Ok(response) => response,
-            Err(err) => {
-                return Err(err);
-            }
-        };
-        debug!(
-            "BLE THP RX code-entry cpace public_key_len={}",
-            response.trezor_cpace_public_key.len()
-        );
-
-        Ok(response)
+                decode_code_entry_cpace_response(payload)
+            },
+        )
+        .await
     }
 
     async fn send_pairing_tag(
@@ -428,22 +221,18 @@ impl ThpBackend for BleBackend {
                 let mut hasher = Sha256::new();
                 hasher.update(&handshake_hash);
                 hasher.update(tag_bytes);
-                let hashed_hex = hex::encode(hasher.finalize());
-
-                let encoded = encode_qr_tag(&hashed_hex).map_err(Self::transport_error)?;
-                let response = self.send_and_receive_tag(encoded).await?;
-                let response = match response {
+                let encoded =
+                    encode_qr_tag(&hex::encode(hasher.finalize())).map_err(mapping_error)?;
+                let response = match self.exchange_tag(encoded).await? {
                     Err(err) => return Ok(PairingTagResponse::Retry(err.to_string())),
                     Ok(response) => response,
                 };
-
                 if let Err(err) =
                     validate_qr_code_tag(&handshake_hash, &tag, &hex::encode(&response.secret))
                 {
                     debug!("QR tag validation failed: {err}");
                     return Ok(PairingTagResponse::Retry("pairing tag mismatch".into()));
                 }
-
                 Ok(to_pairing_tag_response(response))
             }
             PairingTagRequest::Nfc {
@@ -456,15 +245,12 @@ impl ThpBackend for BleBackend {
                 hasher.update([messages::ThpPairingMethod::Nfc as u8]);
                 hasher.update(&handshake_hash);
                 hasher.update(&tag_bytes);
-                let hashed_hex = hex::encode(hasher.finalize());
-
-                let encoded = encode_nfc_tag(&hashed_hex).map_err(Self::transport_error)?;
-                let response = self.send_and_receive_tag(encoded).await?;
-                let response = match response {
+                let encoded =
+                    encode_nfc_tag(&hex::encode(hasher.finalize())).map_err(mapping_error)?;
+                let response = match self.exchange_tag(encoded).await? {
                     Err(err) => return Ok(PairingTagResponse::Retry(err.to_string())),
                     Ok(response) => response,
                 };
-
                 let secret = self
                     .nfc_secret
                     .as_ref()
@@ -481,45 +267,42 @@ impl ThpBackend for BleBackend {
                 commitment,
                 challenge,
                 trezor_cpace_public_key,
-                ..
             } => {
                 if code.len() != 6 {
                     return Err(BackendError::Transport(
                         "code entry must be 6 digits".into(),
                     ));
                 }
-
-                let mut rng = StdRng::from_rng(&mut rand::rng());
-                let keys = get_cpace_host_keys(code.as_bytes(), &handshake_hash, &mut rng);
-                let trezor_key = trezor_cpace_public_key.as_ref().ok_or_else(|| {
-                    BackendError::Transport("missing trezor cpace public key".into())
-                })?;
-                let trezor_key = self.to_array::<32>(trezor_key)?;
+                let keys = get_cpace_host_keys(code.as_bytes(), &handshake_hash, &mut rand::rng());
+                let trezor_key: [u8; 32] = trezor_cpace_public_key
+                    .as_deref()
+                    .and_then(|key| key.try_into().ok())
+                    .ok_or_else(|| {
+                        BackendError::Transport("missing trezor cpace public key".into())
+                    })?;
                 let shared_secret = get_shared_secret(&trezor_key, &keys.private_key);
-
                 let encoded = encode_code_entry_tag(&keys.public_key, &shared_secret)
-                    .map_err(Self::transport_error)?;
-                let response = self.send_and_receive_tag(encoded).await?;
-                let response = match response {
+                    .map_err(mapping_error)?;
+                let response = match self.exchange_tag(encoded).await? {
                     Err(err) => return Ok(PairingTagResponse::Retry(err.to_string())),
                     Ok(response) => response,
                 };
-
+                let commitment = commitment.ok_or_else(|| {
+                    BackendError::Transport("missing handshake commitment".into())
+                })?;
+                let challenge = challenge.ok_or_else(|| {
+                    BackendError::Transport("missing code entry challenge".into())
+                })?;
                 if let Err(err) = validate_code_entry_tag(
                     &handshake_hash,
-                    commitment.as_ref().ok_or_else(|| {
-                        BackendError::Transport("missing handshake commitment".into())
-                    })?,
-                    challenge.as_ref().ok_or_else(|| {
-                        BackendError::Transport("missing code entry challenge".into())
-                    })?,
+                    &commitment,
+                    &challenge,
                     &code,
                     &hex::encode(&response.secret),
                 ) {
                     debug!("code-entry validation failed: {err}");
                     return Ok(PairingTagResponse::Retry("pairing code mismatch".into()));
                 }
-
                 Ok(to_pairing_tag_response(response))
             }
         }
@@ -529,28 +312,20 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: CredentialRequest,
     ) -> BackendResult<CredentialResponse> {
-        let encoded = encode_credential_request(&request).map_err(Self::transport_error)?;
-        self.send_encrypted_request(encoded).await?;
-
-        let parsed = self.read_next().await?;
-        let response = self
-            .parse_encrypted_response(parsed, |message_type, payload| {
+        self.call(
+            encode_credential_request(&request),
+            |message_type, payload| {
                 if message_type != messages::ThpMessageType::ThpCredentialResponse as i32 as u16 {
                     return Err(ProtoMappingError::UnexpectedMessage(message_type));
                 }
                 decode_credential_response(payload)
-            })
-            .await?;
-
-        Ok(response)
+            },
+        )
+        .await
     }
 
     async fn end_request(&mut self) -> BackendResult<()> {
-        let encoded = encode_end_request().map_err(Self::transport_error)?;
-        self.send_encrypted_request(encoded).await?;
-
-        let parsed = self.read_next().await?;
-        self.parse_encrypted_response(parsed, |message_type, payload| {
+        self.call(encode_end_request(), |message_type, payload| {
             if message_type != messages::ThpMessageType::ThpEndResponse as i32 as u16 {
                 return Err(ProtoMappingError::UnexpectedMessage(message_type));
             }
@@ -558,140 +333,73 @@ impl ThpBackend for BleBackend {
             Ok(())
         })
         .await?;
-
-        Ok(())
+        self.end_pairing()
     }
 
     async fn create_new_session(
         &mut self,
         request: CreateSessionRequest,
     ) -> BackendResult<CreateSessionResponse> {
-        let message = messages::ThpCreateNewSession {
-            passphrase: request.passphrase.clone(),
+        let payload = messages::ThpCreateNewSession {
+            passphrase: request.passphrase,
             on_device: request.on_device.then_some(true),
             derive_cardano: request.derive_cardano.then_some(true),
-        };
-
-        let mut payload = Vec::new();
-        message
-            .encode(&mut payload)
-            .map_err(|e| BackendError::Transport(e.to_string()))?;
-
-        let encoded = EncodedMessage {
+        }
+        .encode_to_vec();
+        let message = EncodedMessage {
             message_type: MESSAGE_TYPE_CREATE_SESSION,
             payload,
         };
-        self.send_encrypted_request(encoded).await?;
-
-        let parsed = self.read_next().await?;
-        let outcome: ResponseOrReason<()> = self
-            .parse_encrypted_response(parsed, |message_type, payload| {
-                if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_as_backend_error(payload)));
-                }
-                if message_type != MESSAGE_TYPE_SUCCESS {
-                    return Err(ProtoMappingError::UnexpectedMessage(message_type));
-                }
-                Ok(Ok(()))
-            })
-            .await?;
-        outcome?;
-
-        Ok(CreateSessionResponse)
+        self.call(Ok(message), |message_type, _| {
+            if message_type != MESSAGE_TYPE_SUCCESS {
+                return Err(ProtoMappingError::UnexpectedMessage(message_type));
+            }
+            Ok(CreateSessionResponse)
+        })
+        .await
     }
 
     async fn get_address(
         &mut self,
         request: GetAddressRequest,
     ) -> BackendResult<GetAddressResponse> {
-        let encoded = encode_get_address_request(&request).map_err(Self::transport_error)?;
-        self.send_encrypted_request(encoded).await?;
-
-        let parsed = self.read_next().await?;
-        let response_or_reason: ResponseOrReason<GetAddressResponse> = self
-            .parse_encrypted_response(parsed, |message_type, payload| {
-                if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_as_backend_error(payload)));
-                }
-                let response = decode_get_address_response(request.chain, message_type, payload)?;
-                Ok(Ok(response))
-            })
+        let chain = request.chain;
+        let mut response = self
+            .call(
+                encode_get_address_request(&request),
+                |message_type, payload| decode_get_address_response(chain, message_type, payload),
+            )
             .await?;
-        let mut response = match response_or_reason {
-            Ok(response) => response,
-            Err(err) => return Err(err),
-        };
-
         if request.include_public_key {
             // Mirror Suite: keep GetPublicKey silent to avoid extra prompts.
-            let encoded = encode_get_public_key_request(request.chain, &request.path, false)
-                .map_err(Self::transport_error)?;
-            self.send_encrypted_request(encoded).await?;
-
-            let parsed = self.read_next().await?;
-            let public_key_or_reason: ResponseOrReason<String> = self
-                .parse_encrypted_response(parsed, |message_type, payload| {
-                    if message_type == MESSAGE_TYPE_FAILURE {
-                        return Ok(Err(decode_failure_as_backend_error(payload)));
-                    }
-                    let public_key =
-                        decode_get_public_key_response(request.chain, message_type, payload)?;
-                    Ok(Ok(public_key))
-                })
+            let public_key = self
+                .call(
+                    encode_get_public_key_request(chain, &request.path, false),
+                    |message_type, payload| {
+                        decode_get_public_key_response(chain, message_type, payload)
+                    },
+                )
                 .await?;
-            let public_key = match public_key_or_reason {
-                Ok(public_key) => public_key,
-                Err(err) => return Err(err),
-            };
             response.public_key = Some(public_key);
         }
-
         Ok(response)
     }
 
     async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {
-        let encoded = encode_get_nonce_request().map_err(Self::transport_error)?;
-        self.send_encrypted_request(encoded).await?;
-
-        let parsed = self.read_next().await?;
-        let response_or_reason: ResponseOrReason<Vec<u8>> = self
-            .parse_encrypted_response(parsed, |message_type, payload| {
-                if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_as_backend_error(payload)));
-                }
-                let response = decode_get_nonce_response(message_type, payload)?;
-                Ok(Ok(response))
-            })
-            .await?;
-
-        match response_or_reason {
-            Ok(response) => Ok(response),
-            Err(err) => Err(err),
-        }
+        self.call(encode_get_nonce_request(), decode_get_nonce_response)
+            .await
     }
 
     async fn sign_message(
         &mut self,
         request: SignMessageRequest,
     ) -> BackendResult<SignMessageResponse> {
-        let encoded = encode_sign_message_request(&request).map_err(Self::transport_error)?;
-        self.send_encrypted_request(encoded).await?;
-
-        let parsed = self.read_next().await?;
-        let response_or_reason: ResponseOrReason<SignMessageResponse> = self
-            .parse_encrypted_response(parsed, |message_type, payload| {
-                if message_type == MESSAGE_TYPE_FAILURE {
-                    return Ok(Err(decode_failure_as_backend_error(payload)));
-                }
-                let response = decode_sign_message_response(request.chain, message_type, payload)?;
-                Ok(Ok(response))
-            })
-            .await?;
-
-        match response_or_reason {
-            Ok(response) => Ok(response),
-            Err(err) => Err(err),
-        }
+        let chain = request.chain;
+        self.call(
+            encode_sign_message_request(&request),
+            |message_type, payload| decode_sign_message_response(chain, message_type, payload),
+        )
+        .await
     }
 
     async fn sign_typed_data(
@@ -699,131 +407,51 @@ impl ThpBackend for BleBackend {
         request: SignTypedDataRequest,
     ) -> BackendResult<SignTypedDataResponse> {
         let chain = request.chain;
-        let payload_kind = request.payload.clone();
-        let encoded = encode_sign_typed_data_request(&request).map_err(Self::transport_error)?;
-        self.send_encrypted_request(encoded).await?;
-
-        match payload_kind {
-            SignTypedDataPayload::Hashes { .. } => {
-                let parsed = self.read_next().await?;
-                let response_or_reason: ResponseOrReason<SignTypedDataResponse> = self
-                    .parse_encrypted_response(parsed, |message_type, payload| {
-                        if message_type == MESSAGE_TYPE_FAILURE {
-                            return Ok(Err(decode_failure_as_backend_error(payload)));
-                        }
-                        let response =
-                            decode_sign_typed_data_response(chain, message_type, payload)?;
-                        Ok(Ok(response))
-                    })
-                    .await?;
-                match response_or_reason {
-                    Ok(response) => Ok(response),
-                    Err(err) => Err(err),
+        let encoded = encode_sign_typed_data_request(&request).map_err(mapping_error)?;
+        let SignTypedDataPayload::TypedData(typed_data) = request.payload else {
+            return self
+                .call(Ok(encoded), |message_type, payload| {
+                    decode_sign_typed_data_response(chain, message_type, payload)
+                })
+                .await;
+        };
+        let (mut message_type, mut payload) = self.request(encoded).await?;
+        loop {
+            let ack = match decode_sign_typed_data_message(chain, message_type, &payload)
+                .map_err(mapping_error)?
+            {
+                DecodedTypedDataResponse::Signature(response) => return Ok(response),
+                DecodedTypedDataResponse::StructRequest(struct_request) => {
+                    let ack = build_struct_ack(&typed_data, &struct_request.name)?;
+                    encode_typed_data_struct_ack(&ack)
                 }
-            }
-            SignTypedDataPayload::TypedData(typed_data) => loop {
-                let (message_type, payload) = self.read_signing_message().await?;
-
-                match decode_sign_typed_data_message(chain, message_type, &payload)
-                    .map_err(Self::transport_error)?
-                {
-                    DecodedTypedDataResponse::Signature(response) => {
-                        self.state.set_expected_responses(&[]);
-                        return Ok(response);
-                    }
-                    DecodedTypedDataResponse::StructRequest(struct_request) => {
-                        let ack = build_struct_ack(&typed_data, &struct_request.name)?;
-                        let encoded_ack =
-                            encode_typed_data_struct_ack(&ack).map_err(Self::transport_error)?;
-                        self.send_encrypted_request(encoded_ack).await?;
-                    }
-                    DecodedTypedDataResponse::ValueRequest(value_request) => {
-                        let value =
-                            resolve_value_for_member_path(&typed_data, &value_request.member_path)?;
-                        let encoded_ack =
-                            encode_typed_data_value_ack(value).map_err(Self::transport_error)?;
-                        self.send_encrypted_request(encoded_ack).await?;
-                    }
+                DecodedTypedDataResponse::ValueRequest(value_request) => {
+                    let value =
+                        resolve_value_for_member_path(&typed_data, &value_request.member_path)?;
+                    encode_typed_data_value_ack(value)
                 }
-            },
+            };
+            (message_type, payload) = self.request(ack.map_err(mapping_error)?).await?;
         }
     }
 
     async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse> {
-        let chain = request.chain;
         let (encoded, initial_chunk_len) =
-            encode_sign_tx_request(&request).map_err(Self::transport_error)?;
-        self.send_encrypted_request(encoded).await?;
-        match chain {
+            encode_sign_tx_request(&request).map_err(mapping_error)?;
+        let (message_type, payload) = self.request(encoded).await?;
+        match request.chain {
             Chain::Ethereum => {
-                let full_data = request.data.clone();
-                let mut data_offset = initial_chunk_len;
-
-                loop {
-                    let (message_type, payload) = self.read_signing_message().await?;
-
-                    if message_type != MESSAGE_TYPE_ETHEREUM_TX_REQUEST {
-                        return Err(BackendError::Transport(format!(
-                            "unexpected message type {} during Ethereum sign_tx",
-                            message_type
-                        )));
-                    }
-
-                    let tx_request =
-                        decode_tx_request(message_type, &payload).map_err(Self::transport_error)?;
-                    if let (Some(v), Some(r), Some(s)) = (
-                        tx_request.signature_v,
-                        tx_request.signature_r,
-                        tx_request.signature_s,
-                    ) {
-                        self.state.set_expected_responses(&[]);
-                        return Ok(SignTxResponse {
-                            chain,
-                            v,
-                            r,
-                            s,
-                            signatures: Vec::new(),
-                        });
-                    }
-
-                    if let Some(requested_len) = tx_request.data_length {
-                        let requested_len = requested_len as usize;
-                        if requested_len > 0 && data_offset >= full_data.len() {
-                            return Err(BackendError::Transport(
-                                "device requested additional tx data beyond payload length".into(),
-                            ));
-                        }
-
-                        let chunk_len = requested_len.min(ETH_DATA_CHUNK_SIZE);
-                        let end = (data_offset + chunk_len).min(full_data.len());
-                        let chunk = &full_data[data_offset..end];
-                        data_offset = end;
-
-                        let encoded_ack = encode_tx_ack(chunk).map_err(Self::transport_error)?;
-                        self.send_encrypted_request(encoded_ack).await?;
-                        continue;
-                    }
-
-                    return Err(BackendError::Transport(
-                        "EthereumTxRequest has neither signature nor data_length".into(),
-                    ));
-                }
+                self.sign_ethereum_tx(&request.data, initial_chunk_len, message_type, payload)
+                    .await
             }
             Chain::Solana => {
-                let (message_type, payload) = self.read_signing_message().await?;
-
                 if message_type != MESSAGE_TYPE_SOLANA_TX_SIGNATURE {
-                    return Err(BackendError::Transport(format!(
-                        "unexpected message type {} during Solana sign_tx",
-                        message_type
-                    )));
+                    return Err(unexpected_signing_message(message_type, "Solana"));
                 }
-
-                let signature = decode_solana_tx_signature(message_type, &payload)
-                    .map_err(Self::transport_error)?;
-                self.state.set_expected_responses(&[]);
+                let signature =
+                    decode_solana_tx_signature(message_type, &payload).map_err(mapping_error)?;
                 Ok(SignTxResponse {
-                    chain,
+                    chain: Chain::Solana,
                     v: 0,
                     r: signature,
                     s: Vec::new(),
@@ -831,79 +459,138 @@ impl ThpBackend for BleBackend {
                 })
             }
             Chain::Bitcoin => {
-                let btc = request.btc.clone().ok_or_else(|| {
+                let btc = request.btc.as_ref().ok_or_else(|| {
                     BackendError::Transport("missing Bitcoin signing payload".into())
                 })?;
-                let ref_txs_by_hash = build_ref_txs_index(&btc);
-                let orig_txs_by_hash = build_orig_txs_index(&btc);
-                let mut signatures: Vec<Vec<u8>> = Vec::new();
-                let mut last_signature: Option<Vec<u8>> = None;
-
-                loop {
-                    let (message_type, payload) = self.read_signing_message().await?;
-
-                    if message_type != MESSAGE_TYPE_BITCOIN_TX_REQUEST {
-                        return Err(BackendError::Transport(format!(
-                            "unexpected message type {} during Bitcoin sign_tx",
-                            message_type
-                        )));
-                    }
-
-                    let tx_request = decode_bitcoin_tx_request(message_type, &payload)
-                        .map_err(Self::transport_error)?;
-                    if let Some(signature) = tx_request.signature.as_ref() {
-                        last_signature = Some(signature.clone());
-                        if let Some(idx) = tx_request.signature_index {
-                            record_bitcoin_signature(
-                                &mut signatures,
-                                btc.inputs.len(),
-                                idx,
-                                signature,
-                            )?;
-                        }
-                    }
-
-                    match handle_bitcoin_tx_request(
-                        &btc,
-                        &ref_txs_by_hash,
-                        &orig_txs_by_hash,
-                        &tx_request,
-                    )? {
-                        BitcoinTxRequestHandling::Ack(ack) => {
-                            self.send_encrypted_request(ack).await?;
-                        }
-                        BitcoinTxRequestHandling::Finished => {
-                            self.state.set_expected_responses(&[]);
-                            // Legacy fallback: prefer last indexed signature for 'r'.
-                            let r = signatures
-                                .last()
-                                .cloned()
-                                .or_else(|| last_signature.clone())
-                                .unwrap_or_default();
-                            return Ok(SignTxResponse {
-                                chain,
-                                v: 0,
-                                r,
-                                s: Vec::new(),
-                                signatures,
-                            });
-                        }
-                        BitcoinTxRequestHandling::Continue => {
-                            continue;
-                        }
-                    }
-                }
+                self.sign_bitcoin_tx(btc, message_type, payload).await
             }
         }
     }
 
     async fn abort(&mut self) -> BackendResult<()> {
-        self.nfc_secret = None;
-        self.reset_receive_state();
+        self.reset_channel();
         self.inner
             .abort()
             .await
             .map_err(|e| BackendError::Transport(e.to_string()))
+    }
+}
+
+fn unexpected_signing_message(message_type: u16, chain: &str) -> BackendError {
+    BackendError::Transport(format!(
+        "unexpected message type {message_type} during {chain} sign_tx"
+    ))
+}
+
+impl BleBackend {
+    /// Pairing tags treat a device Failure as a retryable mismatch rather than an error.
+    async fn exchange_tag(
+        &mut self,
+        message: EncodedMessage,
+    ) -> BackendResult<Result<ParsedTagResponse, BackendError>> {
+        self.send(&message)?;
+        let (message_type, payload) = self.receive_raw().await?;
+        if message_type == MESSAGE_TYPE_FAILURE {
+            return Ok(Err(decode_failure_as_backend_error(&payload)));
+        }
+        let message_type = messages::ThpMessageType::try_from(message_type as i32)
+            .map_err(|_| mapping_error(ProtoMappingError::UnexpectedMessage(message_type)))?;
+        decode_tag_response(message_type, &payload)
+            .map(Ok)
+            .map_err(mapping_error)
+    }
+
+    async fn sign_ethereum_tx(
+        &mut self,
+        data: &[u8],
+        mut data_offset: usize,
+        mut message_type: u16,
+        mut payload: Vec<u8>,
+    ) -> BackendResult<SignTxResponse> {
+        loop {
+            if message_type != MESSAGE_TYPE_ETHEREUM_TX_REQUEST {
+                return Err(unexpected_signing_message(message_type, "Ethereum"));
+            }
+            let tx_request = decode_tx_request(message_type, &payload).map_err(mapping_error)?;
+            if let (Some(v), Some(r), Some(s)) = (
+                tx_request.signature_v,
+                tx_request.signature_r,
+                tx_request.signature_s,
+            ) {
+                return Ok(SignTxResponse {
+                    chain: Chain::Ethereum,
+                    v,
+                    r,
+                    s,
+                    signatures: Vec::new(),
+                });
+            }
+            let Some(requested_len) = tx_request.data_length else {
+                return Err(BackendError::Transport(
+                    "EthereumTxRequest has neither signature nor data_length".into(),
+                ));
+            };
+            let requested_len = requested_len as usize;
+            if requested_len > 0 && data_offset >= data.len() {
+                return Err(BackendError::Transport(
+                    "device requested additional tx data beyond payload length".into(),
+                ));
+            }
+            let end = (data_offset + requested_len.min(ETH_DATA_CHUNK_SIZE)).min(data.len());
+            let ack = encode_tx_ack(&data[data_offset..end]).map_err(mapping_error)?;
+            data_offset = end;
+            (message_type, payload) = self.request(ack).await?;
+        }
+    }
+
+    async fn sign_bitcoin_tx(
+        &mut self,
+        btc: &BtcSignTx,
+        mut message_type: u16,
+        mut payload: Vec<u8>,
+    ) -> BackendResult<SignTxResponse> {
+        let ref_txs_by_hash = build_ref_txs_index(btc);
+        let orig_txs_by_hash = build_orig_txs_index(btc);
+        let mut signatures: Vec<Vec<u8>> = Vec::new();
+        let mut last_signature: Option<Vec<u8>> = None;
+
+        loop {
+            if message_type != MESSAGE_TYPE_BITCOIN_TX_REQUEST {
+                return Err(unexpected_signing_message(message_type, "Bitcoin"));
+            }
+            let tx_request =
+                decode_bitcoin_tx_request(message_type, &payload).map_err(mapping_error)?;
+            if let Some(signature) = tx_request.signature.as_ref() {
+                last_signature = Some(signature.clone());
+                if let Some(index) = tx_request.signature_index {
+                    record_bitcoin_signature(&mut signatures, btc.inputs.len(), index, signature)?;
+                }
+            }
+            (message_type, payload) = match handle_bitcoin_tx_request(
+                btc,
+                &ref_txs_by_hash,
+                &orig_txs_by_hash,
+                &tx_request,
+            )? {
+                BitcoinTxRequestHandling::Ack(ack) => self.request(ack).await?,
+                BitcoinTxRequestHandling::Continue => self.receive().await?,
+                BitcoinTxRequestHandling::Finished => {
+                    // Legacy fallback: prefer last indexed signature for 'r'.
+                    let r = signatures
+                        .last()
+                        .cloned()
+                        .or(last_signature)
+                        .unwrap_or_default();
+                    return Ok(SignTxResponse {
+                        chain: Chain::Bitcoin,
+                        v: 0,
+                        r,
+                        s: Vec::new(),
+                        signatures,
+                    });
+                }
+            };
+        }
     }
 }
 

@@ -595,7 +595,6 @@ mod tests {
         let mut state = ThpState::new();
         state.set_handshake_cache(HandshakeCache {
             channel: 1,
-            handshake_hash: vec![0xAA],
             pairing_methods: vec![PairingMethod::CodeEntry],
         });
         assert_eq!(session_phase(&state, false), SessionPhase::NeedsHandshake);
@@ -661,7 +660,6 @@ mod tests {
 
         state.set_handshake_cache(HandshakeCache {
             channel: 7,
-            handshake_hash: vec![0x01, 0x02],
             pairing_methods: vec![PairingMethod::CodeEntry],
         });
         assert_eq!(
