@@ -1,14 +1,14 @@
 # hw-core Release Checklist
 
-Last updated: 2026-03-10
+Last updated: 2026-10-07
 
 Use this checklist before cutting a tagged release or publishing downstream artifacts.
 
 ## Code Health
 
 - [ ] `just ci` passes on the release commit.
-- [ ] Open plan items that block the stated release scope are resolved or explicitly deferred.
-- [ ] `docs/plan.md` and `docs/roadmap.md` reflect the same release priorities.
+- [ ] Open GitHub issues that block the stated release scope are resolved or explicitly deferred.
+- [ ] `docs/roadmap.md` reflects the release priorities.
 
 ## Bindings And Artifacts
 

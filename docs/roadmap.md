@@ -2,41 +2,53 @@
 
 Last updated: 2026-10-07
 
+This is the single planning document for hw-core. It stays high level; concrete work items are tracked as [GitHub issues](https://github.com/hewigovens/hw-core/issues), and past work is in git history.
+
 ## Product Goal
-Ship a stable, reusable host stack for hardware-wallet communication over THP/BLE that external developers can adopt through well-defined Rust and FFI surfaces.
 
-## Current Baseline
-- THP/BLE host stack is operational end-to-end for discovery, pairing, session establishment, encrypted messaging, and persisted pairing state.
-- Android BLE support is updated to `btleplug` 0.13.4 (jni 0.22), with only the remaining required Android Java behavior patch carried locally.
-- Shared wallet orchestration (`hw-wallet`) is used by CLI and FFI.
-- Consumer-facing ETH message-sign validation is shared across wallet, CLI, and FFI entry points.
-- CLI supports scan, pair, address, sign-tx, and message-signing workflows.
-- `hw-ffi` generates Swift/Kotlin bindings consumed by Apple and Android sample surfaces.
-- Emulator CI retains quiet successful runs while preserving emulator stdout/stderr automatically on failures.
+Ship a stable, reusable host stack for hardware-wallet communication over THP/BLE that external developers can integrate through Rust, CLI, and FFI (Swift/Kotlin) surfaces without reverse-engineering behavior from sample apps or source code.
 
-## Feature Status
+"Developer ready" means:
+- Core wallet flows (scan, pair, reconnect, address, sign-tx, sign-message) succeed reliably on supported platforms.
+- Public request/response behavior is stable, documented, and covered by tests.
+- Android and Apple consumers have a supported, packaged integration path, not just sample apps.
+- CI and the [smoke matrix](smoke-matrix.md) prove the flows we claim to support.
+
+## Current Status
+
+The THP/BLE stack works end to end against Trezor Safe 7: discovery, pairing, session establishment, encrypted messaging, and persisted pairing state. `hw-wallet` provides shared orchestration for the CLI and `hw-ffi`, which generates Swift and Kotlin bindings used by the Apple and Android sample apps. Emulator CI runs against firmware core v2.12.5.
 
 | Capability | Ethereum | Bitcoin | Solana |
 |---|---|---|---|
 | Address retrieval | Done | Done | Done |
-| Transaction signing | Done | Partial (advanced `TxRequest` variants pending) | Done |
-| Message signing | Done (EIP-191 + EIP-712) | Done | Deferred |
-
-## Near-Term Priorities
-1. Complete remaining BTC protocol gaps and keep shared ETH/BTC validation regression-covered.
-2. Make Android and Apple consumption paths supportable through packaged artifacts and integration docs.
-3. Narrow validation and CI to the developer-facing flows we explicitly support.
+| Transaction signing | Partial: no network/token definitions ([#99](https://github.com/hewigovens/hw-core/issues/99)) | Partial: output script-type validation ([#101](https://github.com/hewigovens/hw-core/issues/101)); SLIP-24 not validated on hardware ([#102](https://github.com/hewigovens/hw-core/issues/102)) | Partial: no `additional_info` for token transfers ([#100](https://github.com/hewigovens/hw-core/issues/100)) |
+| Message signing | Done (EIP-191 + EIP-712) | Done | Not planned |
 
 ## Milestones
 
-| Milestone | Status | Exit Criteria |
-|---|---|---|
-| M1: Protocol-complete baseline | In progress | BTC signing handles the full supported firmware-requested `TX*` sequence and consumer-facing validation remains regression-covered across entry points |
-| M2: Consumer-ready SDK surfaces | In progress | Android and Apple consumers can integrate hw-core from packaged artifacts using documented setup |
-| M3: Release confidence | In progress | CI, smoke checks, and release docs reflect the actual supported developer experience |
+| Milestone | Status | Exit criteria | Issues |
+|---|---|---|---|
+| M1: Protocol-complete baseline | In progress | Supported ETH/BTC/SOL flows match Trezor Suite request shapes; THP transport is built on the official `trezor-thp` crate; consumer input validation is consistent across entry points | [#98](https://github.com/hewigovens/hw-core/issues/98), [#99](https://github.com/hewigovens/hw-core/issues/99), [#100](https://github.com/hewigovens/hw-core/issues/100), [#101](https://github.com/hewigovens/hw-core/issues/101), [#103](https://github.com/hewigovens/hw-core/issues/103), [#104](https://github.com/hewigovens/hw-core/issues/104) |
+| M2: Consumer-ready SDK surfaces | In progress | Android and Apple developers can integrate hw-core from versioned, published artifacts using written guides | [#109](https://github.com/hewigovens/hw-core/issues/109), [#110](https://github.com/hewigovens/hw-core/issues/110), [#111](https://github.com/hewigovens/hw-core/issues/111), [#112](https://github.com/hewigovens/hw-core/issues/112) |
+| M3: Release confidence | In progress | CI, the smoke matrix, real-device runs, and the [release checklist](release-checklist.md) reflect the supported developer experience | [#102](https://github.com/hewigovens/hw-core/issues/102), [#105](https://github.com/hewigovens/hw-core/issues/105), [#106](https://github.com/hewigovens/hw-core/issues/106), [#107](https://github.com/hewigovens/hw-core/issues/107), [#108](https://github.com/hewigovens/hw-core/issues/108) |
 
-## Not the Current Focus
-- Expanding beyond the current transport model.
-- Multi-vendor wallet support.
-- Additional chain work beyond gaps that block current developer adoption.
+## Near-Term Priorities
+
+1. Move THP transport and handshake onto `trezor-thp` and re-validate on real Safe 7 hardware ([#98](https://github.com/hewigovens/hw-core/issues/98), [#106](https://github.com/hewigovens/hw-core/issues/106)).
+2. Close protocol gaps against Trezor Suite behavior for ETH, SOL, and BTC signing ([#99](https://github.com/hewigovens/hw-core/issues/99), [#100](https://github.com/hewigovens/hw-core/issues/100), [#101](https://github.com/hewigovens/hw-core/issues/101)).
+3. Package Android and Apple outputs and document the consumer integration path ([#109](https://github.com/hewigovens/hw-core/issues/109), [#110](https://github.com/hewigovens/hw-core/issues/110), [#112](https://github.com/hewigovens/hw-core/issues/112)).
+4. Keep validation narrow and explicit: CI and smoke checks cover only the flows we claim to support.
+
+## Risks
+
+- BLE reconnect behavior is sensitive to platform differences and pairing state; emulator coverage does not replace real-device runs.
+- Packaging will expose API sharp edges currently hidden by in-repo sample apps.
+- Firmware THP changes can drift from hw-core until the transport is built on `trezor-thp`.
+
+## Non-Goals
+
+- Transports beyond BLE, or new transport abstractions.
+- Multi-vendor wallet support (the stack is designed to allow it later).
+- Chain expansion beyond gaps that block current developer adoption.
 - Sample-app UX polish that does not improve integration reliability.
+- Large refactors that do not materially reduce consumer risk.

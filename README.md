@@ -5,7 +5,7 @@
 [![Security Policy](https://img.shields.io/badge/Security-Policy-blue)](SECURITY.md)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](#license)
 [![Rust Edition](https://img.shields.io/badge/Rust-2024-orange)](https://www.rust-lang.org/)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/hewigovens/hw-core)
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)](https://deepwiki.com/hewigovens/hw-core)
 
 ![hw-core banner](docs/banner.jpg)
 
@@ -79,8 +79,8 @@ flowchart TB
 | Capability | Ethereum | Bitcoin | Solana |
 |---|---|---|---|
 | Address retrieval | Done | Done | Done |
-| Transaction signing | Done | Partial | Done |
-| Message signing | EIP-191, EIP-712 | Done | Not yet |
+| Transaction signing | Partial: no network/token definitions ([#99](https://github.com/hewigovens/hw-core/issues/99)) | Partial: output script-type validation ([#101](https://github.com/hewigovens/hw-core/issues/101)); SLIP-24 not validated on hardware ([#102](https://github.com/hewigovens/hw-core/issues/102)) | Partial: no `additional_info` for token transfers ([#100](https://github.com/hewigovens/hw-core/issues/100)) |
+| Message signing | Done (EIP-191 + EIP-712) | Done | Not planned |
 
 Transport is BLE only (Trezor Safe 7). Supported hosts: macOS and Linux (CLI), iOS/macOS via [HWCoreKit](apple/HWCoreKit/README.md), and Android via the [Kotlin library](android/README.md). See [docs/roadmap.md](docs/roadmap.md) for details.
 
@@ -110,7 +110,6 @@ Pairing state is stored at `~/.hw-core/thp-host.json`. Add `-vv` for protocol lo
 Current and planned milestones are tracked in:
 
 - [docs/roadmap.md](docs/roadmap.md)
-- [docs/plan.md](docs/plan.md)
 
 ## License
 
