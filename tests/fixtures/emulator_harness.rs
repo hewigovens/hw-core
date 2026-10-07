@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::net::UdpSocket;
+use std::net::{TcpStream, UdpSocket};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,10 +8,12 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 static HARNESS_COUNTER: AtomicUsize = AtomicUsize::new(0);
+const TROPIC_MODEL_PORT: u16 = 28992;
 
-/// Manages the lifecycle of dbus-daemon + emulator + bridge + auto-confirm processes.
+/// Manages the lifecycle of dbus-daemon + TROPIC01 model + emulator + bridge + auto-confirm processes.
 pub struct EmulatorHarness {
     dbus: Child,
+    tropic_model: Option<Child>,
     emu: Child,
     bridge: Child,
     auto_confirm: Child,
@@ -70,6 +72,34 @@ impl EmulatorHarness {
         let emu_stdout = File::create(&emu_stdout_path).expect("failed to create emulator stdout");
         let emu_stderr = File::create(&emu_stderr_path).expect("failed to create emulator stderr");
 
+        // Firmware core v2.12+ aborts at startup unless the TROPIC01 model is listening.
+        let tropic_model = std::env::var("TROPIC_MODEL_CONFIG").ok().map(|config| {
+            // model_server runs from the profile dir, so a relative config path must be resolved first.
+            let config = std::fs::canonicalize(&config)
+                .unwrap_or_else(|err| panic!("TROPIC_MODEL_CONFIG {config}: {err}"));
+            assert!(
+                TcpStream::connect(("127.0.0.1", TROPIC_MODEL_PORT)).is_err(),
+                "port {TROPIC_MODEL_PORT} is already in use; stop the other TROPIC01 model first"
+            );
+            let log = File::create(log_dir.join("tropic-model.log"))
+                .expect("failed to create tropic model log");
+            let mut child = Command::new("model_server")
+                .args(["tcp", "-c"])
+                .arg(&config)
+                .args(["-p", &TROPIC_MODEL_PORT.to_string(), "-o"])
+                .arg(profile_dir.join("tropic_model_config_output.yml"))
+                .current_dir(&profile_dir)
+                .stdout(Stdio::from(
+                    log.try_clone().expect("failed to clone log handle"),
+                ))
+                .stderr(Stdio::from(log))
+                .spawn()
+                .expect("model_server failed to start (install ts-tvl)");
+            wait_for_tcp_port(&mut child, TROPIC_MODEL_PORT, Duration::from_secs(10));
+            eprintln!("[harness] tropic model ready on port {TROPIC_MODEL_PORT}");
+            child
+        });
+
         let emu = Command::new(&emu_bin)
             .args(["-O0", "-m", "main"])
             .env("SDL_VIDEODRIVER", "dummy")
@@ -103,6 +133,7 @@ impl EmulatorHarness {
 
         let mut harness = Self {
             dbus,
+            tropic_model,
             emu,
             bridge,
             auto_confirm: auto_confirm_placeholder,
@@ -160,6 +191,9 @@ impl Drop for EmulatorHarness {
         if std::thread::panicking() {
             dump_log_file("emulator stdout", &self.emu_stdout_path);
             dump_log_file("emulator stderr", &self.emu_stderr_path);
+            if self.tropic_model.is_some() {
+                dump_log_file("tropic model", &self.log_dir.join("tropic-model.log"));
+            }
             eprintln!("[harness] emulator logs kept at {}", self.log_dir.display());
         }
 
@@ -167,6 +201,10 @@ impl Drop for EmulatorHarness {
         let _ = self.auto_confirm.kill();
         let _ = self.bridge.kill();
         let _ = self.emu.kill();
+        if let Some(tropic_model) = self.tropic_model.as_mut() {
+            let _ = tropic_model.kill();
+            let _ = tropic_model.wait();
+        }
         let _ = self.dbus.kill();
         let _ = self.auto_confirm.wait();
         let _ = self.bridge.wait();
@@ -197,6 +235,20 @@ fn wait_for_emulator_ready(event_port: u16, timeout: Duration) {
             start.elapsed() <= timeout,
             "emulator did not become ready within {timeout:?}"
         );
+    }
+}
+
+fn wait_for_tcp_port(child: &mut Child, port: u16, timeout: Duration) {
+    let start = Instant::now();
+    while TcpStream::connect(("127.0.0.1", port)).is_err() {
+        if let Ok(Some(status)) = child.try_wait() {
+            panic!("process listening on port {port} exited early: {status}");
+        }
+        assert!(
+            start.elapsed() <= timeout,
+            "port {port} did not open within {timeout:?}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 

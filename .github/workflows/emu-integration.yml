@@ -21,7 +21,22 @@ env:
 jobs:
   emu-ble:
     runs-on: ubuntu-latest
+    # Firmware core v2.12+ emulator needs SDL3, which Ubuntu 24.04 does not package.
+    container: debian:trixie
+    env:
+      EMU_FIXTURES_TAG: emu-fixtures-v2.12.5
+      TS_TVL_REF: 0e50063160a608d6375cd87f3afbc6f1b7726b1b
     steps:
+      - name: Install system deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl git \
+            libdbus-1-dev pkg-config dbus \
+            libsdl3-0 libsdl3-image0 libjpeg62-turbo \
+            python3-pip python3-venv \
+            patchelf
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust
@@ -29,20 +44,12 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libdbus-1-dev pkg-config dbus \
-            libsdl2-dev libsdl2-image-dev \
-            python3-pip python3-venv \
-            patchelf
-
       - name: Install Python deps
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install trezor dbus-fast click typing-extensions
-          echo "${{ github.workspace }}/.venv/bin" >> $GITHUB_PATH
+          .venv/bin/pip install trezor dbus-fast click typing-extensions \
+            "git+https://github.com/tropicsquare/ts-tvl@${TS_TVL_REF}"
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Run sccache
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
@@ -50,25 +57,16 @@ jobs:
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
-          shared-key: "ci-rust"
+          shared-key: "emu-trixie"
 
       - name: Download T3W1 emulator binary
         run: |
-          gh release download emu-fixtures \
-            --pattern 'trezor-emu-core-T3W1' \
-            --repo ${{ github.repository }} \
-            --dir tests/fixtures/ \
-            --clobber
+          curl -fsSL -o tests/fixtures/trezor-emu-core-T3W1 \
+            "https://github.com/${{ github.repository }}/releases/download/${EMU_FIXTURES_TAG}/trezor-emu-core-T3W1"
           chmod +x tests/fixtures/trezor-emu-core-T3W1
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Patch emulator binary for Ubuntu
+      - name: Patch emulator binary
         run: |
-          # Install libjpeg62-turbo from Debian bookworm (not in Ubuntu 24.04 repos)
-          wget -q --max-redirect=0 https://deb.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb
-          sudo dpkg -i libjpeg62-turbo_2.1.5-2_amd64.deb
-          rm libjpeg62-turbo_2.1.5-2_amd64.deb
           # Rewrite Nix interpreter and rpath to use system libraries
           patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 \
             --set-rpath /usr/lib/x86_64-linux-gnu \
@@ -79,9 +77,10 @@ jobs:
         run: cargo build --workspace --locked
 
       - name: Run emulator integration tests
-        env:
-          TREZOR_EMU_BINARY: ${{ github.workspace }}/tests/fixtures/trezor-emu-core-T3W1
-          BRIDGE_DIR: ${{ github.workspace }}/tests/fixtures
+        # github.workspace is the host path in container jobs; $GITHUB_WORKSPACE is the container path.
         run: |
+          export TREZOR_EMU_BINARY="$GITHUB_WORKSPACE/tests/fixtures/trezor-emu-core-T3W1"
+          export BRIDGE_DIR="$GITHUB_WORKSPACE/tests/fixtures"
+          export TROPIC_MODEL_CONFIG="$GITHUB_WORKSPACE/tests/fixtures/tropic_model/config.yml"
           cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
           cargo test -p hw-ffi --test emu_ble -- --ignored --nocapture --test-threads=1

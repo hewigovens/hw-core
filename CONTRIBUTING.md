@@ -70,49 +70,58 @@ cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto ta
 CI runs the T3W1 emulator to test the full BLE→THP stack end-to-end.
 These tests are `#[ignore]`d and only run when the harness env vars are set.
 
-### Running locally (Linux only)
+### Running locally
+
+The easiest path on any host is Docker (`./scripts/test-emu-docker.sh`), which mirrors CI.
+Natively, on Debian trixie or another distro that ships SDL3:
 
 ```bash
 # 1. Install system deps
-sudo apt-get install -y libdbus-1-dev pkg-config dbus libsdl2-dev libsdl2-image-dev
+sudo apt-get install -y libdbus-1-dev pkg-config dbus libsdl3-0 libsdl3-image0 libjpeg62-turbo patchelf
 
-# 2. Install Python deps
-pip install trezor dbus-fast click typing-extensions
+# 2. Install Python deps in a venv, including the TROPIC01 model (ts-tvl) required by core v2.12+
+python3 -m venv .venv && . .venv/bin/activate
+pip install trezor dbus-fast click typing-extensions \
+  "git+https://github.com/tropicsquare/ts-tvl@0e50063160a608d6375cd87f3afbc6f1b7726b1b"
 
 # 3. Download or build the emulator binary (see below)
 # Place it at tests/fixtures/trezor-emu-core-T3W1
 
 # 4. Run the tests
-TREZOR_EMU_BINARY=./tests/fixtures/trezor-emu-core-T3W1 \
-BRIDGE_DIR=./tests/fixtures \
-  cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
-TREZOR_EMU_BINARY=./tests/fixtures/trezor-emu-core-T3W1 \
-BRIDGE_DIR=./tests/fixtures \
-  cargo test -p hw-ffi --test emu_ble -- --ignored --nocapture --test-threads=1
+export TREZOR_EMU_BINARY="$PWD/tests/fixtures/trezor-emu-core-T3W1"
+export BRIDGE_DIR="$PWD/tests/fixtures"
+export TROPIC_MODEL_CONFIG="$PWD/tests/fixtures/tropic_model/config.yml"
+cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
+cargo test -p hw-ffi --test emu_ble -- --ignored --nocapture --test-threads=1
 ```
+
+The harness starts `model_server` when `TROPIC_MODEL_CONFIG` is set.
 
 ### Building the emulator binary
 
 The T3W1 emulator must be built from [trezor-firmware](https://github.com/trezor/trezor-firmware).
-CI downloads it from the `emu-fixtures` GitHub release.
+CI downloads it from the `emu-fixtures-v2.12.5` GitHub release (built from `core/v2.12.5`).
 
-To rebuild (requires Nix):
+To rebuild (requires Nix; on Apple Silicon run inside a `nixos/nix` container with `--platform linux/amd64`):
 
 ```bash
-git clone --recursive https://github.com/trezor/trezor-firmware
-cd trezor-firmware
-TREZOR_MODEL=T3W1 PYOPT=0 nix-shell --run "UV_PYTHON=3.13 uv run make -C core build_unix_frozen"
-# Output: core/build/unix/trezor-emu-core
+# Use a short checkout path: mpy-cross fails with "name too long" on deep paths.
+git clone --recursive --branch core/v2.12.5 https://github.com/trezor/trezor-firmware /fw
+cd /fw
+TREZOR_MODEL=T3W1 PYOPT=0 nix-shell --run "uv run make -C core build_unix_frozen"
+# Output: core/build-xtask/artifacts/T3W1/firmware-emu
 ```
 
-The binary must match the CI runner architecture (Linux x86_64 for `ubuntu-latest`).
-On Apple Silicon, build inside Docker with `--platform linux/amd64`.
+The binary must match the CI runner architecture (Linux x86_64).
+When bumping firmware, also update `tests/fixtures/tropic_model/config.yml` from
+`tests/tropic_model/config.yml` and the ts-tvl commit (`vendor/ts-tvl` submodule) at the same tag.
 
-Upload a new binary:
+Upload a new binary to a new tag, then point `EMU_FIXTURES_TAG` in
+`.github/workflows/emu-integration.yml` and `scripts/test-emu-docker.sh` at it:
 
 ```bash
-gh release upload emu-fixtures core/build/unix/trezor-emu-core#trezor-emu-core-T3W1 \
-  --repo hewigovens/hw-core --clobber
+gh release create emu-fixtures-vX.Y.Z --repo hewigovens/hw-core --title "Emulator fixtures (core vX.Y.Z)" \
+  core/build-xtask/artifacts/T3W1/firmware-emu#trezor-emu-core-T3W1
 ```
 
 ### Updating the bluez-emu-bridge

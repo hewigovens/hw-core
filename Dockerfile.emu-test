@@ -8,31 +8,28 @@
 #   docker build --platform linux/amd64 -f Dockerfile.emu-test -t hw-core-emu-test .
 #   docker run --platform linux/amd64 --rm hw-core-emu-test
 
-FROM --platform=linux/amd64 ubuntu:24.04
+FROM --platform=linux/amd64 debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# System dependencies (matching CI)
-RUN apt-get update && apt-get install -y \
-    build-essential curl git wget \
+# System dependencies (matching CI; the core v2.12+ emulator needs SDL3)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates curl git \
     libdbus-1-dev pkg-config dbus \
-    libsdl2-dev libsdl2-image-dev \
+    libsdl3-0 libsdl3-image0 libjpeg62-turbo \
     python3-pip python3-venv \
     patchelf \
     && rm -rf /var/lib/apt/lists/*
-
-# libjpeg62-turbo (required by T3W1 emulator, not in Ubuntu 24.04 repos)
-RUN wget -q http://deb.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb \
-    && dpkg -i libjpeg62-turbo_2.1.5-2_amd64.deb \
-    && rm libjpeg62-turbo_2.1.5-2_amd64.deb
 
 # Rust toolchain
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Python virtual environment with trezorlib + bridge deps
+# Python virtual environment with trezorlib, bridge deps and the TROPIC01 model (ts-tvl)
+ARG TS_TVL_REF=0e50063160a608d6375cd87f3afbc6f1b7726b1b
 RUN python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir trezor dbus-fast click typing-extensions
+    && /opt/venv/bin/pip install --no-cache-dir trezor dbus-fast click typing-extensions \
+        "git+https://github.com/tropicsquare/ts-tvl@${TS_TVL_REF}"
 ENV PATH="/opt/venv/bin:${PATH}"
 
 WORKDIR /workspace
@@ -54,4 +51,5 @@ RUN cargo build --workspace
 # Run the emulator integration tests
 ENV TREZOR_EMU_BINARY=/workspace/tests/fixtures/trezor-emu-core-T3W1
 ENV BRIDGE_DIR=/workspace/tests/fixtures
-CMD ["cargo", "test", "-p", "hw-cli", "--test", "emu_ble", "--", "--ignored", "--nocapture", "--test-threads=1"]
+ENV TROPIC_MODEL_CONFIG=/workspace/tests/fixtures/tropic_model/config.yml
+CMD ["sh", "-c", "cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1 && cargo test -p hw-ffi --test emu_ble -- --ignored --nocapture --test-threads=1"]

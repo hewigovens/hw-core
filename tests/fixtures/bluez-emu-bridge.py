@@ -32,6 +32,8 @@ from trezorlib.transport.ble import (
 
 # Push/notification characteristic — not defined in trezorlib but required by hw-core.
 TREZOR_CHARACTERISTIC_PUSH = "8c000004-a59b-4d58-a9ad-073df69fa1b1"
+# Real devices always receive fixed-size packets; firmware core v2.12+ rejects short writes.
+BLE_RX_PACKET_SIZE = 244
 
 HERE = Path(__file__).parent.resolve()
 
@@ -121,7 +123,9 @@ class TrezorEmulator:
         localhost = "127.0.0.1"
         data_transport, data_protocol = await TrezorUDP.create(localhost, emulator_port)
 
-        char_rx.send_value = data_protocol.write
+        char_rx.send_value = lambda value: data_protocol.write(
+            bytes(value).ljust(BLE_RX_PACKET_SIZE, b"\x00")
+        )
         data_read_task = asyncio.create_task(
             char_tx.update_from_queue(data_protocol.queue)
         )
