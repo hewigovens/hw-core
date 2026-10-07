@@ -53,6 +53,4 @@ Apple sample app debugging:
 
 ```bash
 just audit            # cargo audit (dependency vulnerabilities)
-just scan-demo        # run BLE scan example
-just workflow-demo    # run BLE handshake example
 ```

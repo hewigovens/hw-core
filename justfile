@@ -239,12 +239,6 @@ build-mac-ui:
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' build-for-testing | xcbeautify
 
-scan-demo:
-    cargo run -p ble-transport --features trezor-safe7,backend-btleplug --example scan_trezor
-
-workflow-demo:
-    cargo run -p trezor-connect --features ble --example ble_handshake
-
 cli-help:
     cargo run -p hw-cli -- -vv --help
 

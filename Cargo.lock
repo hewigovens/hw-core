@@ -2329,7 +2329,6 @@ dependencies = [
 name = "trezor-connect"
 version = "0.1.1"
 dependencies = [
- "anyhow",
  "async-trait",
  "ble-transport",
  "bs58",
