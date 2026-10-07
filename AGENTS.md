@@ -6,26 +6,26 @@ This file provides guidance to AI coding agents working with code in this reposi
 
 hw-core is a Rust workspace for host-to-hardware crypto wallet communication. The first target is Trezor Safe 7 over BLE using the Trezor Host Protocol (THP). The transport/core stack is designed to be shared across wallet vendors.
 
-## Skills
+## Agent Docs
 
-**All skills are mandatory reading** before making changes.
+**All agent docs are mandatory reading** before making changes.
 
-- [Project Overview](skills/project-overview.md) – Crate architecture, dependency graph, feature flags, and key design patterns
-- [Development Commands](skills/development-commands.md) – Building, testing, linting, running the CLI, and generating bindings
-- [Code Style](skills/code-style.md) – Module organization, async patterns, and trait design
-- [Error Handling](skills/error-handling.md) – Layered `thiserror` enums, `Result` returns, and no panics in production
-- [Defensive Programming](skills/defensive-programming.md) – Type safety, exhaustive matching, and safe defaults
-- [Naming](skills/naming.md) – Rust naming conventions and project-specific terminology
-- [Tests](skills/tests.md) – Test organization, MockBackend, proptest, and fixture patterns
-- [Comments](skills/comments.md) – When and how to write comments and doc comments
-- [Commit Guidelines](skills/commit-guidelines.md) – jj + sibling workspace workflow, Conventional Commits format, and PR checklist
-- [Common Issues](skills/common-issues.md) – Known build, BLE, and platform-specific issues
+- [Project Overview](agents/project-overview.md) – Crate architecture, dependency graph, feature flags, and key design patterns
+- [Development Commands](agents/development-commands.md) – Building, testing, linting, running the CLI, and generating bindings
+- [Code Style](agents/code-style.md) – Module organization, async patterns, and trait design
+- [Error Handling](agents/error-handling.md) – Layered `thiserror` enums, `Result` returns, and no panics in production
+- [Defensive Programming](agents/defensive-programming.md) – Type safety, exhaustive matching, and safe defaults
+- [Naming](agents/naming.md) – Rust naming conventions and project-specific terminology
+- [Tests](agents/tests.md) – Test organization, MockBackend, proptest, and fixture patterns
+- [Comments](agents/comments.md) – When and how to write comments and doc comments
+- [Commit Guidelines](agents/commit-guidelines.md) – jj + sibling workspace workflow, Conventional Commits format, and PR checklist
+- [Common Issues](agents/common-issues.md) – Known build, BLE, and platform-specific issues
 
 ## Version Control
 
 - The repo is colocated jj + git. Use `jj` for most work (commits, rebases, bookmarks, pushes); never `git pull` or `git checkout` in the main checkout.
 - Work in a sibling jj workspace per task: `jj workspace add ../hw-core-<topic> --name <topic> -r main@origin`.
-- Details in [Commit Guidelines](skills/commit-guidelines.md).
+- Details in [Commit Guidelines](agents/commit-guidelines.md).
 
 ## Formatting (mandatory)
 
