@@ -1,3 +1,7 @@
+use ble_transport::BleError;
+use hw_wallet::{WalletError, WalletErrorKind};
+use trezor_connect::thp::{BackendError, ThpWorkflowError};
+
 #[derive(Debug, uniffi::Error, thiserror::Error, Clone)]
 #[uniffi(flat_error)]
 pub enum HWCoreError {
@@ -55,64 +59,44 @@ impl From<String> for HWCoreError {
     }
 }
 
-impl From<ble_transport::BleError> for HWCoreError {
-    fn from(error: ble_transport::BleError) -> Self {
-        HWCoreError::Ble(error.to_string())
-    }
-}
-
-impl From<trezor_connect::thp::BackendError> for HWCoreError {
-    fn from(error: trezor_connect::thp::BackendError) -> Self {
-        use trezor_connect::thp::BackendError;
-
-        match error {
-            BackendError::TransportTimeout => HWCoreError::Timeout(error.to_string()),
-            BackendError::DeviceBusy
-            | BackendError::DeviceLocked
-            | BackendError::PinExpected
-            | BackendError::DeviceFirmwareError
-            | BackendError::SessionConfirmationRequired
-            | BackendError::DeviceError { .. }
-            | BackendError::Device(_) => HWCoreError::Device(error.to_string()),
-            BackendError::TransportBusy | BackendError::Transport(_) => {
-                HWCoreError::Workflow(error.to_string())
-            }
-            BackendError::UnsupportedPairingMethod => {
-                HWCoreError::Validation("unsupported pairing method".to_string())
-            }
+impl HWCoreError {
+    fn from_kind(kind: WalletErrorKind, message: String) -> Self {
+        match kind {
+            WalletErrorKind::Ble => Self::Ble(message),
+            WalletErrorKind::Workflow => Self::Workflow(message),
+            WalletErrorKind::Device => Self::Device(message),
+            WalletErrorKind::Validation => Self::Validation(message),
+            WalletErrorKind::Timeout => Self::Timeout(message),
         }
     }
 }
 
-impl From<trezor_connect::thp::ThpWorkflowError> for HWCoreError {
-    fn from(error: trezor_connect::thp::ThpWorkflowError) -> Self {
-        use trezor_connect::thp::ThpWorkflowError;
-
-        match error {
-            ThpWorkflowError::Backend(backend_err) => HWCoreError::from(backend_err),
-            ThpWorkflowError::InvalidPhase
-            | ThpWorkflowError::MissingHandshake
-            | ThpWorkflowError::MissingHandshakeCredentials
-            | ThpWorkflowError::AlreadyPaired
-            | ThpWorkflowError::NoCommonPairingMethod
-            | ThpWorkflowError::PairingAborted
-            | ThpWorkflowError::PairingInteractionRequired
-            | ThpWorkflowError::PairingController(_) => HWCoreError::Workflow(error.to_string()),
-            ThpWorkflowError::Storage(message) => HWCoreError::Workflow(message.to_string()),
-        }
+impl From<BleError> for HWCoreError {
+    fn from(error: BleError) -> Self {
+        Self::from_kind(WalletErrorKind::of_ble(&error), error.to_string())
     }
 }
 
-impl From<hw_wallet::WalletError> for HWCoreError {
-    fn from(error: hw_wallet::WalletError) -> Self {
-        use hw_wallet::error::WalletErrorKind;
+impl From<BackendError> for HWCoreError {
+    fn from(error: BackendError) -> Self {
+        Self::from_kind(WalletErrorKind::of_backend(&error), error.to_string())
+    }
+}
 
-        match error.kind() {
-            WalletErrorKind::Ble => HWCoreError::Ble(error.to_string()),
-            WalletErrorKind::Workflow => HWCoreError::Workflow(error.to_string()),
-            WalletErrorKind::Device => HWCoreError::Device(error.to_string()),
-            WalletErrorKind::Validation => HWCoreError::Validation(error.to_string()),
-            WalletErrorKind::Timeout => HWCoreError::Timeout(error.to_string()),
-        }
+impl From<ThpWorkflowError> for HWCoreError {
+    fn from(error: ThpWorkflowError) -> Self {
+        let kind = WalletErrorKind::of_workflow(&error);
+        let message = match error {
+            ThpWorkflowError::Backend(error) => error.to_string(),
+            ThpWorkflowError::Storage(error) => error.to_string(),
+            other => other.to_string(),
+        };
+        Self::from_kind(kind, message)
+    }
+}
+
+impl From<WalletError> for HWCoreError {
+    fn from(error: WalletError) -> Self {
+        Self::from_kind(error.kind(), error.to_string())
     }
 }

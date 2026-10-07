@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -35,11 +37,11 @@ pub struct DeviceInfo {
 #[derive(Debug, Error)]
 pub enum BleError {
     #[error("btleplug error: {0}")]
-    Btleplug(#[from] btleplug::Error),
+    Btleplug(btleplug::Error),
+    #[error("BLE operation timed out after {0:?}")]
+    Timeout(Duration),
     #[error("no BLE adapter available")]
     AdapterUnavailable,
-    #[error("timeout waiting for BLE notification")]
-    NotificationTimeout,
     #[error("BLE notification stream closed unexpectedly")]
     NotificationStreamClosed,
     #[error("required characteristic {kind} not found for profile {profile}")]
@@ -49,11 +51,31 @@ pub enum BleError {
     },
 }
 
+impl From<btleplug::Error> for BleError {
+    fn from(error: btleplug::Error) -> Self {
+        match error {
+            btleplug::Error::TimedOut(duration) => Self::Timeout(duration),
+            other => Self::Btleplug(other),
+        }
+    }
+}
+
 impl BleError {
     pub fn missing(kind: &'static str, profile: BleProfile) -> Self {
         Self::MissingCharacteristic {
             kind,
             profile: profile.id,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn btleplug_timeout_maps_to_typed_variant() {
+        let error = BleError::from(btleplug::Error::TimedOut(Duration::from_secs(2)));
+        assert!(matches!(error, BleError::Timeout(duration) if duration == Duration::from_secs(2)));
     }
 }
