@@ -1,10 +1,9 @@
 use ble_transport::DeviceInfo as RawDeviceInfo;
-use trezor_connect::thp::state::{HandshakeCache as RawHandshakeCache, ThpState as RawThpState};
+use trezor_connect::thp::Chain as RawChain;
 use trezor_connect::thp::types::{
     HostConfig as RawHostConfig, KnownCredential as RawKnownCredential,
     PairingMethod as RawPairingMethod,
 };
-use trezor_connect::thp::{Chain as RawChain, Phase as RawPhase};
 
 pub type Uuid = uuid::Uuid;
 
@@ -22,15 +21,6 @@ pub enum PairingMethod {
     Nfc,
     CodeEntry,
     SkipPairing,
-}
-
-pub type Phase = RawPhase;
-
-#[uniffi::remote(Enum)]
-pub enum Phase {
-    Handshake,
-    Pairing,
-    Paired,
 }
 
 pub type Chain = RawChain;
@@ -100,35 +90,6 @@ pub struct BleDeviceInfo {
     pub name: Option<String>,
     pub rssi: Option<i32>,
     pub services: Vec<Uuid>,
-}
-
-pub type HandshakeCache = RawHandshakeCache;
-
-#[uniffi::remote(Record)]
-pub struct HandshakeCache {
-    pub channel: u16,
-    pub pairing_methods: Vec<PairingMethod>,
-}
-
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct ThpState {
-    pub phase: Phase,
-    pub is_paired: bool,
-    pub autoconnect: bool,
-    pub pairing_credentials: Vec<KnownCredential>,
-    pub handshake_cache: Option<HandshakeCache>,
-}
-
-impl From<&RawThpState> for ThpState {
-    fn from(state: &RawThpState) -> Self {
-        Self {
-            phase: state.phase(),
-            is_paired: state.is_paired(),
-            autoconnect: state.is_autoconnect_paired(),
-            pairing_credentials: state.pairing_credentials().to_vec(),
-            handshake_cache: state.handshake_cache().cloned(),
-        }
-    }
 }
 
 #[derive(uniffi::Enum, Clone, Debug)]

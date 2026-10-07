@@ -29,7 +29,7 @@ async fn emu_ble_ffi_connect_ready_and_get_eth_address() {
         .expect("expected emulator device");
 
     let workflow = device
-        .connect_ready_workflow(skip_pairing_host_config(), true)
+        .connect_ready_workflow_with_policy(skip_pairing_host_config(), None, true, None)
         .await
         .expect("bootstrap ready workflow");
 
@@ -78,7 +78,7 @@ async fn emu_ble_ffi_sign_eth_message() {
         .expect("expected emulator device");
 
     let workflow = device
-        .connect_ready_workflow(skip_pairing_host_config(), true)
+        .connect_ready_workflow_with_policy(skip_pairing_host_config(), None, true, None)
         .await
         .expect("bootstrap ready workflow");
 

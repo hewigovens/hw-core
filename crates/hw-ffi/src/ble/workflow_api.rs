@@ -143,71 +143,6 @@ impl BleWorkflowHandle {
     }
 
     #[uniffi::method]
-    pub async fn create_channel(&self) -> Result<HandshakeCache, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "CREATE_CHANNEL_START".to_string(),
-            message: "Creating THP channel".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        if let Err(err) = workflow.create_channel().await {
-            let ffi_err = HWCoreError::from(err);
-            drop(workflow);
-            self.push_error_event(&ffi_err).await;
-            return Err(ffi_err);
-        }
-        let cache = workflow.state().handshake_cache().cloned().ok_or_else(|| {
-            HWCoreError::Workflow("handshake cache missing after create_channel".to_string())
-        })?;
-        drop(workflow);
-        *self.session_ready.lock().await = false;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "CREATE_CHANNEL_OK".to_string(),
-            message: "THP channel created".to_string(),
-        })
-        .await;
-        Ok(cache)
-    }
-
-    #[uniffi::method]
-    pub async fn handshake(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "HANDSHAKE_START".to_string(),
-            message: "Performing THP handshake".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        if let Err(err) = workflow.handshake(try_to_unlock).await {
-            let ffi_err = HWCoreError::from(err);
-            drop(workflow);
-            self.push_error_event(&ffi_err).await;
-            return Err(ffi_err);
-        }
-        let state = workflow.state().phase();
-        let is_paired = workflow.state().is_paired();
-        drop(workflow);
-        *self.session_ready.lock().await = false;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "HANDSHAKE_OK".to_string(),
-            message: "THP handshake complete".to_string(),
-        })
-        .await;
-        if matches!(state, Phase::Pairing) && !is_paired {
-            self.push_event(WorkflowEvent {
-                kind: WorkflowEventKind::PairingPrompt,
-                code: "PAIRING_REQUIRED".to_string(),
-                message: "Pairing interaction is required (code-entry expected)".to_string(),
-            })
-            .await;
-        }
-        Ok(())
-    }
-
-    #[uniffi::method]
     pub async fn prepare_channel_and_handshake(
         &self,
         try_to_unlock: bool,
@@ -215,8 +150,8 @@ impl BleWorkflowHandle {
         self.create_channel().await?;
         self.handshake(try_to_unlock).await?;
 
-        let state = self.state().await;
-        match state.phase {
+        let phase = self.workflow.lock().await.state().phase();
+        match phase {
             Phase::Paired => Ok(SessionHandshakeState::Ready),
             Phase::Pairing => {
                 let prompt = self.pairing_start().await?;
@@ -360,39 +295,6 @@ impl BleWorkflowHandle {
         })
         .await;
         Ok(())
-    }
-
-    #[uniffi::method]
-    pub async fn prepare_ready_session(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
-        self.prepare_ready_session_with_policy(try_to_unlock, None)
-            .await
-    }
-
-    #[uniffi::method]
-    pub async fn prepare_ready_session_with_policy(
-        &self,
-        try_to_unlock: bool,
-        retry_policy: Option<SessionRetryPolicy>,
-    ) -> Result<(), HWCoreError> {
-        match self
-            .connect_ready_with_policy(try_to_unlock, retry_policy)
-            .await?
-        {
-            SessionState {
-                phase: WalletSessionPhase::Ready,
-                ..
-            } => Ok(()),
-            SessionState {
-                phase: WalletSessionPhase::NeedsPairingCode,
-                ..
-            } => Err(HWCoreError::Workflow(
-                "pairing interaction required before session can be prepared".to_string(),
-            )),
-            state => Err(HWCoreError::Workflow(format!(
-                "unexpected workflow step after connect_ready: {:?}",
-                state.phase
-            ))),
-        }
     }
 
     #[uniffi::method]
@@ -577,18 +479,6 @@ impl BleWorkflowHandle {
     }
 
     #[uniffi::method]
-    pub async fn state(&self) -> ThpState {
-        let workflow = self.workflow.lock().await;
-        ThpState::from(workflow.state())
-    }
-
-    #[uniffi::method]
-    pub async fn host_config(&self) -> HostConfig {
-        let workflow = self.workflow.lock().await;
-        workflow.host_config().clone().into()
-    }
-
-    #[uniffi::method]
     pub async fn next_event(
         &self,
         timeout_ms: Option<u64>,
@@ -614,5 +504,67 @@ impl BleWorkflowHandle {
                 notified.await;
             }
         }
+    }
+}
+
+impl BleWorkflowHandle {
+    async fn create_channel(&self) -> Result<(), HWCoreError> {
+        self.push_event(WorkflowEvent {
+            kind: WorkflowEventKind::Progress,
+            code: "CREATE_CHANNEL_START".to_string(),
+            message: "Creating THP channel".to_string(),
+        })
+        .await;
+        let mut workflow = self.workflow.lock().await;
+        if let Err(err) = workflow.create_channel().await {
+            let ffi_err = HWCoreError::from(err);
+            drop(workflow);
+            self.push_error_event(&ffi_err).await;
+            return Err(ffi_err);
+        }
+        drop(workflow);
+        *self.session_ready.lock().await = false;
+        self.push_event(WorkflowEvent {
+            kind: WorkflowEventKind::Progress,
+            code: "CREATE_CHANNEL_OK".to_string(),
+            message: "THP channel created".to_string(),
+        })
+        .await;
+        Ok(())
+    }
+
+    async fn handshake(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
+        self.push_event(WorkflowEvent {
+            kind: WorkflowEventKind::Progress,
+            code: "HANDSHAKE_START".to_string(),
+            message: "Performing THP handshake".to_string(),
+        })
+        .await;
+        let mut workflow = self.workflow.lock().await;
+        if let Err(err) = workflow.handshake(try_to_unlock).await {
+            let ffi_err = HWCoreError::from(err);
+            drop(workflow);
+            self.push_error_event(&ffi_err).await;
+            return Err(ffi_err);
+        }
+        let state = workflow.state().phase();
+        let is_paired = workflow.state().is_paired();
+        drop(workflow);
+        *self.session_ready.lock().await = false;
+        self.push_event(WorkflowEvent {
+            kind: WorkflowEventKind::Progress,
+            code: "HANDSHAKE_OK".to_string(),
+            message: "THP handshake complete".to_string(),
+        })
+        .await;
+        if matches!(state, Phase::Pairing) && !is_paired {
+            self.push_event(WorkflowEvent {
+                kind: WorkflowEventKind::PairingPrompt,
+                code: "PAIRING_REQUIRED".to_string(),
+                message: "Pairing interaction is required (code-entry expected)".to_string(),
+            })
+            .await;
+        }
+        Ok(())
     }
 }
