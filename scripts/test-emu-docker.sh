@@ -16,7 +16,7 @@ PLATFORM="linux/amd64"
 # Download the Linux x86_64 emulator binary if not present
 if [ ! -f "$EMU_BINARY" ]; then
     echo "==> Downloading T3W1 emulator binary..."
-    gh release download emu-fixtures \
+    gh release download emu-fixtures-v2.12.5 \
         --pattern 'trezor-emu-core-T3W1' \
         --repo "$(gh repo view --json nameWithOwner -q .nameWithOwner)" \
         --dir tests/fixtures/ \
