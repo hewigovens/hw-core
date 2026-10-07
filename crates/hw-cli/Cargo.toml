@@ -18,3 +18,6 @@ trezor-connect = { workspace = true, features = ["ble"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 whoami = "2.1.1"
+
+[dev-dependencies]
+trezor-connect = { workspace = true, features = ["ble", "test-support"] }

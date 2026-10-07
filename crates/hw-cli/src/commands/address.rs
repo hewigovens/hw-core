@@ -82,22 +82,36 @@ fn build_get_address_request(chain: Chain, path_indices: Vec<u32>) -> GetAddress
 mod tests {
     use super::*;
 
-    use crate::commands::test_support::{
-        MockBackend, canned_eth_address_response, ready_workflow_with_mock,
+    use hw_wallet::ble::{
+        BootstrapTarget, SessionBootstrapOptions, SessionPhase, SessionRetryPolicy,
+        advance_session_bootstrap,
     };
-    use trezor_connect::thp::Chain as ThpChain;
+    use trezor_connect::thp::HostConfig;
+    use trezor_connect::thp::testing::MockBackend;
 
     #[tokio::test]
-    async fn address_flow_orchestrates_handshake_confirmation_and_session_retry() {
-        let backend = MockBackend::paired_with_session_retry(b"addr-test")
-            .with_get_address_response(canned_eth_address_response(
-                "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE",
-            ));
-        let mut workflow = ready_workflow_with_mock(backend).await;
+    async fn address_request_carries_cli_display_flags() {
+        let backend = MockBackend::paired_connection_flow().with_transient_session_failure();
+        let mut workflow = ThpWorkflow::new(backend, HostConfig::new("test-host", "hw-core/cli"));
+        let options = SessionBootstrapOptions {
+            try_to_unlock: true,
+            retry_policy: SessionRetryPolicy {
+                retry_delay_ms: 1,
+                ..SessionRetryPolicy::default()
+            },
+            ..SessionBootstrapOptions::default()
+        };
+        let phase =
+            advance_session_bootstrap(&mut workflow, false, BootstrapTarget::Session, &options)
+                .await
+                .unwrap();
+        assert_eq!(phase, SessionPhase::Ready);
+
+        let path = vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0];
         let response = get_address_with_workflow(
             &mut workflow,
             Chain::Ethereum,
-            vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0],
+            path.clone(),
             true,
             true,
             false,
@@ -114,12 +128,10 @@ mod tests {
         assert_eq!(backend.counters.create_session_calls, 2);
         assert_eq!(backend.counters.get_address_calls, 1);
         let request = backend.last_get_address_request.as_ref().unwrap();
-        assert_eq!(request.chain, ThpChain::Ethereum);
-        assert_eq!(
-            request.path,
-            vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0]
-        );
+        assert_eq!(request.chain, Chain::Ethereum);
+        assert_eq!(request.path, path);
         assert!(request.show_display);
         assert!(request.include_public_key);
+        assert!(!request.chunkify);
     }
 }

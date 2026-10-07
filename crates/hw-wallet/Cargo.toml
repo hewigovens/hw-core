@@ -22,3 +22,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 trezor-connect = { workspace = true, features = ["ble"] }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+trezor-connect = { workspace = true, features = ["ble", "test-support"] }

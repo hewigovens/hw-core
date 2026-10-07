@@ -37,6 +37,9 @@ uniffi_bindgen = { version = "0.32.0", features = [
     "cargo-metadata",
 ], optional = true }
 
+[dev-dependencies]
+trezor-connect = { workspace = true, features = ["ble", "test-support"] }
+
 [target.'cfg(target_os = "android")'.dependencies]
 btleplug = { workspace = true }
 jni = "0.22"

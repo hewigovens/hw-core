@@ -8,6 +8,7 @@ repository.workspace = true
 [features]
 default = []
 ble = ["dep:ble-transport"]
+test-support = []
 
 [dependencies]
 async-trait = { workspace = true }
