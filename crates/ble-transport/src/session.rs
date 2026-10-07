@@ -23,7 +23,6 @@ fn redact_device_id(device_id: &str) -> String {
 
 pub struct BleSession {
     peripheral: Peripheral,
-    profile: BleProfile,
     device: DeviceInfo,
     write_char: Characteristic,
     notify_char: Characteristic,
@@ -170,7 +169,6 @@ impl BleSession {
 
         Ok(Self {
             peripheral,
-            profile,
             device,
             write_char,
             notify_char,
@@ -185,16 +183,12 @@ impl BleSession {
         &self.device
     }
 
-    pub fn profile(&self) -> BleProfile {
-        self.profile
-    }
-
     pub fn mtu(&self) -> usize {
         self.mtu
     }
 
-    pub fn into_link(self) -> BleLink {
-        BleLink {
+    pub fn into_parts(self) -> (DeviceInfo, BleLink) {
+        let link = BleLink {
             peripheral: self.peripheral,
             write_char: self.write_char,
             notify_char: self.notify_char,
@@ -202,12 +196,8 @@ impl BleSession {
             receiver: self.receiver,
             notify_task: self.notify_task,
             mtu: self.mtu,
-        }
-    }
-
-    pub fn into_parts(self) -> (DeviceInfo, BleLink) {
-        let info = self.device.clone();
-        (info, self.into_link())
+        };
+        (self.device, link)
     }
 }
 
@@ -237,7 +227,7 @@ impl BleLink {
         Ok(())
     }
 
-    pub async fn write(&mut self, chunk: &[u8]) -> anyhow::Result<()> {
+    pub async fn write(&mut self, chunk: &[u8]) -> BleResult<()> {
         let write_type = WriteType::WithoutResponse;
 
         debug!(
@@ -252,7 +242,7 @@ impl BleLink {
         Ok(())
     }
 
-    pub async fn read(&mut self) -> anyhow::Result<Vec<u8>> {
+    pub async fn read(&mut self) -> BleResult<Vec<u8>> {
         let data = receive_notification(&mut self.receiver).await?;
         debug!(bytes = data.len(), source = "notify", "BLE read chunk");
         Ok(data)
@@ -266,26 +256,6 @@ impl BleLink {
 impl Drop for BleLink {
     fn drop(&mut self) {
         self.notify_task.abort();
-    }
-}
-
-pub struct BleBackend {
-    link: BleLink,
-}
-
-impl BleBackend {
-    pub fn new(link: BleLink) -> Self {
-        Self { link }
-    }
-
-    pub fn link_mut(&mut self) -> &mut BleLink {
-        &mut self.link
-    }
-}
-
-impl BleBackend {
-    pub async fn abort(&mut self) -> BleResult<()> {
-        self.link.disconnect().await
     }
 }
 

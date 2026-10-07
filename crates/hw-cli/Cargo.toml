@@ -9,10 +9,7 @@ repository.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-ble-transport = { workspace = true, features = [
-    "backend-btleplug",
-    "trezor-safe7",
-] }
+ble-transport = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
 hw-wallet = { workspace = true }

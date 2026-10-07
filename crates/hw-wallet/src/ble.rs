@@ -14,10 +14,6 @@ use trezor_connect::thp::{
 
 use crate::error::{WalletError, WalletResult};
 
-pub fn trezor_profile() -> WalletResult<BleProfile> {
-    BleProfile::trezor_safe7().ok_or(WalletError::ProfileUnavailable)
-}
-
 pub async fn scan_profile(
     manager: &BleManager,
     profile: BleProfile,
@@ -31,7 +27,7 @@ pub async fn scan_trezor(
     manager: &BleManager,
     duration: Duration,
 ) -> WalletResult<(BleProfile, Vec<DiscoveredDevice>)> {
-    let profile = trezor_profile()?;
+    let profile = BleProfile::TREZOR_SAFE7;
     let devices = scan_profile(manager, profile, duration).await?;
     Ok((profile, devices))
 }

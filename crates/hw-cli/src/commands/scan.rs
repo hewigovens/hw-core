@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use ble_transport::BleManager;
-use hw_wallet::ble::{scan_profile, trezor_profile};
+use ble_transport::BleProfile;
+use hw_wallet::ble::scan_profile;
 use tracing::debug;
 
 use crate::cli::ScanArgs;
@@ -10,7 +11,7 @@ use crate::commands::common::print_discovered_devices;
 
 pub async fn run(args: ScanArgs) -> Result<()> {
     debug!("scan command: duration_secs={}", args.duration_secs);
-    let profile = trezor_profile().context("BLE profile not built into this binary")?;
+    let profile = BleProfile::TREZOR_SAFE7;
     debug!(
         "scan profile: id={}, service_uuid={}",
         profile.id, profile.service_uuid

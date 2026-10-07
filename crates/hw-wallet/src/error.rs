@@ -12,8 +12,6 @@ pub enum WalletErrorKind {
 
 #[derive(Debug, Error)]
 pub enum WalletError {
-    #[error("trezor-safe7 BLE profile not built into this binary")]
-    ProfileUnavailable,
     #[error("invalid BIP32 path: {0}")]
     InvalidBip32Path(String),
     #[error(
@@ -33,9 +31,7 @@ pub type WalletResult<T> = std::result::Result<T, WalletError>;
 impl WalletError {
     pub fn kind(&self) -> WalletErrorKind {
         match self {
-            Self::ProfileUnavailable | Self::InvalidBip32Path(_) | Self::Signing(_) => {
-                WalletErrorKind::Validation
-            }
+            Self::InvalidBip32Path(_) | Self::Signing(_) => WalletErrorKind::Validation,
             Self::PeerRemovedPairingInfo => WalletErrorKind::Device,
             Self::Ble(error) => {
                 if error.to_string().to_ascii_lowercase().contains("timeout") {

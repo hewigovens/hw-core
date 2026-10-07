@@ -3,11 +3,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use ble_transport::{BleManager, DiscoveredDevice};
+use ble_transport::{BleManager, BleProfile, DiscoveredDevice};
 use hw_wallet::WalletError;
 use hw_wallet::ble::{
     SessionBootstrapOptions, SessionPhase, advance_session_bootstrap, backend_from_session,
-    connect_trezor_device, scan_profile_until_match, trezor_profile, workflow_with_storage,
+    connect_trezor_device, scan_profile_until_match, workflow_with_storage,
 };
 use tokio::time::timeout;
 use tracing::debug;
@@ -183,7 +183,7 @@ pub async fn connect_workflow(
     operation_label: &str,
     peer_removed_hint: &str,
 ) -> Result<(ThpWorkflow<BleBackend>, PathBuf)> {
-    let profile = trezor_profile()?;
+    let profile = BleProfile::TREZOR_SAFE7;
     let manager = BleManager::new().await.context("BLE manager init failed")?;
     debug!(
         "{} profile: id={}, service_uuid={}",
