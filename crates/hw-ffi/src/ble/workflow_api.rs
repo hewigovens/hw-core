@@ -1,5 +1,5 @@
 use super::*;
-use hw_wallet::ble::{advance_session_bootstrap, advance_to_paired_with_policy};
+use hw_wallet::ble::{BootstrapTarget, advance_session_bootstrap};
 use std::time::Duration;
 use tokio::time::timeout;
 use trezor_connect::thp::ThpWorkflowError;
@@ -26,10 +26,12 @@ impl BleWorkflowHandle {
     ) -> Result<SessionState, HWCoreError> {
         self.progress("PAIR_ONLY_START", "Advancing workflow to paired state")
             .await;
-        let policy = retry_policy.unwrap_or_default();
+        let options = bootstrap_options(try_to_unlock, retry_policy);
         let result = self
             .with_workflow(async |workflow| {
-                let phase = advance_to_paired_with_policy(workflow, try_to_unlock, &policy).await?;
+                let phase =
+                    advance_session_bootstrap(workflow, false, BootstrapTarget::Paired, &options)
+                        .await?;
                 session_state_for(workflow, phase)
             })
             .await;
@@ -55,16 +57,17 @@ impl BleWorkflowHandle {
             "Advancing workflow to session-ready state",
         )
         .await;
-        let mut ready = *self.session_ready.lock().await;
+        let ready = *self.session_ready.lock().await;
         let options = bootstrap_options(try_to_unlock, retry_policy);
-        let result = self
+        let state = self
             .with_workflow(async |workflow| {
-                let phase = advance_session_bootstrap(workflow, &mut ready, &options).await?;
+                let phase =
+                    advance_session_bootstrap(workflow, ready, BootstrapTarget::Session, &options)
+                        .await?;
                 session_state_for(workflow, phase)
             })
-            .await;
-        *self.session_ready.lock().await = ready;
-        let state = result?;
+            .await?;
+        *self.session_ready.lock().await = matches!(state.phase, WalletSessionPhase::Ready);
         self.push_session_state_event(&state).await;
         Ok(state)
     }

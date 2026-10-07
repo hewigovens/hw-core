@@ -6,8 +6,8 @@ use anyhow::{Context, Result, bail};
 use ble_transport::{BleManager, BleProfile, DiscoveredDevice};
 use hw_wallet::WalletError;
 use hw_wallet::ble::{
-    SessionBootstrapOptions, SessionPhase, advance_session_bootstrap, connect_trezor_device,
-    scan_profile_until_match,
+    BootstrapTarget, SessionBootstrapOptions, SessionPhase, advance_session_bootstrap,
+    connect_trezor_device, scan_profile_until_match,
 };
 use tokio::time::timeout;
 use tracing::debug;
@@ -264,7 +264,6 @@ where
     B: ThpBackend + Send,
 {
     println!("Preparing authenticated wallet session...");
-    let mut session_ready = false;
     let options = SessionBootstrapOptions {
         thp_timeout: Duration::from_secs(thp_timeout_secs),
         try_to_unlock: true,
@@ -274,7 +273,7 @@ where
         ..SessionBootstrapOptions::default()
     };
     loop {
-        let step = advance_session_bootstrap(workflow, &mut session_ready, &options)
+        let step = advance_session_bootstrap(workflow, false, BootstrapTarget::Session, &options)
             .await
             .with_context(|| {
                 format!("failed to prepare authenticated wallet session for {operation_label}")

@@ -1,7 +1,9 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use hw_wallet::ble::{SessionBootstrapOptions, SessionPhase, advance_session_bootstrap};
+use hw_wallet::ble::{
+    BootstrapTarget, SessionBootstrapOptions, SessionPhase, advance_session_bootstrap,
+};
 use trezor_connect::thp::ThpWorkflow;
 use trezor_connect::thp::types::{
     CodeEntryChallengeRequest, CodeEntryChallengeResponse, CreateChannelRequest,
@@ -306,10 +308,10 @@ pub async fn ready_workflow_with_mock(backend: MockBackend) -> ThpWorkflow<MockB
     let config = default_test_host_config();
     let mut workflow = ThpWorkflow::new(backend, config);
 
-    let mut session_ready = false;
     let step = advance_session_bootstrap(
         &mut workflow,
-        &mut session_ready,
+        false,
+        BootstrapTarget::Session,
         &SessionBootstrapOptions {
             thp_timeout: Duration::from_secs(60),
             try_to_unlock: true,

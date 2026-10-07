@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, bail};
-use hw_wallet::ble::{SessionPhase, advance_to_paired};
+use hw_wallet::ble::{
+    BootstrapTarget, SessionBootstrapOptions, SessionPhase, advance_session_bootstrap,
+};
 use tracing::info;
 
 use crate::cli::PairArgs;
@@ -44,11 +46,15 @@ pub async fn run(args: PairArgs, skip_pairing: bool) -> Result<()> {
         workflow.host_config().app_name
     );
 
-    let try_to_unlock = true;
+    let options = SessionBootstrapOptions {
+        try_to_unlock: true,
+        ..SessionBootstrapOptions::default()
+    };
     println!("Running pair workflow...");
-    let mut step = advance_to_paired(&mut workflow, try_to_unlock)
-        .await
-        .context("failed to establish authenticated pairing state")?;
+    let mut step =
+        advance_session_bootstrap(&mut workflow, false, BootstrapTarget::Paired, &options)
+            .await
+            .context("failed to establish authenticated pairing state")?;
     if step == SessionPhase::NeedsPairingCode {
         println!(
             "Sending pairing request with host/app labels: '{}' / '{}'.",
@@ -62,7 +68,7 @@ pub async fn run(args: PairArgs, skip_pairing: bool) -> Result<()> {
             .context("pairing failed")?;
         println!("Pairing complete.");
         info!("pairing interaction flow completed");
-        step = advance_to_paired(&mut workflow, try_to_unlock)
+        step = advance_session_bootstrap(&mut workflow, false, BootstrapTarget::Paired, &options)
             .await
             .context("failed to finalize paired state after code entry")?;
     }
