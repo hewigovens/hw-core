@@ -3,11 +3,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use ble_transport::{BleManager, DiscoveredDevice};
+use ble_transport::{BleManager, BleProfile, DiscoveredDevice};
 use hw_wallet::WalletError;
 use hw_wallet::ble::{
-    SessionBootstrapOptions, SessionPhase, advance_session_bootstrap, backend_from_session,
-    connect_trezor_device, scan_profile_until_match, trezor_profile, workflow_with_storage,
+    BootstrapTarget, SessionBootstrapOptions, SessionPhase, advance_session_bootstrap,
+    connect_trezor_device, scan_profile_until_match,
 };
 use tokio::time::timeout;
 use tracing::debug;
@@ -16,76 +16,13 @@ use trezor_connect::thp::{
     FileStorage, HostConfig, PairingMethod as ThpPairingMethod, ThpBackend, ThpWorkflow,
 };
 
-use crate::cli::{
-    AddressArgs, SignBtcArgs, SignEthArgs, SignMessageBtcArgs, SignMessageEthArgs, SignSolArgs,
-};
+use crate::cli::ConnectArgs;
 use crate::config::{default_host_name, default_storage_path};
 use crate::pairing::CliPairingController;
 use crate::ui::prompt_line;
 
 const DEFAULT_PEER_REMOVED_HINT: &str =
     "Remove this Trezor from macOS Bluetooth settings, then pair again.";
-
-#[derive(Debug, Clone)]
-pub struct ConnectWorkflowOptions {
-    pub scan_timeout_secs: u64,
-    pub thp_timeout_secs: u64,
-    pub device_id: Option<String>,
-    pub storage_path: Option<PathBuf>,
-    pub host_name: Option<String>,
-    pub app_name: String,
-    pub skip_pairing: bool,
-}
-
-pub trait ConnectReadyCommandArgs {
-    fn scan_timeout_secs(&self) -> u64;
-    fn thp_timeout_secs(&self) -> u64;
-    fn device_id(&self) -> Option<String>;
-    fn storage_path(&self) -> Option<PathBuf>;
-    fn host_name(&self) -> Option<String>;
-    fn app_name(&self) -> String;
-}
-
-macro_rules! impl_connect_ready_command_args {
-    ($($ty:ty),+ $(,)?) => {
-        $(
-            impl ConnectReadyCommandArgs for $ty {
-                fn scan_timeout_secs(&self) -> u64 {
-                    self.timeout_secs
-                }
-
-                fn thp_timeout_secs(&self) -> u64 {
-                    self.thp_timeout_secs
-                }
-
-                fn device_id(&self) -> Option<String> {
-                    self.device_id.clone()
-                }
-
-                fn storage_path(&self) -> Option<PathBuf> {
-                    self.storage_path.clone()
-                }
-
-                fn host_name(&self) -> Option<String> {
-                    self.host_name.clone()
-                }
-
-                fn app_name(&self) -> String {
-                    self.app_name.clone()
-                }
-            }
-        )+
-    };
-}
-
-impl_connect_ready_command_args!(
-    AddressArgs,
-    SignEthArgs,
-    SignBtcArgs,
-    SignSolArgs,
-    SignMessageEthArgs,
-    SignMessageBtcArgs,
-);
 
 pub fn select_device(
     mut devices: Vec<DiscoveredDevice>,
@@ -130,19 +67,7 @@ pub fn select_device(
         return Ok(devices.remove(0));
     }
 
-    println!("Multiple devices found:");
-    for (idx, device) in devices.iter().enumerate() {
-        let info = device.info();
-        println!(
-            "  {}. id={} name={} rssi={}",
-            idx + 1,
-            info.id,
-            info.name.as_deref().unwrap_or("unknown"),
-            info.rssi
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "n/a".to_string())
-        );
-    }
+    print_discovered_devices(&devices);
 
     let selected = prompt_device_selection(devices.len())?;
     Ok(devices.remove(selected))
@@ -179,11 +104,12 @@ fn prompt_device_selection(total: usize) -> Result<usize> {
 }
 
 pub async fn connect_workflow(
-    options: ConnectWorkflowOptions,
+    args: &ConnectArgs,
+    skip_pairing: bool,
     operation_label: &str,
     peer_removed_hint: &str,
 ) -> Result<(ThpWorkflow<BleBackend>, PathBuf)> {
-    let profile = trezor_profile()?;
+    let profile = BleProfile::TREZOR_SAFE7;
     let manager = BleManager::new().await.context("BLE manager init failed")?;
     debug!(
         "{} profile: id={}, service_uuid={}",
@@ -192,13 +118,13 @@ pub async fn connect_workflow(
 
     println!(
         "Scanning for {} devices for {}s...",
-        profile.name, options.scan_timeout_secs
+        profile.name, args.timeout_secs
     );
     let devices = scan_profile_until_match(
         &manager,
         profile,
-        Duration::from_secs(options.scan_timeout_secs),
-        options.device_id.as_deref(),
+        Duration::from_secs(args.timeout_secs),
+        args.device_id.as_deref(),
     )
     .await
     .context("BLE scan failed")?;
@@ -207,7 +133,7 @@ pub async fn connect_workflow(
         bail!("no devices found");
     }
 
-    let selected = select_device(devices, options.device_id.as_deref())?;
+    let selected = select_device(devices, args.device_id.as_deref())?;
     let selected_name = selected
         .info()
         .name
@@ -221,14 +147,14 @@ pub async fn connect_workflow(
 
     println!("Opening BLE session...");
     let session = match timeout(
-        Duration::from_secs(options.thp_timeout_secs),
+        Duration::from_secs(args.thp_timeout_secs),
         connect_trezor_device(selected, profile),
     )
     .await
     {
         Err(_) => bail!(
             "opening BLE session timed out after {}s",
-            options.thp_timeout_secs
+            args.thp_timeout_secs
         ),
         Ok(Ok(session)) => session,
         Ok(Err(WalletError::PeerRemovedPairingInfo)) => {
@@ -241,22 +167,25 @@ pub async fn connect_workflow(
     };
     println!("BLE session established.");
     debug!("BLE session established");
-    let backend = backend_from_session(session, Duration::from_secs(options.thp_timeout_secs));
+    let backend = BleBackend::from_session(session, Duration::from_secs(args.thp_timeout_secs));
     debug!(
         "configured THP backend response timeout: {:?}",
         backend.handshake_timeout()
     );
 
-    let storage_path = options.storage_path.unwrap_or_else(default_storage_path);
-    let host_name = options.host_name.unwrap_or_else(default_host_name);
-    let mut config = HostConfig::new(host_name, options.app_name);
-    config.pairing_methods = if options.skip_pairing {
+    let storage_path = args
+        .storage_path
+        .clone()
+        .unwrap_or_else(default_storage_path);
+    let host_name = args.host_name.clone().unwrap_or_else(default_host_name);
+    let mut config = HostConfig::new(host_name, args.app_name.clone());
+    config.pairing_methods = if skip_pairing {
         vec![ThpPairingMethod::SkipPairing]
     } else {
         vec![ThpPairingMethod::CodeEntry]
     };
     let storage = Arc::new(FileStorage::new(storage_path.clone()));
-    let workflow = workflow_with_storage(backend, config, storage)
+    let workflow = ThpWorkflow::with_storage(backend, config, storage)
         .await
         .context("workflow setup failed")?;
     debug!(
@@ -276,7 +205,6 @@ where
     B: ThpBackend + Send,
 {
     println!("Preparing authenticated wallet session...");
-    let mut session_ready = false;
     let options = SessionBootstrapOptions {
         thp_timeout: Duration::from_secs(thp_timeout_secs),
         try_to_unlock: true,
@@ -286,7 +214,7 @@ where
         ..SessionBootstrapOptions::default()
     };
     loop {
-        let step = advance_session_bootstrap(workflow, &mut session_ready, &options)
+        let step = advance_session_bootstrap(workflow, false, BootstrapTarget::Session, &options)
             .await
             .with_context(|| {
                 format!("failed to prepare authenticated wallet session for {operation_label}")
@@ -312,36 +240,17 @@ where
 }
 
 pub async fn connect_ready_workflow(
-    options: ConnectWorkflowOptions,
-    operation_label: &str,
-    peer_removed_hint: &str,
-) -> Result<ThpWorkflow<BleBackend>> {
-    let thp_timeout_secs = options.thp_timeout_secs;
-    let (mut workflow, _) = connect_workflow(options, operation_label, peer_removed_hint).await?;
-    ensure_session_ready(&mut workflow, thp_timeout_secs, operation_label).await?;
-    Ok(workflow)
-}
-
-pub async fn connect_ready_command_workflow<T>(
-    args: &T,
+    args: &ConnectArgs,
     skip_pairing: bool,
     operation_label: &str,
-) -> Result<ThpWorkflow<BleBackend>>
-where
-    T: ConnectReadyCommandArgs,
-{
-    connect_ready_workflow(
-        ConnectWorkflowOptions {
-            scan_timeout_secs: args.scan_timeout_secs(),
-            thp_timeout_secs: args.thp_timeout_secs(),
-            device_id: args.device_id(),
-            storage_path: args.storage_path(),
-            host_name: args.host_name(),
-            app_name: args.app_name(),
-            skip_pairing,
-        },
+) -> Result<ThpWorkflow<BleBackend>> {
+    let (mut workflow, _) = connect_workflow(
+        args,
+        skip_pairing,
         operation_label,
         DEFAULT_PEER_REMOVED_HINT,
     )
-    .await
+    .await?;
+    ensure_session_ready(&mut workflow, args.thp_timeout_secs, operation_label).await?;
+    Ok(workflow)
 }

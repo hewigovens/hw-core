@@ -1,27 +1,25 @@
 use anyhow::{Context, Result, bail};
-use hw_wallet::chain::{Chain, ResolvedDerivationPath, resolve_derivation_path};
+use hw_wallet::chain::{Chain, resolve_derivation_path};
 use tracing::info;
 use trezor_connect::thp::{GetAddressRequest, ThpBackend, ThpWorkflow};
 
 use crate::cli::AddressArgs;
-use crate::commands::common::{
-    connect_ready_command_workflow, print_address_response, print_requesting,
-};
+use crate::commands::common::{connect_ready_workflow, print_address_response, print_requesting};
 
 pub async fn run(args: AddressArgs, skip_pairing: bool) -> Result<()> {
-    let resolved = ResolvedAddressTarget::from_args(&args)?;
+    let resolved = resolve_derivation_path(args.chain, args.path.as_deref())?;
     info!(
         "address command started: chain={:?} path='{}' scan_timeout_secs={} thp_timeout_secs={} show_on_device={} include_public_key={} chunkify={}",
         resolved.chain,
         resolved.path,
-        args.timeout_secs,
-        args.thp_timeout_secs,
+        args.connect.timeout_secs,
+        args.connect.thp_timeout_secs,
         args.show_on_device,
         args.include_public_key,
         args.chunkify
     );
 
-    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "address").await?;
+    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "address").await?;
 
     print_requesting(&format!("{:?} address", resolved.chain));
     let response = get_address_with_workflow(
@@ -80,105 +78,40 @@ fn build_get_address_request(chain: Chain, path_indices: Vec<u32>) -> GetAddress
     }
 }
 
-#[derive(Debug)]
-struct ResolvedAddressTarget {
-    chain: Chain,
-    path: String,
-    path_indices: Vec<u32>,
-}
-
-impl ResolvedAddressTarget {
-    fn from_args(args: &AddressArgs) -> Result<Self> {
-        let resolved = resolve_derivation_path(args.chain, args.path.as_deref())?;
-        Ok(Self::from_wallet_resolved(resolved))
-    }
-}
-
-impl ResolvedAddressTarget {
-    fn from_wallet_resolved(resolved: ResolvedDerivationPath) -> Self {
-        Self {
-            chain: resolved.chain,
-            path: resolved.path,
-            path_indices: resolved.path_indices,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::commands::test_support::{
-        MockBackend, canned_eth_address_response, ready_workflow_with_mock,
+    use hw_wallet::ble::{
+        BootstrapTarget, SessionBootstrapOptions, SessionPhase, SessionRetryPolicy,
+        advance_session_bootstrap,
     };
-    use hw_wallet::chain::{
-        DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
-    };
-    use trezor_connect::thp::Chain as ThpChain;
-
-    fn args(chain: Option<Chain>, path: Option<&str>) -> AddressArgs {
-        AddressArgs {
-            chain,
-            path: path.map(ToOwned::to_owned),
-            show_on_device: true,
-            include_public_key: false,
-            chunkify: false,
-            timeout_secs: 60,
-            thp_timeout_secs: 60,
-            device_id: None,
-            storage_path: None,
-            host_name: None,
-            app_name: "hw-core/cli".to_string(),
-        }
-    }
-
-    #[test]
-    fn defaults_to_eth_default_path() {
-        let resolved = ResolvedAddressTarget::from_args(&args(None, None)).unwrap();
-        assert_eq!(resolved.chain, Chain::Ethereum);
-        assert_eq!(resolved.path, DEFAULT_ETHEREUM_BIP32_PATH);
-    }
-
-    #[test]
-    fn defaults_to_btc_path_when_chain_is_btc() {
-        let resolved = ResolvedAddressTarget::from_args(&args(Some(Chain::Bitcoin), None)).unwrap();
-        assert_eq!(resolved.chain, Chain::Bitcoin);
-        assert_eq!(resolved.path, DEFAULT_BITCOIN_BIP32_PATH);
-    }
-
-    #[test]
-    fn defaults_to_sol_path_when_chain_is_sol() {
-        let resolved = ResolvedAddressTarget::from_args(&args(Some(Chain::Solana), None)).unwrap();
-        assert_eq!(resolved.chain, Chain::Solana);
-        assert_eq!(resolved.path, DEFAULT_SOLANA_BIP32_PATH);
-    }
-
-    #[test]
-    fn infers_chain_from_eth_path() {
-        let resolved =
-            ResolvedAddressTarget::from_args(&args(None, Some("m/44'/60'/0'/0/0"))).unwrap();
-        assert_eq!(resolved.chain, Chain::Ethereum);
-    }
-
-    #[test]
-    fn rejects_chain_path_mismatch() {
-        let err =
-            ResolvedAddressTarget::from_args(&args(Some(Chain::Ethereum), Some("m/84'/0'/0'/0/0")))
-                .unwrap_err();
-        assert!(err.to_string().contains("chain/path mismatch"));
-    }
+    use trezor_connect::thp::HostConfig;
+    use trezor_connect::thp::testing::MockBackend;
 
     #[tokio::test]
-    async fn address_flow_orchestrates_handshake_confirmation_and_session_retry() {
-        let backend = MockBackend::paired_with_session_retry(b"addr-test")
-            .with_get_address_response(canned_eth_address_response(
-                "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE",
-            ));
-        let mut workflow = ready_workflow_with_mock(backend).await;
+    async fn address_request_carries_cli_display_flags() {
+        let backend = MockBackend::paired_connection_flow().with_transient_session_failure();
+        let mut workflow = ThpWorkflow::new(backend, HostConfig::new("test-host", "hw-core/cli"));
+        let options = SessionBootstrapOptions {
+            try_to_unlock: true,
+            retry_policy: SessionRetryPolicy {
+                retry_delay_ms: 1,
+                ..SessionRetryPolicy::default()
+            },
+            ..SessionBootstrapOptions::default()
+        };
+        let phase =
+            advance_session_bootstrap(&mut workflow, false, BootstrapTarget::Session, &options)
+                .await
+                .unwrap();
+        assert_eq!(phase, SessionPhase::Ready);
+
+        let path = vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0];
         let response = get_address_with_workflow(
             &mut workflow,
             Chain::Ethereum,
-            vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0],
+            path.clone(),
             true,
             true,
             false,
@@ -195,12 +128,10 @@ mod tests {
         assert_eq!(backend.counters.create_session_calls, 2);
         assert_eq!(backend.counters.get_address_calls, 1);
         let request = backend.last_get_address_request.as_ref().unwrap();
-        assert_eq!(request.chain, ThpChain::Ethereum);
-        assert_eq!(
-            request.path,
-            vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0]
-        );
+        assert_eq!(request.chain, Chain::Ethereum);
+        assert_eq!(request.path, path);
         assert!(request.show_display);
         assert!(request.include_public_key);
+        assert!(!request.chunkify);
     }
 }

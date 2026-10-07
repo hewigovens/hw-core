@@ -20,10 +20,8 @@ required-features = ["bindings-cli"]
 
 [dependencies]
 async-trait = { workspace = true }
-ble-transport = { workspace = true, features = [
-    "backend-btleplug",
-    "trezor-safe7",
-] }
+ble-transport = { workspace = true }
+hex = { workspace = true }
 hw-wallet = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
@@ -38,6 +36,9 @@ camino = { version = "1", optional = true }
 uniffi_bindgen = { version = "0.32.0", features = [
     "cargo-metadata",
 ], optional = true }
+
+[dev-dependencies]
+trezor-connect = { workspace = true, features = ["ble", "test-support"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 btleplug = { workspace = true }

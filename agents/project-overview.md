@@ -27,8 +27,7 @@ ble-transport ────────────┘                           
 ## Feature Flags
 
 - `ble` on `trezor-connect`: enables BLE transport (btleplug, Noise handshake, pairing)
-- `backend-btleplug` on `ble-transport`: btleplug backend (default-on)
-- `trezor-safe7` on `ble-transport`: Trezor Safe 7 device profile
+- `test-support` on `trezor-connect`: exposes the shared `thp::testing::MockBackend` for dev-dependencies
 
 ## Key Design Patterns
 

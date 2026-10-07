@@ -5,15 +5,9 @@ edition.workspace = true
 description = "BLE transport primitives for hardware wallet interaction"
 license.workspace = true
 repository.workspace = true
-[features]
-default = ["backend-btleplug"]
-backend-btleplug = ["dep:btleplug"]
-trezor-safe7 = []
 
 [dependencies]
-anyhow = { workspace = true }
-# btleplug = { git = "https://github.com/trezor/btleplug", rev = "f66eb37ca293bea1708264a319ec02b14e7935ab", optional = true }
-btleplug = { workspace = true, optional = true }
+btleplug = { workspace = true }
 futures = "0.3"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

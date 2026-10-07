@@ -14,28 +14,6 @@ use trezor_connect::thp::{
 
 use crate::error::{WalletError, WalletResult};
 
-pub fn trezor_profile() -> WalletResult<BleProfile> {
-    BleProfile::trezor_safe7().ok_or(WalletError::ProfileUnavailable)
-}
-
-pub async fn scan_profile(
-    manager: &BleManager,
-    profile: BleProfile,
-    duration: Duration,
-) -> WalletResult<Vec<DiscoveredDevice>> {
-    let devices = manager.scan_profile(profile, duration).await?;
-    Ok(devices)
-}
-
-pub async fn scan_trezor(
-    manager: &BleManager,
-    duration: Duration,
-) -> WalletResult<(BleProfile, Vec<DiscoveredDevice>)> {
-    let profile = trezor_profile()?;
-    let devices = scan_profile(manager, profile, duration).await?;
-    Ok((profile, devices))
-}
-
 pub async fn connect_trezor_device(
     device: DiscoveredDevice,
     profile: BleProfile,
@@ -53,28 +31,6 @@ pub async fn connect_trezor_device(
     Ok(session)
 }
 
-pub fn backend_from_session(session: BleSession, thp_timeout: Duration) -> BleBackend {
-    let mut backend = BleBackend::from_session(session);
-    backend.set_handshake_timeout(thp_timeout);
-    backend
-}
-
-pub async fn workflow_with_storage(
-    backend: BleBackend,
-    config: HostConfig,
-    storage: Arc<dyn ThpStorage>,
-) -> WalletResult<ThpWorkflow<BleBackend>> {
-    Ok(ThpWorkflow::with_storage(backend, config, storage).await?)
-}
-
-pub fn workflow(backend: BleBackend, config: HostConfig) -> ThpWorkflow<BleBackend> {
-    ThpWorkflow::new(backend, config)
-}
-
-pub const CREATE_CHANNEL_ATTEMPTS: usize = 3;
-pub const HANDSHAKE_ATTEMPTS: usize = 2;
-pub const CREATE_SESSION_ATTEMPTS: usize = 3;
-pub const RETRY_DELAY: Duration = Duration::from_millis(800);
 const CREATE_CHANNEL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,10 +44,10 @@ pub struct SessionRetryPolicy {
 impl Default for SessionRetryPolicy {
     fn default() -> Self {
         Self {
-            create_channel_attempts: CREATE_CHANNEL_ATTEMPTS as u32,
-            handshake_attempts: HANDSHAKE_ATTEMPTS as u32,
-            create_session_attempts: CREATE_SESSION_ATTEMPTS as u32,
-            retry_delay_ms: RETRY_DELAY.as_millis() as u64,
+            create_channel_attempts: 3,
+            handshake_attempts: 2,
+            create_session_attempts: 3,
+            retry_delay_ms: 800,
         }
     }
 }
@@ -219,27 +175,26 @@ pub async fn connect_and_bootstrap_session(
     options: SessionBootstrapOptions,
 ) -> WalletResult<ThpWorkflow<BleBackend>> {
     let session = connect_trezor_device(device, profile).await?;
-    let backend = backend_from_session(session, options.thp_timeout);
+    let backend = BleBackend::from_session(session, options.thp_timeout);
 
     let mut workflow = if let Some(storage) = storage {
-        workflow_with_storage(backend, config, storage).await?
+        ThpWorkflow::with_storage(backend, config, storage).await?
     } else {
-        workflow(backend, config)
+        ThpWorkflow::new(backend, config)
     };
 
     prepare_session_bootstrap(&mut workflow, &options).await?;
     Ok(workflow)
 }
 
-pub async fn prepare_session_bootstrap<B>(
+async fn prepare_session_bootstrap<B>(
     workflow: &mut ThpWorkflow<B>,
     options: &SessionBootstrapOptions,
 ) -> WalletResult<()>
 where
     B: ThpBackend + Send,
 {
-    let mut session_ready = false;
-    match advance_session_bootstrap(workflow, &mut session_ready, options).await? {
+    match advance_session_bootstrap(workflow, false, BootstrapTarget::Session, options).await? {
         SessionPhase::Ready => Ok(()),
         SessionPhase::NeedsPairingCode => Err(WalletError::Workflow(
             ThpWorkflowError::PairingInteractionRequired,
@@ -248,229 +203,137 @@ where
     }
 }
 
-pub async fn establish_authenticated_phase<B>(
-    workflow: &mut ThpWorkflow<B>,
-    try_to_unlock: bool,
-) -> WalletResult<()>
-where
-    B: ThpBackend + Send,
-{
-    match advance_to_paired(workflow, try_to_unlock).await? {
-        SessionPhase::NeedsSession => Ok(()),
-        SessionPhase::NeedsPairingCode => Err(WalletError::Workflow(
-            ThpWorkflowError::PairingInteractionRequired,
-        )),
-        _ => Err(WalletError::Workflow(ThpWorkflowError::InvalidPhase)),
-    }
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BootstrapTarget {
+    Paired,
+    Session,
 }
 
-pub async fn advance_to_paired<B>(
-    workflow: &mut ThpWorkflow<B>,
-    try_to_unlock: bool,
-) -> WalletResult<SessionPhase>
-where
-    B: ThpBackend + Send,
-{
-    advance_to_paired_with_policy(workflow, try_to_unlock, &SessionRetryPolicy::default()).await
-}
-
-pub async fn advance_to_paired_with_policy<B>(
-    workflow: &mut ThpWorkflow<B>,
-    try_to_unlock: bool,
-    retry_policy: &SessionRetryPolicy,
-) -> WalletResult<SessionPhase>
-where
-    B: ThpBackend + Send,
-{
-    let retry_delay = retry_policy.retry_delay();
-    loop {
-        if skip_pairing_can_auto_advance(workflow.state()) {
-            workflow.pairing(None).await.map_err(WalletError::from)?;
-            continue;
-        }
-
-        match session_phase(workflow.state(), false) {
-            SessionPhase::NeedsChannel => {
-                create_channel_with_retry(
-                    workflow,
-                    retry_policy.create_channel_attempts(),
-                    retry_delay,
-                )
-                .await?;
-            }
-            SessionPhase::NeedsHandshake => {
-                handshake_with_retry(
-                    workflow,
-                    try_to_unlock,
-                    retry_policy.handshake_attempts(),
-                    retry_delay,
-                )
-                .await?;
-            }
-            SessionPhase::NeedsConnectionConfirmation => {
-                workflow.pairing(None).await.map_err(WalletError::from)?;
-            }
-            SessionPhase::NeedsPairingCode | SessionPhase::NeedsSession => {
-                return Ok(session_phase(workflow.state(), false));
-            }
-            SessionPhase::Ready => unreachable!("session_ready is always false in paired mode"),
-        }
-    }
-}
-
+/// Drives the workflow until it reaches `target` or needs pairing-code input.
 pub async fn advance_session_bootstrap<B>(
     workflow: &mut ThpWorkflow<B>,
-    session_ready: &mut bool,
+    session_ready: bool,
+    target: BootstrapTarget,
     options: &SessionBootstrapOptions,
 ) -> WalletResult<SessionPhase>
 where
     B: ThpBackend + Send,
 {
-    let retry_delay = options.retry_policy.retry_delay();
+    let policy = &options.retry_policy;
+    let mut session_ready = session_ready;
     loop {
         if skip_pairing_can_auto_advance(workflow.state()) {
-            workflow.pairing(None).await.map_err(WalletError::from)?;
+            workflow.pairing(None).await?;
             continue;
         }
 
-        match session_phase(workflow.state(), *session_ready) {
-            SessionPhase::NeedsChannel => {
-                create_channel_with_retry(
-                    workflow,
-                    options.retry_policy.create_channel_attempts(),
-                    retry_delay,
-                )
-                .await?;
-            }
+        match session_phase(workflow.state(), session_ready) {
+            SessionPhase::NeedsChannel => create_channel_with_retry(workflow, policy).await?,
             SessionPhase::NeedsHandshake => {
-                handshake_with_retry(
-                    workflow,
-                    options.try_to_unlock,
-                    options.retry_policy.handshake_attempts(),
-                    retry_delay,
-                )
-                .await?;
+                handshake_with_retry(workflow, options.try_to_unlock, policy).await?
             }
-            SessionPhase::NeedsConnectionConfirmation => {
-                workflow.pairing(None).await.map_err(WalletError::from)?;
+            SessionPhase::NeedsConnectionConfirmation => workflow.pairing(None).await?,
+            SessionPhase::NeedsSession if target == BootstrapTarget::Session => {
+                create_session_with_retry(workflow, options).await?;
+                session_ready = true;
             }
-            SessionPhase::NeedsSession => {
-                create_session_with_retry(
-                    workflow,
-                    options.passphrase.clone(),
-                    options.on_device,
-                    options.derive_cardano,
-                    options.retry_policy.create_session_attempts(),
-                    retry_delay,
-                )
-                .await?;
-                *session_ready = true;
-            }
-            SessionPhase::NeedsPairingCode | SessionPhase::Ready => {
-                return Ok(session_phase(workflow.state(), *session_ready));
-            }
+            phase @ (SessionPhase::NeedsSession
+            | SessionPhase::NeedsPairingCode
+            | SessionPhase::Ready) => return Ok(phase),
         }
     }
 }
 
-pub async fn create_channel_with_retry<B>(
+async fn create_channel_with_retry<B>(
     workflow: &mut ThpWorkflow<B>,
-    attempts: usize,
-    retry_delay: Duration,
-) -> WalletResult<usize>
+    policy: &SessionRetryPolicy,
+) -> WalletResult<()>
 where
     B: ThpBackend + Send,
 {
-    let attempts = attempts.max(1);
-    for attempt in 1..=attempts {
-        match timeout(CREATE_CHANNEL_ATTEMPT_TIMEOUT, workflow.create_channel()).await {
-            Err(_) if attempt < attempts => {
-                debug!(
-                    "create-channel timed out after {:?} on attempt {}; retrying after {:?}",
-                    CREATE_CHANNEL_ATTEMPT_TIMEOUT, attempt, retry_delay
-                );
-                sleep(retry_delay).await;
-            }
-            Err(_) => {
-                return Err(WalletError::Workflow(ThpWorkflowError::Backend(
-                    BackendError::TransportTimeout,
-                )));
-            }
-            Ok(Ok(())) => {
-                return Ok(attempt);
-            }
-            Ok(Err(err)) if is_transport_timeout(&err) && attempt < attempts => {
+    let attempts = policy.create_channel_attempts();
+    let retry_delay = policy.retry_delay();
+    let mut attempt = 1;
+    loop {
+        let result = timeout(CREATE_CHANNEL_ATTEMPT_TIMEOUT, workflow.create_channel())
+            .await
+            .unwrap_or(Err(ThpWorkflowError::Backend(
+                BackendError::TransportTimeout,
+            )));
+        match result {
+            Ok(()) => return Ok(()),
+            Err(err) if is_transport_timeout(&err) && attempt < attempts => {
                 debug!(
                     "create-channel timed out on attempt {}; retrying after {:?}",
                     attempt, retry_delay
                 );
                 sleep(retry_delay).await;
+                attempt += 1;
             }
-            Ok(Err(err)) => return Err(err.into()),
+            Err(err) => return Err(err.into()),
         }
     }
-
-    unreachable!("attempts is always >= 1")
 }
 
-pub async fn handshake_with_retry<B>(
+async fn handshake_with_retry<B>(
     workflow: &mut ThpWorkflow<B>,
     try_to_unlock: bool,
-    attempts: usize,
-    retry_delay: Duration,
-) -> WalletResult<usize>
+    policy: &SessionRetryPolicy,
+) -> WalletResult<()>
 where
     B: ThpBackend + Send,
 {
-    let attempts = attempts.max(1);
-    for attempt in 1..=attempts {
+    let attempts = policy.handshake_attempts();
+    let retry_delay = policy.retry_delay();
+    let mut attempt = 1;
+    loop {
         match workflow.handshake(try_to_unlock).await {
-            Ok(()) => return Ok(attempt),
+            Ok(()) => return Ok(()),
             Err(err) if is_retryable_handshake_error(&err) && attempt < attempts => {
                 debug!(
                     "handshake failed with transient device state on attempt {}; retrying after {:?}",
                     attempt, retry_delay
                 );
                 sleep(retry_delay).await;
-                create_channel_with_retry(workflow, 3, retry_delay).await?;
+                create_channel_with_retry(workflow, policy).await?;
+                attempt += 1;
             }
             Err(err) => return Err(err.into()),
         }
     }
-
-    unreachable!("attempts is always >= 1")
 }
 
-pub async fn create_session_with_retry<B>(
+async fn create_session_with_retry<B>(
     workflow: &mut ThpWorkflow<B>,
-    passphrase: Option<String>,
-    on_device: bool,
-    derive_cardano: bool,
-    attempts: usize,
-    retry_delay: Duration,
-) -> WalletResult<usize>
+    options: &SessionBootstrapOptions,
+) -> WalletResult<()>
 where
     B: ThpBackend + Send,
 {
-    let attempts = attempts.max(1);
-    for attempt in 1..=attempts {
+    let attempts = options.retry_policy.create_session_attempts();
+    let retry_delay = options.retry_policy.retry_delay();
+    let mut attempt = 1;
+    loop {
         match workflow
-            .create_session(passphrase.clone(), on_device, derive_cardano)
+            .create_session(
+                options.passphrase.clone(),
+                options.on_device,
+                options.derive_cardano,
+            )
             .await
         {
-            Ok(()) => return Ok(attempt),
+            Ok(()) => return Ok(()),
             Err(err) if is_retryable_session_error(&err) && attempt < attempts => {
                 debug!(
                     "create-session hit transient device state on attempt {}; retrying after {:?}",
                     attempt, retry_delay
                 );
                 sleep(retry_delay).await;
+                attempt += 1;
             }
             Err(err) => return Err(normalize_session_error(err)),
         }
     }
-
-    unreachable!("attempts is always >= 1")
 }
 
 fn is_transport_timeout(error: &ThpWorkflowError) -> bool {
@@ -535,7 +398,7 @@ pub async fn scan_profile_until_match(
     while start.elapsed() < duration {
         let remaining = duration.saturating_sub(start.elapsed());
         let window = remaining.min(SCAN_WINDOW);
-        let devices = scan_profile(manager, profile, window).await?;
+        let devices = manager.scan_profile(profile, window).await?;
         if devices.is_empty() {
             continue;
         }
@@ -713,12 +576,12 @@ mod tests {
     }
 
     #[test]
-    fn retry_policy_defaults_match_bootstrap_constants() {
+    fn retry_policy_defaults() {
         let policy = SessionRetryPolicy::default();
-        assert_eq!(policy.create_channel_attempts(), CREATE_CHANNEL_ATTEMPTS);
-        assert_eq!(policy.handshake_attempts(), HANDSHAKE_ATTEMPTS);
-        assert_eq!(policy.create_session_attempts(), CREATE_SESSION_ATTEMPTS);
-        assert_eq!(policy.retry_delay(), RETRY_DELAY);
+        assert_eq!(policy.create_channel_attempts(), 3);
+        assert_eq!(policy.handshake_attempts(), 2);
+        assert_eq!(policy.create_session_attempts(), 3);
+        assert_eq!(policy.retry_delay(), Duration::from_millis(800));
     }
 
     #[test]

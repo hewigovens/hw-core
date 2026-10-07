@@ -7,14 +7,10 @@ license.workspace = true
 repository.workspace = true
 [features]
 default = []
-ble = [
-    "dep:ble-transport",
-    "ble-transport/backend-btleplug",
-    "ble-transport/trezor-safe7",
-]
+ble = ["dep:ble-transport"]
+test-support = []
 
 [dependencies]
-anyhow = { workspace = true }
 async-trait = { workspace = true }
 rand = { workspace = true }
 thiserror = { workspace = true }

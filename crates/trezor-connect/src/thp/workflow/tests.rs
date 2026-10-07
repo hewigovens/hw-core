@@ -1,322 +1,10 @@
-use super::super::backend::{BackendError, BackendResult, ThpBackend};
+use super::super::backend::BackendError;
 use super::super::storage::{HostSnapshot, StorageError, ThpStorage};
 use super::*;
+use crate::thp::testing::MockBackend;
 use crate::thp::types::*;
 use parking_lot::Mutex;
-use std::collections::VecDeque;
 use std::sync::Arc;
-
-struct MockBackend {
-    create_channel_resp: CreateChannelResponse,
-    handshake_hash: Vec<u8>,
-    selected_credential: Option<KnownCredential>,
-    handshake_state: HandshakeCompletionState,
-    credential_response: Option<CredentialResponse>,
-    require_end_before_session: bool,
-    select_responses: Mutex<VecDeque<SelectMethodResponse>>,
-    tag_responses: Mutex<VecDeque<PairingTagResponse>>,
-    code_entry_challenge_response: Option<CodeEntryChallengeResponse>,
-    code_entry_challenge_requests: Mutex<Vec<CodeEntryChallengeRequest>>,
-    tag_requests: Mutex<Vec<PairingTagRequest>>,
-    last_tag_request: Mutex<Option<PairingTagRequest>>,
-    pairing_requested: Mutex<bool>,
-    end_called: Mutex<bool>,
-    session_passphrases: Mutex<Vec<Option<String>>>,
-    channel_requests: Mutex<Vec<bool>>,
-}
-
-impl MockBackend {
-    fn autopair() -> Self {
-        Self {
-            create_channel_resp: CreateChannelResponse {
-                channel: 1,
-                properties: ThpProperties {
-                    internal_model: "T2T1".into(),
-                    model_variant: 0,
-                    protocol_version_major: 1,
-                    protocol_version_minor: 0,
-                    pairing_methods: vec![PairingMethod::SkipPairing],
-                },
-            },
-            handshake_hash: b"hash".to_vec(),
-            selected_credential: Some(KnownCredential {
-                credential: "cred1".into(),
-                trezor_static_public_key: Some(vec![0x11; 32]),
-                autoconnect: true,
-            }),
-            handshake_state: HandshakeCompletionState::AutoPaired,
-            credential_response: Some(CredentialResponse {
-                trezor_static_public_key: vec![0x11; 32],
-                credential: "cred1".into(),
-                autoconnect: true,
-            }),
-            require_end_before_session: false,
-            select_responses: Mutex::new(VecDeque::new()),
-            tag_responses: Mutex::new(VecDeque::new()),
-            code_entry_challenge_response: None,
-            code_entry_challenge_requests: Mutex::new(Vec::new()),
-            tag_requests: Mutex::new(Vec::new()),
-            last_tag_request: Mutex::new(None),
-            pairing_requested: Mutex::new(false),
-            end_called: Mutex::new(false),
-            session_passphrases: Mutex::new(Vec::new()),
-            channel_requests: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn paired_connection_flow() -> Self {
-        Self {
-            create_channel_resp: CreateChannelResponse {
-                channel: 4,
-                properties: ThpProperties {
-                    internal_model: "T3W1".into(),
-                    model_variant: 1,
-                    protocol_version_major: 2,
-                    protocol_version_minor: 0,
-                    pairing_methods: vec![PairingMethod::CodeEntry],
-                },
-            },
-            handshake_hash: b"paired".to_vec(),
-            selected_credential: Some(KnownCredential {
-                credential: "paired-cred".into(),
-                trezor_static_public_key: Some(vec![0x55; 32]),
-                autoconnect: false,
-            }),
-            handshake_state: HandshakeCompletionState::Paired,
-            credential_response: Some(CredentialResponse {
-                trezor_static_public_key: vec![0x56; 32],
-                credential: "refreshed-cred".into(),
-                autoconnect: false,
-            }),
-            require_end_before_session: true,
-            select_responses: Mutex::new(VecDeque::new()),
-            tag_responses: Mutex::new(VecDeque::new()),
-            code_entry_challenge_response: None,
-            code_entry_challenge_requests: Mutex::new(Vec::new()),
-            tag_requests: Mutex::new(Vec::new()),
-            last_tag_request: Mutex::new(None),
-            pairing_requested: Mutex::new(false),
-            end_called: Mutex::new(false),
-            session_passphrases: Mutex::new(Vec::new()),
-            channel_requests: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn pairing_flow() -> Self {
-        let mut select = VecDeque::new();
-        select.push_back(SelectMethodResponse::PairingPreparationsFinished { nfc_data: None });
-        Self {
-            create_channel_resp: CreateChannelResponse {
-                channel: 2,
-                properties: ThpProperties {
-                    internal_model: "T2T1".into(),
-                    model_variant: 0,
-                    protocol_version_major: 1,
-                    protocol_version_minor: 0,
-                    pairing_methods: vec![PairingMethod::QrCode],
-                },
-            },
-            handshake_hash: b"pair".to_vec(),
-            selected_credential: None,
-            handshake_state: HandshakeCompletionState::RequiresPairing,
-            credential_response: Some(CredentialResponse {
-                trezor_static_public_key: vec![0x22; 32],
-                credential: "new-cred".into(),
-                autoconnect: false,
-            }),
-            require_end_before_session: false,
-            select_responses: Mutex::new(select),
-            tag_responses: Mutex::new(VecDeque::from([PairingTagResponse::Accepted {
-                secret: vec![1, 2],
-            }])),
-            code_entry_challenge_response: None,
-            code_entry_challenge_requests: Mutex::new(Vec::new()),
-            tag_requests: Mutex::new(Vec::new()),
-            last_tag_request: Mutex::new(None),
-            pairing_requested: Mutex::new(false),
-            end_called: Mutex::new(false),
-            session_passphrases: Mutex::new(Vec::new()),
-            channel_requests: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn code_entry_flow() -> Self {
-        let mut select = VecDeque::new();
-        select.push_back(SelectMethodResponse::CodeEntryCommitment {
-            commitment: vec![0xAA; 32],
-        });
-        Self {
-            create_channel_resp: CreateChannelResponse {
-                channel: 3,
-                properties: ThpProperties {
-                    internal_model: "T3W1".into(),
-                    model_variant: 1,
-                    protocol_version_major: 2,
-                    protocol_version_minor: 0,
-                    pairing_methods: vec![PairingMethod::CodeEntry],
-                },
-            },
-            handshake_hash: b"code-entry".to_vec(),
-            selected_credential: None,
-            handshake_state: HandshakeCompletionState::RequiresPairing,
-            credential_response: Some(CredentialResponse {
-                trezor_static_public_key: vec![0x33; 32],
-                credential: "code-entry-cred".into(),
-                autoconnect: false,
-            }),
-            require_end_before_session: false,
-            select_responses: Mutex::new(select),
-            tag_responses: Mutex::new(VecDeque::from([PairingTagResponse::Accepted {
-                secret: vec![9, 9],
-            }])),
-            code_entry_challenge_response: Some(CodeEntryChallengeResponse {
-                trezor_cpace_public_key: vec![0x44; 32],
-            }),
-            code_entry_challenge_requests: Mutex::new(Vec::new()),
-            tag_requests: Mutex::new(Vec::new()),
-            last_tag_request: Mutex::new(None),
-            pairing_requested: Mutex::new(false),
-            end_called: Mutex::new(false),
-            session_passphrases: Mutex::new(Vec::new()),
-            channel_requests: Mutex::new(Vec::new()),
-        }
-    }
-}
-
-impl ThpBackend for MockBackend {
-    async fn create_channel(
-        &mut self,
-        request: CreateChannelRequest,
-    ) -> BackendResult<CreateChannelResponse> {
-        self.channel_requests.lock().push(request.try_to_unlock);
-        Ok(self.create_channel_resp.clone())
-    }
-
-    async fn handshake(&mut self, _request: HandshakeRequest) -> BackendResult<HandshakeResponse> {
-        Ok(HandshakeResponse {
-            state: self.handshake_state,
-            handshake_hash: self.handshake_hash.clone(),
-            selected_credential: self.selected_credential.clone(),
-        })
-    }
-
-    async fn pairing_request(
-        &mut self,
-        _request: PairingRequest,
-    ) -> BackendResult<PairingRequestApproved> {
-        *self.pairing_requested.lock() = true;
-        Ok(PairingRequestApproved)
-    }
-
-    async fn select_pairing_method(
-        &mut self,
-        _request: SelectMethodRequest,
-    ) -> BackendResult<SelectMethodResponse> {
-        self.select_responses
-            .lock()
-            .pop_front()
-            .ok_or_else(|| BackendError::Device("no more select responses".into()))
-    }
-
-    async fn code_entry_challenge(
-        &mut self,
-        request: CodeEntryChallengeRequest,
-    ) -> BackendResult<CodeEntryChallengeResponse> {
-        self.code_entry_challenge_requests.lock().push(request);
-        self.code_entry_challenge_response
-            .clone()
-            .ok_or_else(|| BackendError::Device("unexpected code entry challenge".into()))
-    }
-
-    async fn send_pairing_tag(
-        &mut self,
-        request: PairingTagRequest,
-    ) -> BackendResult<PairingTagResponse> {
-        self.tag_requests.lock().push(request.clone());
-        *self.last_tag_request.lock() = Some(request);
-        self.tag_responses
-            .lock()
-            .pop_front()
-            .ok_or_else(|| BackendError::Device("unexpected tag".into()))
-    }
-
-    async fn credential_request(
-        &mut self,
-        _request: CredentialRequest,
-    ) -> BackendResult<CredentialResponse> {
-        self.credential_response
-            .clone()
-            .ok_or_else(|| BackendError::Device("no credential response".into()))
-    }
-
-    async fn end_request(&mut self) -> BackendResult<()> {
-        *self.end_called.lock() = true;
-        Ok(())
-    }
-
-    async fn create_new_session(
-        &mut self,
-        request: CreateSessionRequest,
-    ) -> BackendResult<CreateSessionResponse> {
-        self.session_passphrases.lock().push(request.passphrase);
-        if self.require_end_before_session && !*self.end_called.lock() {
-            return Err(BackendError::SessionConfirmationRequired);
-        }
-        Ok(CreateSessionResponse)
-    }
-
-    async fn get_address(
-        &mut self,
-        request: GetAddressRequest,
-    ) -> BackendResult<GetAddressResponse> {
-        Ok(GetAddressResponse {
-            chain: request.chain,
-            address: "0x0000000000000000000000000000000000000000".into(),
-            mac: None,
-            public_key: None,
-        })
-    }
-
-    async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {
-        Ok(vec![0xAA; 32])
-    }
-
-    async fn sign_message(
-        &mut self,
-        request: SignMessageRequest,
-    ) -> BackendResult<SignMessageResponse> {
-        Ok(SignMessageResponse {
-            chain: request.chain,
-            address: "0x0000000000000000000000000000000000000000".into(),
-            signature: vec![0xAB; 65],
-        })
-    }
-
-    async fn sign_typed_data(
-        &mut self,
-        request: SignTypedDataRequest,
-    ) -> BackendResult<SignTypedDataResponse> {
-        Ok(SignTypedDataResponse {
-            chain: request.chain,
-            address: "0x0000000000000000000000000000000000000000".into(),
-            signature: vec![0xCD; 65],
-        })
-    }
-
-    async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse> {
-        Ok(SignTxResponse {
-            chain: request.chain,
-            v: 1,
-            r: vec![0xAA; 32],
-            s: vec![0xBB; 32],
-            signatures: Vec::new(),
-        })
-    }
-
-    async fn abort(&mut self) -> BackendResult<()> {
-        Ok(())
-    }
-}
 
 struct TestController;
 
@@ -414,7 +102,7 @@ async fn autopair_flow_sets_paired_state() {
     let (backend, _, state) = workflow.into_parts();
     assert!(state.is_paired());
     assert_eq!(state.phase(), Phase::Paired);
-    assert!(*backend.end_called.lock());
+    assert!(backend.end_called);
 }
 
 #[tokio::test]
@@ -440,7 +128,7 @@ async fn create_session_sends_nfkd_normalized_passphrase() {
 
     let (backend, _, _) = workflow.into_parts();
     assert_eq!(
-        *backend.session_passphrases.lock(),
+        backend.session_passphrases,
         vec![Some("cafe\u{301} fi".to_string()), None]
     );
 }
@@ -472,8 +160,8 @@ async fn pairing_flow_with_controller() {
 
     let (backend, _, state) = workflow.into_parts();
     assert!(state.is_paired());
-    assert!(*backend.pairing_requested.lock());
-    assert!(*backend.end_called.lock());
+    assert!(backend.pairing_requested);
+    assert!(backend.end_called);
 }
 
 #[tokio::test]
@@ -518,7 +206,7 @@ async fn paired_handshake_requires_connection_confirmation_flow() {
     let (backend, _, state) = workflow.into_parts();
     assert!(state.is_paired());
     assert_eq!(state.phase(), Phase::Paired);
-    assert!(*backend.end_called.lock());
+    assert!(backend.end_called);
 }
 
 #[tokio::test]
@@ -544,14 +232,14 @@ async fn code_entry_pairing_populates_cpace_inputs_before_tag() {
         .expect("code-entry pairing succeeds");
 
     let (backend, _, _) = workflow.into_parts();
-    let requests = backend.code_entry_challenge_requests.lock().clone();
+    let requests = backend.code_entry_challenge_requests.clone();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].challenge.len(), 32);
 
     let tag_request = backend
-        .last_tag_request
-        .lock()
-        .clone()
+        .tag_requests
+        .last()
+        .cloned()
         .expect("tag request recorded");
     match tag_request {
         PairingTagRequest::CodeEntry {
@@ -601,8 +289,8 @@ async fn code_entry_pairing_without_controller_primes_device_prompt() {
     assert!(creds.trezor_cpace_public_key.is_some());
 
     let (backend, _, _) = workflow.into_parts();
-    assert!(*backend.pairing_requested.lock());
-    assert_eq!(backend.code_entry_challenge_requests.lock().len(), 1);
+    assert!(backend.pairing_requested);
+    assert_eq!(backend.code_entry_challenge_requests.len(), 1);
 }
 
 #[tokio::test]
@@ -636,15 +324,14 @@ async fn code_entry_submit_tag_completes_after_pairing_start() {
 
 #[tokio::test]
 async fn code_entry_retry_requests_fresh_commitment() {
-    let backend = MockBackend::code_entry_flow();
+    let mut backend = MockBackend::code_entry_flow();
     backend
         .select_responses
-        .lock()
         .push_back(SelectMethodResponse::CodeEntryCommitment {
             commitment: vec![0xBB; 32],
         });
-    backend.tag_responses.lock().clear();
-    backend.tag_responses.lock().extend([
+    backend.tag_responses.clear();
+    backend.tag_responses.extend([
         PairingTagResponse::Retry("firmware failure code=99: Firmware error".into()),
         PairingTagResponse::Accepted { secret: vec![9, 9] },
     ]);
@@ -668,13 +355,13 @@ async fn code_entry_retry_requests_fresh_commitment() {
         .expect("code-entry pairing succeeds after retry");
 
     let (backend, _, _) = workflow.into_parts();
-    let challenge_requests = backend.code_entry_challenge_requests.lock().clone();
+    let challenge_requests = backend.code_entry_challenge_requests.clone();
     assert_eq!(
         challenge_requests.len(),
         2,
         "should request a fresh challenge after fresh commitment"
     );
-    let tag_requests = backend.tag_requests.lock().clone();
+    let tag_requests = backend.tag_requests.clone();
     assert_eq!(tag_requests.len(), 2, "should prompt and submit code twice");
 }
 
@@ -844,11 +531,11 @@ async fn handshake_reallocates_channel_only_when_unlock_flag_differs() {
     workflow.create_channel().await.unwrap();
     workflow.handshake(true).await.unwrap();
     let (backend, _, _) = workflow.into_parts();
-    assert_eq!(*backend.channel_requests.lock(), vec![true]);
+    assert_eq!(backend.channel_requests, vec![true]);
 
     let mut workflow = ThpWorkflow::new(MockBackend::autopair(), config);
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();
     let (backend, _, _) = workflow.into_parts();
-    assert_eq!(*backend.channel_requests.lock(), vec![true, false]);
+    assert_eq!(backend.channel_requests, vec![true, false]);
 }

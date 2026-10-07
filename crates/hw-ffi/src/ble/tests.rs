@@ -1,21 +1,9 @@
-use std::collections::VecDeque;
-
 use super::{
     get_address_for_workflow, pairing_confirm_connection_for_workflow, pairing_start_for_state,
     pairing_submit_code_for_workflow, request_mapping, sign_message_for_workflow,
     sign_tx_for_workflow, sign_typed_data_for_workflow,
 };
-use trezor_connect::thp::backend::{BackendError, BackendResult, ThpBackend};
-use trezor_connect::thp::types::{
-    CodeEntryChallengeRequest, CodeEntryChallengeResponse, CreateChannelRequest,
-    CreateChannelResponse, CreateSessionRequest, CreateSessionResponse, CredentialRequest,
-    CredentialResponse, GetAddressResponse, HandshakeCompletionState, HandshakeRequest,
-    HandshakeResponse, KnownCredential, PairingRequest, PairingRequestApproved, PairingTagRequest,
-    PairingTagResponse, SelectMethodRequest, SelectMethodResponse,
-    SignMessageRequest as BackendSignMessageRequest, SignMessageResponse,
-    SignTxRequest as BackendSignTxRequest, SignTxResponse,
-    SignTypedDataRequest as BackendSignTypedDataRequest, SignTypedDataResponse, ThpProperties,
-};
+use trezor_connect::thp::testing::MockBackend;
 use trezor_connect::thp::{Chain, HostConfig, PairingMethod, Phase, ThpWorkflow};
 
 use crate::errors::HWCoreError;
@@ -26,223 +14,6 @@ use crate::types::{
 const BTC_SIGN_WITH_REF_TXS: &str =
     include_str!("../../../../tests/data/bitcoin/btc_sign_with_ref_txs.json");
 
-struct MockBackend {
-    handshake_hash: Vec<u8>,
-    completion_state: HandshakeCompletionState,
-    confirmed_connection: bool,
-    expected_code: Option<String>,
-    select_responses: VecDeque<SelectMethodResponse>,
-    last_get_address_request: Option<trezor_connect::thp::GetAddressRequest>,
-    last_sign_message_request: Option<BackendSignMessageRequest>,
-    last_sign_tx_request: Option<BackendSignTxRequest>,
-    last_sign_typed_data_request: Option<BackendSignTypedDataRequest>,
-}
-
-impl MockBackend {
-    fn paired_requires_confirmation() -> Self {
-        Self {
-            handshake_hash: b"paired-handshake".to_vec(),
-            completion_state: HandshakeCompletionState::Paired,
-            confirmed_connection: false,
-            expected_code: None,
-            select_responses: VecDeque::new(),
-            last_get_address_request: None,
-            last_sign_message_request: None,
-            last_sign_tx_request: None,
-            last_sign_typed_data_request: None,
-        }
-    }
-
-    fn requires_code_entry_pairing() -> Self {
-        let mut select_responses = VecDeque::new();
-        select_responses.push_back(SelectMethodResponse::CodeEntryCommitment {
-            commitment: vec![0xAB; 32],
-        });
-        Self {
-            handshake_hash: b"code-entry-handshake".to_vec(),
-            completion_state: HandshakeCompletionState::RequiresPairing,
-            confirmed_connection: false,
-            expected_code: Some("123456".to_string()),
-            select_responses,
-            last_get_address_request: None,
-            last_sign_message_request: None,
-            last_sign_tx_request: None,
-            last_sign_typed_data_request: None,
-        }
-    }
-}
-
-impl ThpBackend for MockBackend {
-    async fn create_channel(
-        &mut self,
-        _request: CreateChannelRequest,
-    ) -> BackendResult<CreateChannelResponse> {
-        Ok(CreateChannelResponse {
-            channel: 0xBEEF,
-            properties: ThpProperties {
-                internal_model: "T3W1".into(),
-                model_variant: 1,
-                protocol_version_major: 2,
-                protocol_version_minor: 0,
-                pairing_methods: vec![PairingMethod::CodeEntry],
-            },
-        })
-    }
-
-    async fn handshake(&mut self, _request: HandshakeRequest) -> BackendResult<HandshakeResponse> {
-        Ok(HandshakeResponse {
-            state: self.completion_state,
-            handshake_hash: self.handshake_hash.clone(),
-            selected_credential: Some(KnownCredential {
-                credential: "cred".into(),
-                trezor_static_public_key: Some(vec![0x55; 32]),
-                autoconnect: false,
-            }),
-        })
-    }
-
-    async fn pairing_request(
-        &mut self,
-        _request: PairingRequest,
-    ) -> BackendResult<PairingRequestApproved> {
-        Ok(PairingRequestApproved)
-    }
-
-    async fn select_pairing_method(
-        &mut self,
-        _request: SelectMethodRequest,
-    ) -> BackendResult<SelectMethodResponse> {
-        self.select_responses
-            .pop_front()
-            .ok_or_else(|| BackendError::Transport("unexpected select_pairing_method".into()))
-    }
-
-    async fn code_entry_challenge(
-        &mut self,
-        _request: CodeEntryChallengeRequest,
-    ) -> BackendResult<CodeEntryChallengeResponse> {
-        Ok(CodeEntryChallengeResponse {
-            trezor_cpace_public_key: vec![0xCD; 32],
-        })
-    }
-
-    async fn send_pairing_tag(
-        &mut self,
-        request: PairingTagRequest,
-    ) -> BackendResult<PairingTagResponse> {
-        match request {
-            PairingTagRequest::CodeEntry { code, .. } => {
-                if self.expected_code.as_deref() == Some(code.as_str()) {
-                    Ok(PairingTagResponse::Accepted {
-                        secret: vec![0xEF; 32],
-                    })
-                } else {
-                    Ok(PairingTagResponse::Retry("invalid code".into()))
-                }
-            }
-            _ => Err(BackendError::UnsupportedPairingMethod),
-        }
-    }
-
-    async fn credential_request(
-        &mut self,
-        _request: CredentialRequest,
-    ) -> BackendResult<CredentialResponse> {
-        self.confirmed_connection = true;
-        Ok(CredentialResponse {
-            trezor_static_public_key: vec![0x66; 32],
-            credential: "cred".into(),
-            autoconnect: false,
-        })
-    }
-
-    async fn end_request(&mut self) -> BackendResult<()> {
-        Ok(())
-    }
-
-    async fn create_new_session(
-        &mut self,
-        _request: CreateSessionRequest,
-    ) -> BackendResult<CreateSessionResponse> {
-        if self.completion_state == HandshakeCompletionState::Paired && !self.confirmed_connection {
-            return Err(BackendError::SessionConfirmationRequired);
-        }
-        Ok(CreateSessionResponse)
-    }
-
-    async fn get_address(
-        &mut self,
-        request: trezor_connect::thp::GetAddressRequest,
-    ) -> BackendResult<GetAddressResponse> {
-        let chain = request.chain;
-        let address = match chain {
-            Chain::Ethereum => "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE",
-            Chain::Bitcoin => "bc1qexample000000000000000000000000000000",
-            Chain::Solana => "So11111111111111111111111111111111111111112",
-        };
-        self.last_get_address_request = Some(request);
-        Ok(GetAddressResponse {
-            chain,
-            address: address.into(),
-            mac: Some(vec![0xAA; 32]),
-            public_key: Some("xpub-test".into()),
-        })
-    }
-
-    async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {
-        Ok(vec![0xAA; 32])
-    }
-
-    async fn sign_message(
-        &mut self,
-        request: BackendSignMessageRequest,
-    ) -> BackendResult<SignMessageResponse> {
-        let chain = request.chain;
-        self.last_sign_message_request = Some(request);
-        Ok(SignMessageResponse {
-            chain,
-            address: match chain {
-                Chain::Ethereum => "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE".into(),
-                Chain::Bitcoin => "bc1qexample000000000000000000000000000000".into(),
-                Chain::Solana => "So11111111111111111111111111111111111111112".into(),
-            },
-            signature: vec![0x99; 65],
-        })
-    }
-
-    async fn sign_tx(&mut self, request: BackendSignTxRequest) -> BackendResult<SignTxResponse> {
-        self.last_sign_tx_request = Some(request);
-        Ok(SignTxResponse {
-            chain: Chain::Ethereum,
-            v: 0,
-            r: vec![0xAA; 32],
-            s: vec![0xBB; 32],
-            signatures: Vec::new(),
-        })
-    }
-
-    async fn sign_typed_data(
-        &mut self,
-        request: BackendSignTypedDataRequest,
-    ) -> BackendResult<SignTypedDataResponse> {
-        let chain = request.chain;
-        self.last_sign_typed_data_request = Some(request);
-        Ok(SignTypedDataResponse {
-            chain,
-            address: match chain {
-                Chain::Ethereum => "0x0fA8844c87c5c8017e2C6C3407812A0449dB91dE".into(),
-                Chain::Bitcoin => "bc1qexample000000000000000000000000000000".into(),
-                Chain::Solana => "So11111111111111111111111111111111111111112".into(),
-            },
-            signature: vec![0x77; 65],
-        })
-    }
-
-    async fn abort(&mut self) -> BackendResult<()> {
-        Ok(())
-    }
-}
-
 fn default_host_config() -> HostConfig {
     let mut config = HostConfig::new("test-host", "hw-core/ffi");
     config.pairing_methods = vec![PairingMethod::CodeEntry];
@@ -251,7 +22,7 @@ fn default_host_config() -> HostConfig {
 
 #[tokio::test]
 async fn paired_handshake_requires_connection_confirmation_before_session() {
-    let backend = MockBackend::paired_requires_confirmation();
+    let backend = MockBackend::paired_connection_flow();
     let mut workflow = ThpWorkflow::new(backend, default_host_config());
 
     workflow.create_channel().await.unwrap();
@@ -281,7 +52,7 @@ async fn paired_handshake_requires_connection_confirmation_before_session() {
 
 #[tokio::test]
 async fn code_entry_pairing_submit_completes_pairing() {
-    let backend = MockBackend::requires_code_entry_pairing();
+    let backend = MockBackend::code_entry_flow();
     let mut workflow = ThpWorkflow::new(backend, default_host_config());
 
     workflow.create_channel().await.unwrap();
@@ -301,7 +72,7 @@ async fn code_entry_pairing_submit_completes_pairing() {
 
 #[tokio::test]
 async fn typed_address_and_sign_requests_map_to_workflow_calls() {
-    let backend = MockBackend::paired_requires_confirmation();
+    let backend = MockBackend::paired_connection_flow();
     let mut workflow = ThpWorkflow::new(backend, default_host_config());
 
     workflow.create_channel().await.unwrap();

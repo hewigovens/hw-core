@@ -1,8 +1,8 @@
 use crate::WalletResult;
 use crate::bip32::parse_bip32_path;
 pub use hw_chain::{
-    CHAIN_BTC, CHAIN_ETH, CHAIN_SOL, Chain, ChainConfig, DEFAULT_BITCOIN_BIP32_PATH,
-    DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
+    Chain, ChainConfig, DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32_PATH,
+    DEFAULT_SOLANA_BIP32_PATH,
 };
 
 const HARDENED_MASK: u32 = 0x8000_0000;
@@ -61,25 +61,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chain_config_values() {
-        assert_eq!(Chain::Ethereum.config().slip44, 60);
-        assert_eq!(
-            Chain::Ethereum.config().default_path,
-            DEFAULT_ETHEREUM_BIP32_PATH
-        );
-        assert_eq!(Chain::Bitcoin.config().slip44, 0);
-        assert_eq!(
-            Chain::Bitcoin.config().default_path,
-            DEFAULT_BITCOIN_BIP32_PATH
-        );
-        assert_eq!(Chain::Solana.config().slip44, 501);
-        assert_eq!(
-            Chain::Solana.config().default_path,
-            DEFAULT_SOLANA_BIP32_PATH
-        );
-    }
-
-    #[test]
     fn infer_chain_from_coin_type() {
         let eth = vec![0x8000_002c, 0x8000_003c];
         let btc = vec![0x8000_002c, 0x8000_0000];
@@ -95,6 +76,15 @@ mod tests {
         let resolved = resolve_derivation_path(None, None).expect("default resolution");
         assert_eq!(resolved.chain, Chain::Ethereum);
         assert_eq!(resolved.path, DEFAULT_ETHEREUM_BIP32_PATH);
+    }
+
+    #[test]
+    fn resolve_uses_chain_default_path() {
+        for chain in Chain::ALL {
+            let resolved = resolve_derivation_path(Some(chain), None).expect("default path");
+            assert_eq!(resolved.chain, chain);
+            assert_eq!(resolved.path, chain.default_path());
+        }
     }
 
     #[test]

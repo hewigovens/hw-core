@@ -4,7 +4,9 @@ use trezor_connect::thp::{SignMessageRequest, SignTypedDataRequest};
 use crate::cli::{EthSignMessageType, SignMessageEthArgs};
 use crate::commands::common::read_text_file;
 
-use hw_wallet::message_signing::{build_eth_eip191_request, build_eth_eip712_json_request};
+use hw_wallet::chain::Chain;
+use hw_wallet::eip712::build_sign_typed_data_request;
+use hw_wallet::message::build_sign_message_request;
 
 #[derive(Debug)]
 pub(super) enum EthSignRequest {
@@ -27,7 +29,7 @@ pub(super) fn build_eth_sign_request_from_args(
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("ETH EIP-191 signing requires `message`"))?;
 
-            build_eth_eip191_request(path, message, args.hex, args.chunkify)
+            build_sign_message_request(Chain::Ethereum, path, message, args.hex, args.chunkify)
                 .map(EthSignRequest::Message)
                 .map_err(Into::into)
         }
@@ -45,7 +47,7 @@ pub(super) fn build_eth_sign_request_from_args(
                 .ok_or_else(|| anyhow::anyhow!("--data-file is required for --type eip712"))?;
             let data_json = read_text_file(data_file, "typed-data file")?;
 
-            build_eth_eip712_json_request(path, &data_json, args.metamask_v4_compat)
+            build_sign_typed_data_request(path, &data_json, args.metamask_v4_compat)
                 .map(EthSignRequest::TypedData)
                 .map_err(Into::into)
         }
@@ -57,6 +59,19 @@ mod tests {
     use super::*;
 
     use std::path::PathBuf;
+
+    use crate::cli::ConnectArgs;
+
+    fn test_connect_args() -> ConnectArgs {
+        ConnectArgs {
+            timeout_secs: 60,
+            thp_timeout_secs: 60,
+            device_id: None,
+            storage_path: None,
+            host_name: None,
+            app_name: "hw-core/cli".into(),
+        }
+    }
 
     #[test]
     fn build_eth_sign_request_from_args_rejects_mixed_eip712_inputs() {
@@ -71,12 +86,7 @@ mod tests {
                 chunkify: false,
                 data_file: Some(fixture),
                 metamask_v4_compat: true,
-                timeout_secs: 60,
-                thp_timeout_secs: 60,
-                device_id: None,
-                storage_path: None,
-                host_name: None,
-                app_name: "hw-core/cli".into(),
+                connect: test_connect_args(),
             },
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0],
         )
@@ -99,12 +109,7 @@ mod tests {
                 chunkify: false,
                 data_file: None,
                 metamask_v4_compat: true,
-                timeout_secs: 60,
-                thp_timeout_secs: 60,
-                device_id: None,
-                storage_path: None,
-                host_name: None,
-                app_name: "hw-core/cli".into(),
+                connect: test_connect_args(),
             },
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0],
         )

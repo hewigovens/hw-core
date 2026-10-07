@@ -5,6 +5,8 @@ pub mod error;
 pub mod proto;
 pub mod state;
 pub mod storage;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;
 pub mod types;
 pub mod workflow;
 

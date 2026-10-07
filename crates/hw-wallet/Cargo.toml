@@ -8,10 +8,7 @@ repository.workspace = true
 
 [dependencies]
 base64 = "0.23"
-ble-transport = { workspace = true, features = [
-    "backend-btleplug",
-    "trezor-safe7",
-] }
+ble-transport = { workspace = true }
 bs58 = { workspace = true }
 hex = { workspace = true }
 hw-chain = { workspace = true }
@@ -25,3 +22,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 trezor-connect = { workspace = true, features = ["ble"] }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+trezor-connect = { workspace = true, features = ["ble", "test-support"] }

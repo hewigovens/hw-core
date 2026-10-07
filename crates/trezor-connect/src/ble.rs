@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use ble_transport::{BleBackend as TransportBackend, BleLink, BleSession, DeviceInfo};
+use ble_transport::{BleLink, BleSession};
 use prost::Message;
 use tokio::time;
 use tracing::{debug, trace};
@@ -287,8 +287,7 @@ enum ThpChannel {
 }
 
 pub struct BleBackend {
-    inner: TransportBackend,
-    device: DeviceInfo,
+    link: BleLink,
     handshake_timeout: Duration,
     channel: ThpChannel,
     credentials: SharedCredentials,
@@ -296,28 +295,19 @@ pub struct BleBackend {
 }
 
 impl BleBackend {
-    pub fn new(link: BleLink, device: DeviceInfo) -> Self {
+    pub fn new(link: BleLink, handshake_timeout: Duration) -> Self {
         Self {
-            inner: TransportBackend::new(link),
-            device,
-            handshake_timeout: Duration::from_secs(10),
+            link,
+            handshake_timeout,
             channel: ThpChannel::Closed,
             credentials: SharedCredentials::default(),
             nfc_secret: None,
         }
     }
 
-    pub fn from_session(session: BleSession) -> Self {
-        let (device, link) = session.into_parts();
-        Self::new(link, device)
-    }
-
-    pub fn link_mut(&mut self) -> &mut BleLink {
-        self.inner.link_mut()
-    }
-
-    pub fn device_info(&self) -> &DeviceInfo {
-        &self.device
+    pub fn from_session(session: BleSession, handshake_timeout: Duration) -> Self {
+        let (_, link) = session.into_parts();
+        Self::new(link, handshake_timeout)
     }
 
     pub fn handshake_timeout(&self) -> Duration {
@@ -350,7 +340,7 @@ impl BleBackend {
 
     async fn receive_raw(&mut self) -> BackendResult<(u16, Vec<u8>)> {
         let timeout = self.handshake_timeout;
-        let link = self.inner.link_mut();
+        let link = &mut self.link;
         let ThpChannel::Open(channel) = &mut self.channel else {
             return Err(BackendError::Transport(
                 "THP channel is not established".into(),
@@ -383,7 +373,7 @@ impl BleBackend {
 
     async fn allocate_channel(&mut self, try_to_unlock: bool) -> BackendResult<()> {
         let timeout = self.handshake_timeout;
-        let link = self.inner.link_mut();
+        let link = &mut self.link;
         let mut mux = Buffered::new(Mux::<NoiseBackend>::new());
         mux.set_packet_len(link.mtu());
         mux.request_channel(try_to_unlock);
@@ -404,7 +394,7 @@ impl BleBackend {
             ));
         };
         let timeout = self.handshake_timeout;
-        pump(self.inner.link_mut(), &mut open, timeout, |open, _| {
+        pump(&mut self.link, &mut open, timeout, |open, _| {
             open.handshake_done() || open.handshake_failed()
         })
         .await?;

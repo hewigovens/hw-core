@@ -1,10 +1,9 @@
 use ble_transport::DeviceInfo as RawDeviceInfo;
-use trezor_connect::thp::state::{HandshakeCache as RawHandshakeCache, ThpState as RawThpState};
+use trezor_connect::thp::Chain as RawChain;
 use trezor_connect::thp::types::{
     HostConfig as RawHostConfig, KnownCredential as RawKnownCredential,
     PairingMethod as RawPairingMethod,
 };
-use trezor_connect::thp::{Chain as RawChain, Phase as RawPhase};
 
 pub type Uuid = uuid::Uuid;
 
@@ -22,15 +21,6 @@ pub enum PairingMethod {
     Nfc,
     CodeEntry,
     SkipPairing,
-}
-
-pub type Phase = RawPhase;
-
-#[uniffi::remote(Enum)]
-pub enum Phase {
-    Handshake,
-    Pairing,
-    Paired,
 }
 
 pub type Chain = RawChain;
@@ -100,35 +90,6 @@ pub struct BleDeviceInfo {
     pub name: Option<String>,
     pub rssi: Option<i32>,
     pub services: Vec<Uuid>,
-}
-
-pub type HandshakeCache = RawHandshakeCache;
-
-#[uniffi::remote(Record)]
-pub struct HandshakeCache {
-    pub channel: u16,
-    pub pairing_methods: Vec<PairingMethod>,
-}
-
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct ThpState {
-    pub phase: Phase,
-    pub is_paired: bool,
-    pub autoconnect: bool,
-    pub pairing_credentials: Vec<KnownCredential>,
-    pub handshake_cache: Option<HandshakeCache>,
-}
-
-impl From<&RawThpState> for ThpState {
-    fn from(state: &RawThpState) -> Self {
-        Self {
-            phase: state.phase(),
-            is_paired: state.is_paired(),
-            autoconnect: state.is_autoconnect_paired(),
-            pairing_credentials: state.pairing_credentials().to_vec(),
-            handshake_cache: state.handshake_cache().cloned(),
-        }
-    }
 }
 
 #[derive(uniffi::Enum, Clone, Debug)]
@@ -324,27 +285,4 @@ pub fn chain_config(chain: Chain) -> ChainConfig {
 #[uniffi::export]
 pub fn session_retry_policy_default() -> SessionRetryPolicy {
     hw_wallet::ble::SessionRetryPolicy::default()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Chain, chain_config};
-
-    #[test]
-    fn chain_config_exposes_known_defaults() {
-        let eth = chain_config(Chain::Ethereum);
-        assert_eq!(eth.code, "eth");
-        assert_eq!(eth.slip44, 60);
-        assert_eq!(eth.default_path, "m/44'/60'/0'/0/0");
-
-        let btc = chain_config(Chain::Bitcoin);
-        assert_eq!(btc.code, "btc");
-        assert_eq!(btc.slip44, 0);
-        assert_eq!(btc.default_path, "m/84'/0'/0'/0/0");
-
-        let sol = chain_config(Chain::Solana);
-        assert_eq!(sol.code, "sol");
-        assert_eq!(sol.slip44, 501);
-        assert_eq!(sol.default_path, "m/44'/501'/0'/0'");
-    }
 }

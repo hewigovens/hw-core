@@ -31,15 +31,8 @@ pub struct ScanArgs {
     pub duration_secs: u64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum PairingMethod {
-    Ble,
-}
-
-#[derive(Args, Debug)]
-pub struct PairArgs {
-    #[arg(long, value_enum, default_value_t = PairingMethod::Ble)]
-    pub pairing_method: PairingMethod,
+#[derive(Args, Debug, Clone)]
+pub struct ConnectArgs {
     #[arg(long, alias = "duration-secs", default_value_t = 60)]
     pub timeout_secs: u64,
     #[arg(long, default_value_t = 60)]
@@ -52,6 +45,12 @@ pub struct PairArgs {
     pub host_name: Option<String>,
     #[arg(long, default_value = "hw-core/cli")]
     pub app_name: String,
+}
+
+#[derive(Args, Debug)]
+pub struct PairArgs {
+    #[command(flatten)]
+    pub connect: ConnectArgs,
     #[arg(long)]
     pub force: bool,
 }
@@ -68,18 +67,8 @@ pub struct AddressArgs {
     pub include_public_key: bool,
     #[arg(long, default_value_t = false)]
     pub chunkify: bool,
-    #[arg(long, alias = "duration-secs", default_value_t = 60)]
-    pub timeout_secs: u64,
-    #[arg(long, default_value_t = 60)]
-    pub thp_timeout_secs: u64,
-    #[arg(long)]
-    pub device_id: Option<String>,
-    #[arg(long)]
-    pub storage_path: Option<PathBuf>,
-    #[arg(long)]
-    pub host_name: Option<String>,
-    #[arg(long, default_value = "hw-core/cli")]
-    pub app_name: String,
+    #[command(flatten)]
+    pub connect: ConnectArgs,
 }
 
 #[derive(Args, Debug)]
@@ -119,36 +108,16 @@ pub struct SignEthArgs {
     pub path: String,
     #[arg(long)]
     pub tx: String,
-    #[arg(long, alias = "duration-secs", default_value_t = 60)]
-    pub timeout_secs: u64,
-    #[arg(long, default_value_t = 60)]
-    pub thp_timeout_secs: u64,
-    #[arg(long)]
-    pub device_id: Option<String>,
-    #[arg(long)]
-    pub storage_path: Option<PathBuf>,
-    #[arg(long)]
-    pub host_name: Option<String>,
-    #[arg(long, default_value = "hw-core/cli")]
-    pub app_name: String,
+    #[command(flatten)]
+    pub connect: ConnectArgs,
 }
 
 #[derive(Args, Debug)]
 pub struct SignBtcArgs {
     #[arg(long)]
     pub tx: String,
-    #[arg(long, alias = "duration-secs", default_value_t = 60)]
-    pub timeout_secs: u64,
-    #[arg(long, default_value_t = 60)]
-    pub thp_timeout_secs: u64,
-    #[arg(long)]
-    pub device_id: Option<String>,
-    #[arg(long)]
-    pub storage_path: Option<PathBuf>,
-    #[arg(long)]
-    pub host_name: Option<String>,
-    #[arg(long, default_value = "hw-core/cli")]
-    pub app_name: String,
+    #[command(flatten)]
+    pub connect: ConnectArgs,
 }
 
 #[derive(Args, Debug)]
@@ -157,18 +126,8 @@ pub struct SignSolArgs {
     pub path: String,
     #[arg(long)]
     pub tx: String,
-    #[arg(long, alias = "duration-secs", default_value_t = 60)]
-    pub timeout_secs: u64,
-    #[arg(long, default_value_t = 60)]
-    pub thp_timeout_secs: u64,
-    #[arg(long)]
-    pub device_id: Option<String>,
-    #[arg(long)]
-    pub storage_path: Option<PathBuf>,
-    #[arg(long)]
-    pub host_name: Option<String>,
-    #[arg(long, default_value = "hw-core/cli")]
-    pub app_name: String,
+    #[command(flatten)]
+    pub connect: ConnectArgs,
 }
 
 #[derive(Args, Debug)]
@@ -187,18 +146,8 @@ pub struct SignMessageEthArgs {
     pub data_file: Option<PathBuf>,
     #[arg(long, default_value_t = true, action = ArgAction::Set)]
     pub metamask_v4_compat: bool,
-    #[arg(long, alias = "duration-secs", default_value_t = 60)]
-    pub timeout_secs: u64,
-    #[arg(long, default_value_t = 60)]
-    pub thp_timeout_secs: u64,
-    #[arg(long)]
-    pub device_id: Option<String>,
-    #[arg(long)]
-    pub storage_path: Option<PathBuf>,
-    #[arg(long)]
-    pub host_name: Option<String>,
-    #[arg(long, default_value = "hw-core/cli")]
-    pub app_name: String,
+    #[command(flatten)]
+    pub connect: ConnectArgs,
 }
 
 #[derive(Args, Debug)]
@@ -211,18 +160,8 @@ pub struct SignMessageBtcArgs {
     pub hex: bool,
     #[arg(long, default_value_t = false)]
     pub chunkify: bool,
-    #[arg(long, alias = "duration-secs", default_value_t = 60)]
-    pub timeout_secs: u64,
-    #[arg(long, default_value_t = 60)]
-    pub thp_timeout_secs: u64,
-    #[arg(long)]
-    pub device_id: Option<String>,
-    #[arg(long)]
-    pub storage_path: Option<PathBuf>,
-    #[arg(long)]
-    pub host_name: Option<String>,
-    #[arg(long, default_value = "hw-core/cli")]
-    pub app_name: String,
+    #[command(flatten)]
+    pub connect: ConnectArgs,
 }
 
 fn parse_chain_arg(value: &str) -> Result<Chain, String> {
@@ -234,16 +173,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pair_defaults_to_ble_and_60s_timeout() {
+    fn pair_defaults_to_60s_timeout() {
         let cli = Cli::parse_from(["hw-cli", "pair"]);
         let Command::Pair(args) = cli.command else {
             panic!("expected pair command");
         };
 
         assert_eq!(cli.verbose, 0);
-        assert_eq!(args.pairing_method, PairingMethod::Ble);
-        assert_eq!(args.timeout_secs, 60);
-        assert_eq!(args.thp_timeout_secs, 60);
+        assert_eq!(args.connect.timeout_secs, 60);
+        assert_eq!(args.connect.thp_timeout_secs, 60);
     }
 
     #[test]
@@ -253,7 +191,7 @@ mod tests {
             panic!("expected pair command");
         };
 
-        assert_eq!(args.timeout_secs, 45);
+        assert_eq!(args.connect.timeout_secs, 45);
     }
 
     #[test]
@@ -263,7 +201,7 @@ mod tests {
             panic!("expected pair command");
         };
 
-        assert_eq!(args.thp_timeout_secs, 90);
+        assert_eq!(args.connect.thp_timeout_secs, 90);
     }
 
     #[test]
@@ -273,7 +211,7 @@ mod tests {
             panic!("expected pair command");
         };
 
-        assert_eq!(args.app_name, "hw-core/cli");
+        assert_eq!(args.connect.app_name, "hw-core/cli");
     }
 
     #[test]
@@ -298,9 +236,9 @@ mod tests {
         assert!(args.show_on_device);
         assert!(!args.include_public_key);
         assert!(!args.chunkify);
-        assert_eq!(args.timeout_secs, 60);
-        assert_eq!(args.thp_timeout_secs, 60);
-        assert_eq!(args.app_name, "hw-core/cli");
+        assert_eq!(args.connect.timeout_secs, 60);
+        assert_eq!(args.connect.thp_timeout_secs, 60);
+        assert_eq!(args.connect.app_name, "hw-core/cli");
     }
 
     #[test]
@@ -345,9 +283,9 @@ mod tests {
             panic!("expected sign eth command");
         };
 
-        assert_eq!(args.timeout_secs, 60);
-        assert_eq!(args.thp_timeout_secs, 60);
-        assert_eq!(args.app_name, "hw-core/cli");
+        assert_eq!(args.connect.timeout_secs, 60);
+        assert_eq!(args.connect.thp_timeout_secs, 60);
+        assert_eq!(args.connect.app_name, "hw-core/cli");
     }
 
     #[test]
@@ -368,9 +306,9 @@ mod tests {
             panic!("expected sign sol command");
         };
 
-        assert_eq!(args.timeout_secs, 60);
-        assert_eq!(args.thp_timeout_secs, 60);
-        assert_eq!(args.app_name, "hw-core/cli");
+        assert_eq!(args.connect.timeout_secs, 60);
+        assert_eq!(args.connect.thp_timeout_secs, 60);
+        assert_eq!(args.connect.app_name, "hw-core/cli");
     }
 
     #[test]
@@ -389,9 +327,9 @@ mod tests {
             panic!("expected sign btc command");
         };
 
-        assert_eq!(args.timeout_secs, 60);
-        assert_eq!(args.thp_timeout_secs, 60);
-        assert_eq!(args.app_name, "hw-core/cli");
+        assert_eq!(args.connect.timeout_secs, 60);
+        assert_eq!(args.connect.thp_timeout_secs, 60);
+        assert_eq!(args.connect.app_name, "hw-core/cli");
     }
 
     #[test]
@@ -411,9 +349,9 @@ mod tests {
         assert!(!args.chunkify);
         assert!(args.data_file.is_none());
         assert!(args.metamask_v4_compat);
-        assert_eq!(args.timeout_secs, 60);
-        assert_eq!(args.thp_timeout_secs, 60);
-        assert_eq!(args.app_name, "hw-core/cli");
+        assert_eq!(args.connect.timeout_secs, 60);
+        assert_eq!(args.connect.thp_timeout_secs, 60);
+        assert_eq!(args.connect.app_name, "hw-core/cli");
     }
 
     #[test]
@@ -429,9 +367,9 @@ mod tests {
         assert_eq!(args.path, None);
         assert!(!args.hex);
         assert!(!args.chunkify);
-        assert_eq!(args.timeout_secs, 60);
-        assert_eq!(args.thp_timeout_secs, 60);
-        assert_eq!(args.app_name, "hw-core/cli");
+        assert_eq!(args.connect.timeout_secs, 60);
+        assert_eq!(args.connect.thp_timeout_secs, 60);
+        assert_eq!(args.connect.app_name, "hw-core/cli");
     }
 
     #[test]
@@ -462,8 +400,8 @@ mod tests {
             Some(std::path::Path::new("/tmp/typed-data.json"))
         );
         assert!(args.metamask_v4_compat);
-        assert_eq!(args.timeout_secs, 60);
-        assert_eq!(args.thp_timeout_secs, 60);
-        assert_eq!(args.app_name, "hw-core/cli");
+        assert_eq!(args.connect.timeout_secs, 60);
+        assert_eq!(args.connect.thp_timeout_secs, 60);
+        assert_eq!(args.connect.app_name, "hw-core/cli");
     }
 }

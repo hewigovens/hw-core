@@ -1,5 +1,5 @@
 use super::*;
-use hw_wallet::ble::{advance_session_bootstrap, advance_to_paired_with_policy};
+use hw_wallet::ble::{BootstrapTarget, advance_session_bootstrap};
 use std::time::Duration;
 use tokio::time::timeout;
 use trezor_connect::thp::ThpWorkflowError;
@@ -10,13 +10,7 @@ impl BleWorkflowHandle {
     pub async fn session_state(&self) -> Result<SessionState, HWCoreError> {
         let ready = *self.session_ready.lock().await;
         let workflow = self.workflow.lock().await;
-        let phase = session_phase(workflow.state(), ready);
-        let prompt_message = if matches!(phase, WalletSessionPhase::NeedsPairingCode) {
-            Some(pairing_start_for_state(workflow.state())?.message)
-        } else {
-            None
-        };
-        Ok(build_session_state(phase, prompt_message))
+        session_state_for(&workflow, session_phase(workflow.state(), ready))
     }
 
     #[uniffi::method]
@@ -30,50 +24,21 @@ impl BleWorkflowHandle {
         try_to_unlock: bool,
         retry_policy: Option<SessionRetryPolicy>,
     ) -> Result<SessionState, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "PAIR_ONLY_START".to_string(),
-            message: "Advancing workflow to paired state".to_string(),
-        })
-        .await;
-
-        let mut workflow = self.workflow.lock().await;
-        let policy = retry_policy.unwrap_or_default();
-        let result = advance_to_paired_with_policy(&mut workflow, try_to_unlock, &policy).await;
-        let mapped = match result {
-            Ok(phase) => {
-                let prompt_message = if matches!(phase, WalletSessionPhase::NeedsPairingCode) {
-                    Some(pairing_start_for_state(workflow.state())?.message)
-                } else {
-                    None
-                };
-                Ok(build_session_state(phase, prompt_message))
-            }
-            Err(err) => Err(HWCoreError::from(err)),
-        };
-        drop(workflow);
-
+        self.progress("PAIR_ONLY_START", "Advancing workflow to paired state")
+            .await;
+        let options = bootstrap_options(try_to_unlock, retry_policy);
+        let result = self
+            .with_workflow(async |workflow| {
+                let phase =
+                    advance_session_bootstrap(workflow, false, BootstrapTarget::Paired, &options)
+                        .await?;
+                session_state_for(workflow, phase)
+            })
+            .await;
         *self.session_ready.lock().await = false;
-
-        match mapped {
-            Ok(state) => {
-                if matches!(state.phase, WalletSessionPhase::NeedsPairingCode)
-                    && let Some(message) = &state.prompt_message
-                {
-                    self.push_event(WorkflowEvent {
-                        kind: WorkflowEventKind::PairingPrompt,
-                        code: "PAIRING_CODE_REQUIRED".to_string(),
-                        message: message.clone(),
-                    })
-                    .await;
-                }
-                Ok(state)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
+        let state = result?;
+        self.push_session_state_event(&state).await;
+        Ok(state)
     }
 
     #[uniffi::method]
@@ -87,124 +52,24 @@ impl BleWorkflowHandle {
         try_to_unlock: bool,
         retry_policy: Option<SessionRetryPolicy>,
     ) -> Result<SessionState, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "CONNECT_READY_START".to_string(),
-            message: "Advancing workflow to session-ready state".to_string(),
-        })
+        self.progress(
+            "CONNECT_READY_START",
+            "Advancing workflow to session-ready state",
+        )
         .await;
-
-        let mut ready = *self.session_ready.lock().await;
+        let ready = *self.session_ready.lock().await;
         let options = bootstrap_options(try_to_unlock, retry_policy);
-
-        let mut workflow = self.workflow.lock().await;
-        let result = advance_session_bootstrap(&mut workflow, &mut ready, &options).await;
-        let mapped = match result {
-            Ok(phase) => {
-                let prompt_message = if matches!(phase, WalletSessionPhase::NeedsPairingCode) {
-                    Some(pairing_start_for_state(workflow.state())?.message)
-                } else {
-                    None
-                };
-                Ok(build_session_state(phase, prompt_message))
-            }
-            Err(err) => Err(HWCoreError::from(err)),
-        };
-        drop(workflow);
-
-        *self.session_ready.lock().await = ready;
-
-        match mapped {
-            Ok(state) => {
-                if matches!(state.phase, WalletSessionPhase::Ready) {
-                    self.push_event(WorkflowEvent {
-                        kind: WorkflowEventKind::Ready,
-                        code: "SESSION_READY".to_string(),
-                        message: "BLE workflow is authenticated and session-ready".to_string(),
-                    })
-                    .await;
-                } else if matches!(state.phase, WalletSessionPhase::NeedsPairingCode)
-                    && let Some(message) = &state.prompt_message
-                {
-                    self.push_event(WorkflowEvent {
-                        kind: WorkflowEventKind::PairingPrompt,
-                        code: "PAIRING_CODE_REQUIRED".to_string(),
-                        message: message.clone(),
-                    })
-                    .await;
-                }
-                Ok(state)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
-    }
-
-    #[uniffi::method]
-    pub async fn create_channel(&self) -> Result<HandshakeCache, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "CREATE_CHANNEL_START".to_string(),
-            message: "Creating THP channel".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        if let Err(err) = workflow.create_channel().await {
-            let ffi_err = HWCoreError::from(err);
-            drop(workflow);
-            self.push_error_event(&ffi_err).await;
-            return Err(ffi_err);
-        }
-        let cache = workflow.state().handshake_cache().cloned().ok_or_else(|| {
-            HWCoreError::Workflow("handshake cache missing after create_channel".to_string())
-        })?;
-        drop(workflow);
-        *self.session_ready.lock().await = false;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "CREATE_CHANNEL_OK".to_string(),
-            message: "THP channel created".to_string(),
-        })
-        .await;
-        Ok(cache)
-    }
-
-    #[uniffi::method]
-    pub async fn handshake(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "HANDSHAKE_START".to_string(),
-            message: "Performing THP handshake".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        if let Err(err) = workflow.handshake(try_to_unlock).await {
-            let ffi_err = HWCoreError::from(err);
-            drop(workflow);
-            self.push_error_event(&ffi_err).await;
-            return Err(ffi_err);
-        }
-        let state = workflow.state().phase();
-        let is_paired = workflow.state().is_paired();
-        drop(workflow);
-        *self.session_ready.lock().await = false;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "HANDSHAKE_OK".to_string(),
-            message: "THP handshake complete".to_string(),
-        })
-        .await;
-        if matches!(state, Phase::Pairing) && !is_paired {
-            self.push_event(WorkflowEvent {
-                kind: WorkflowEventKind::PairingPrompt,
-                code: "PAIRING_REQUIRED".to_string(),
-                message: "Pairing interaction is required (code-entry expected)".to_string(),
+        let state = self
+            .with_workflow(async |workflow| {
+                let phase =
+                    advance_session_bootstrap(workflow, ready, BootstrapTarget::Session, &options)
+                        .await?;
+                session_state_for(workflow, phase)
             })
-            .await;
-        }
-        Ok(())
+            .await?;
+        *self.session_ready.lock().await = matches!(state.phase, WalletSessionPhase::Ready);
+        self.push_session_state_event(&state).await;
+        Ok(state)
     }
 
     #[uniffi::method]
@@ -215,8 +80,8 @@ impl BleWorkflowHandle {
         self.create_channel().await?;
         self.handshake(try_to_unlock).await?;
 
-        let state = self.state().await;
-        match state.phase {
+        let phase = self.workflow.lock().await.state().phase();
+        match phase {
             Phase::Paired => Ok(SessionHandshakeState::Ready),
             Phase::Pairing => {
                 let prompt = self.pairing_start().await?;
@@ -234,92 +99,55 @@ impl BleWorkflowHandle {
 
     #[uniffi::method]
     pub async fn pairing_start(&self) -> Result<PairingPrompt, HWCoreError> {
-        let mut workflow = self.workflow.lock().await;
-        if workflow.state().phase() == Phase::Pairing
-            && !workflow.state().is_paired()
-            && let Err(err) = workflow.pairing(None).await
-            && !matches!(err, ThpWorkflowError::PairingInteractionRequired)
-        {
-            let ffi_err = HWCoreError::from(err);
-            drop(workflow);
-            self.push_error_event(&ffi_err).await;
-            return Err(ffi_err);
-        }
-        let prompt = pairing_start_for_state(workflow.state())?;
-        drop(workflow);
+        let prompt = self
+            .with_workflow(async |workflow| {
+                if workflow.state().phase() == Phase::Pairing
+                    && !workflow.state().is_paired()
+                    && let Err(err) = workflow.pairing(None).await
+                    && !matches!(err, ThpWorkflowError::PairingInteractionRequired)
+                {
+                    return Err(err.into());
+                }
+                pairing_start_for_state(workflow.state())
+            })
+            .await?;
 
         let code = if prompt.requires_connection_confirmation {
             "PAIRING_CONFIRMATION_REQUIRED"
         } else {
             "PAIRING_CODE_REQUIRED"
         };
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::PairingPrompt,
-            code: code.to_string(),
-            message: prompt.message.clone(),
-        })
-        .await;
+        self.push(WorkflowEventKind::PairingPrompt, code, &prompt.message)
+            .await;
         Ok(prompt)
     }
 
     #[uniffi::method]
     pub async fn pairing_submit_code(&self, code: String) -> Result<PairingProgress, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "PAIRING_SUBMIT_CODE_START".to_string(),
-            message: "Submitting pairing code".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = pairing_submit_code_for_workflow(&mut workflow, code).await;
-        drop(workflow);
-
-        match result {
-            Ok(progress) => {
-                *self.session_ready.lock().await = false;
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "PAIRING_COMPLETE".to_string(),
-                    message: progress.message.clone(),
-                })
-                .await;
-                Ok(progress)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
+        self.progress("PAIRING_SUBMIT_CODE_START", "Submitting pairing code")
+            .await;
+        let progress = self
+            .with_workflow(async |workflow| pairing_submit_code_for_workflow(workflow, code).await)
+            .await?;
+        *self.session_ready.lock().await = false;
+        self.progress("PAIRING_COMPLETE", &progress.message).await;
+        Ok(progress)
     }
 
     #[uniffi::method]
     pub async fn pairing_confirm_connection(&self) -> Result<PairingProgress, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "PAIRING_CONFIRM_CONNECTION_START".to_string(),
-            message: "Confirming paired connection with device".to_string(),
-        })
+        self.progress(
+            "PAIRING_CONFIRM_CONNECTION_START",
+            "Confirming paired connection with device",
+        )
         .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = pairing_confirm_connection_for_workflow(&mut workflow).await;
-        drop(workflow);
-
-        match result {
-            Ok(progress) => {
-                *self.session_ready.lock().await = false;
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "PAIRING_CONFIRM_CONNECTION_OK".to_string(),
-                    message: progress.message.clone(),
-                })
-                .await;
-                Ok(progress)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
+        let progress = self
+            .with_workflow(async |workflow| pairing_confirm_connection_for_workflow(workflow).await)
+            .await?;
+        *self.session_ready.lock().await = false;
+        self.progress("PAIRING_CONFIRM_CONNECTION_OK", &progress.message)
+            .await;
+        Ok(progress)
     }
 
     #[uniffi::method]
@@ -329,70 +157,24 @@ impl BleWorkflowHandle {
         on_device: bool,
         derive_cardano: bool,
     ) -> Result<(), HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "CREATE_SESSION_START".to_string(),
-            message: "Creating wallet session".to_string(),
+        self.progress("CREATE_SESSION_START", "Creating wallet session")
+            .await;
+        self.confirmation_possible("Confirm on device if prompted during session creation")
+            .await;
+        self.with_workflow(async |workflow| {
+            Ok(workflow
+                .create_session(passphrase, on_device, derive_cardano)
+                .await?)
         })
-        .await;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::ButtonRequest,
-            code: "DEVICE_CONFIRMATION_POSSIBLE".to_string(),
-            message: "Confirm on device if prompted during session creation".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        if let Err(err) = workflow
-            .create_session(passphrase, on_device, derive_cardano)
-            .await
-        {
-            let ffi_err = HWCoreError::from(err);
-            drop(workflow);
-            self.push_error_event(&ffi_err).await;
-            return Err(ffi_err);
-        }
-        drop(workflow);
+        .await?;
         *self.session_ready.lock().await = true;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Ready,
-            code: "SESSION_READY".to_string(),
-            message: "Wallet session created".to_string(),
-        })
+        self.push(
+            WorkflowEventKind::Ready,
+            "SESSION_READY",
+            "Wallet session created",
+        )
         .await;
         Ok(())
-    }
-
-    #[uniffi::method]
-    pub async fn prepare_ready_session(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
-        self.prepare_ready_session_with_policy(try_to_unlock, None)
-            .await
-    }
-
-    #[uniffi::method]
-    pub async fn prepare_ready_session_with_policy(
-        &self,
-        try_to_unlock: bool,
-        retry_policy: Option<SessionRetryPolicy>,
-    ) -> Result<(), HWCoreError> {
-        match self
-            .connect_ready_with_policy(try_to_unlock, retry_policy)
-            .await?
-        {
-            SessionState {
-                phase: WalletSessionPhase::Ready,
-                ..
-            } => Ok(()),
-            SessionState {
-                phase: WalletSessionPhase::NeedsPairingCode,
-                ..
-            } => Err(HWCoreError::Workflow(
-                "pairing interaction required before session can be prepared".to_string(),
-            )),
-            state => Err(HWCoreError::Workflow(format!(
-                "unexpected workflow step after connect_ready: {:?}",
-                state.phase
-            ))),
-        }
     }
 
     #[uniffi::method]
@@ -400,95 +182,44 @@ impl BleWorkflowHandle {
         &self,
         request: GetAddressRequest,
     ) -> Result<AddressResult, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "GET_ADDRESS_START".to_string(),
-            message: "Requesting address from device".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = get_address_for_workflow(&mut workflow, request).await;
-        drop(workflow);
-
-        match result {
-            Ok(response) => {
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "GET_ADDRESS_OK".to_string(),
-                    message: "Address received".to_string(),
-                })
-                .await;
-                Ok(response)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
+        self.progress("GET_ADDRESS_START", "Requesting address from device")
+            .await;
+        let response = self
+            .with_workflow(async |workflow| get_address_for_workflow(workflow, request).await)
+            .await?;
+        self.progress("GET_ADDRESS_OK", "Address received").await;
+        Ok(response)
     }
 
     #[uniffi::method]
     pub async fn get_nonce(&self) -> Result<String, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "GET_NONCE_START".to_string(),
-            message: "Requesting payment-request nonce from device".to_string(),
-        })
+        self.progress(
+            "GET_NONCE_START",
+            "Requesting payment-request nonce from device",
+        )
         .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = get_nonce_for_workflow(&mut workflow).await;
-        drop(workflow);
-
-        match result {
-            Ok(response) => {
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "GET_NONCE_OK".to_string(),
-                    message: "Payment-request nonce received".to_string(),
-                })
-                .await;
-                Ok(response)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
+        let response = self
+            .with_workflow(async |workflow| get_nonce_for_workflow(workflow).await)
+            .await?;
+        self.progress("GET_NONCE_OK", "Payment-request nonce received")
+            .await;
+        Ok(response)
     }
 
     #[uniffi::method]
     pub async fn sign_tx(&self, request: SignTxRequest) -> Result<SignTxResult, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "SIGN_TX_START".to_string(),
-            message: "Requesting transaction signature from device".to_string(),
-        })
+        self.progress(
+            "SIGN_TX_START",
+            "Requesting transaction signature from device",
+        )
         .await;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::ButtonRequest,
-            code: "DEVICE_CONFIRMATION_POSSIBLE".to_string(),
-            message: "Confirm on device if prompted during signing".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = sign_tx_for_workflow(&mut workflow, request).await;
-        drop(workflow);
-
-        match result {
-            Ok(response) => {
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "SIGN_TX_OK".to_string(),
-                    message: "Transaction signed".to_string(),
-                })
-                .await;
-                Ok(response)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
+        self.confirmation_possible("Confirm on device if prompted during signing")
+            .await;
+        let response = self
+            .with_workflow(async |workflow| sign_tx_for_workflow(workflow, request).await)
+            .await?;
+        self.progress("SIGN_TX_OK", "Transaction signed").await;
+        Ok(response)
     }
 
     #[uniffi::method]
@@ -496,37 +227,18 @@ impl BleWorkflowHandle {
         &self,
         request: SignMessageRequest,
     ) -> Result<SignMessageResult, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "SIGN_MESSAGE_START".to_string(),
-            message: "Requesting message signature from device".to_string(),
-        })
+        self.progress(
+            "SIGN_MESSAGE_START",
+            "Requesting message signature from device",
+        )
         .await;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::ButtonRequest,
-            code: "DEVICE_CONFIRMATION_POSSIBLE".to_string(),
-            message: "Confirm on device if prompted during message signing".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = sign_message_for_workflow(&mut workflow, request).await;
-        drop(workflow);
-
-        match result {
-            Ok(response) => {
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "SIGN_MESSAGE_OK".to_string(),
-                    message: "Message signed".to_string(),
-                })
-                .await;
-                Ok(response)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
+        self.confirmation_possible("Confirm on device if prompted during message signing")
+            .await;
+        let response = self
+            .with_workflow(async |workflow| sign_message_for_workflow(workflow, request).await)
+            .await?;
+        self.progress("SIGN_MESSAGE_OK", "Message signed").await;
+        Ok(response)
     }
 
     #[uniffi::method]
@@ -534,37 +246,19 @@ impl BleWorkflowHandle {
         &self,
         request: SignTypedDataRequest,
     ) -> Result<SignTypedDataResult, HWCoreError> {
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::Progress,
-            code: "SIGN_TYPED_DATA_START".to_string(),
-            message: "Requesting typed-data signature from device".to_string(),
-        })
+        self.progress(
+            "SIGN_TYPED_DATA_START",
+            "Requesting typed-data signature from device",
+        )
         .await;
-        self.push_event(WorkflowEvent {
-            kind: WorkflowEventKind::ButtonRequest,
-            code: "DEVICE_CONFIRMATION_POSSIBLE".to_string(),
-            message: "Confirm on device if prompted during typed-data signing".to_string(),
-        })
-        .await;
-        let mut workflow = self.workflow.lock().await;
-        let result = sign_typed_data_for_workflow(&mut workflow, request).await;
-        drop(workflow);
-
-        match result {
-            Ok(response) => {
-                self.push_event(WorkflowEvent {
-                    kind: WorkflowEventKind::Progress,
-                    code: "SIGN_TYPED_DATA_OK".to_string(),
-                    message: "Typed data signed".to_string(),
-                })
-                .await;
-                Ok(response)
-            }
-            Err(err) => {
-                self.push_error_event(&err).await;
-                Err(err)
-            }
-        }
+        self.confirmation_possible("Confirm on device if prompted during typed-data signing")
+            .await;
+        let response = self
+            .with_workflow(async |workflow| sign_typed_data_for_workflow(workflow, request).await)
+            .await?;
+        self.progress("SIGN_TYPED_DATA_OK", "Typed data signed")
+            .await;
+        Ok(response)
     }
 
     #[uniffi::method]
@@ -574,18 +268,6 @@ impl BleWorkflowHandle {
         drop(workflow);
         *self.session_ready.lock().await = false;
         Ok(())
-    }
-
-    #[uniffi::method]
-    pub async fn state(&self) -> ThpState {
-        let workflow = self.workflow.lock().await;
-        ThpState::from(workflow.state())
-    }
-
-    #[uniffi::method]
-    pub async fn host_config(&self) -> HostConfig {
-        let workflow = self.workflow.lock().await;
-        workflow.host_config().clone().into()
     }
 
     #[uniffi::method]
@@ -614,5 +296,112 @@ impl BleWorkflowHandle {
                 notified.await;
             }
         }
+    }
+}
+
+fn session_state_for(
+    workflow: &ThpWorkflow<BleBackend>,
+    phase: WalletSessionPhase,
+) -> Result<SessionState, HWCoreError> {
+    let prompt_message = if matches!(phase, WalletSessionPhase::NeedsPairingCode) {
+        Some(pairing_start_for_state(workflow.state())?.message)
+    } else {
+        None
+    };
+    Ok(build_session_state(phase, prompt_message))
+}
+
+impl BleWorkflowHandle {
+    /// Runs `op` under the workflow lock and reports its failure as an error event.
+    async fn with_workflow<T>(
+        &self,
+        op: impl AsyncFnOnce(&mut ThpWorkflow<BleBackend>) -> Result<T, HWCoreError>,
+    ) -> Result<T, HWCoreError> {
+        let result = {
+            let mut workflow = self.workflow.lock().await;
+            op(&mut workflow).await
+        };
+        if let Err(err) = &result {
+            self.push_error_event(err).await;
+        }
+        result
+    }
+
+    pub(super) async fn push(&self, kind: WorkflowEventKind, code: &str, message: &str) {
+        self.push_event(WorkflowEvent {
+            kind,
+            code: code.to_string(),
+            message: message.to_string(),
+        })
+        .await;
+    }
+
+    async fn progress(&self, code: &str, message: &str) {
+        self.push(WorkflowEventKind::Progress, code, message).await;
+    }
+
+    async fn confirmation_possible(&self, message: &str) {
+        self.push(
+            WorkflowEventKind::ButtonRequest,
+            "DEVICE_CONFIRMATION_POSSIBLE",
+            message,
+        )
+        .await;
+    }
+
+    async fn push_session_state_event(&self, state: &SessionState) {
+        match (&state.phase, &state.prompt_message) {
+            (WalletSessionPhase::Ready, _) => {
+                self.push(
+                    WorkflowEventKind::Ready,
+                    "SESSION_READY",
+                    "BLE workflow is authenticated and session-ready",
+                )
+                .await;
+            }
+            (WalletSessionPhase::NeedsPairingCode, Some(message)) => {
+                self.push(
+                    WorkflowEventKind::PairingPrompt,
+                    "PAIRING_CODE_REQUIRED",
+                    message,
+                )
+                .await;
+            }
+            _ => {}
+        }
+    }
+
+    async fn create_channel(&self) -> Result<(), HWCoreError> {
+        self.progress("CREATE_CHANNEL_START", "Creating THP channel")
+            .await;
+        self.with_workflow(async |workflow| Ok(workflow.create_channel().await?))
+            .await?;
+        *self.session_ready.lock().await = false;
+        self.progress("CREATE_CHANNEL_OK", "THP channel created")
+            .await;
+        Ok(())
+    }
+
+    async fn handshake(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
+        self.progress("HANDSHAKE_START", "Performing THP handshake")
+            .await;
+        let needs_pairing = self
+            .with_workflow(async |workflow| {
+                workflow.handshake(try_to_unlock).await?;
+                Ok(workflow.state().phase() == Phase::Pairing && !workflow.state().is_paired())
+            })
+            .await?;
+        *self.session_ready.lock().await = false;
+        self.progress("HANDSHAKE_OK", "THP handshake complete")
+            .await;
+        if needs_pairing {
+            self.push(
+                WorkflowEventKind::PairingPrompt,
+                "PAIRING_REQUIRED",
+                "Pairing interaction is required (code-entry expected)",
+            )
+            .await;
+        }
+        Ok(())
     }
 }

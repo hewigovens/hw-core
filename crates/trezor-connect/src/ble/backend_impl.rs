@@ -469,8 +469,8 @@ impl ThpBackend for BleBackend {
 
     async fn abort(&mut self) -> BackendResult<()> {
         self.reset_channel();
-        self.inner
-            .abort()
+        self.link
+            .disconnect()
             .await
             .map_err(|e| BackendError::Transport(e.to_string()))
     }

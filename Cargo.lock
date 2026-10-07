@@ -228,7 +228,6 @@ checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
 name = "ble-transport"
 version = "0.1.1"
 dependencies = [
- "anyhow",
  "btleplug",
  "futures",
  "thiserror",
@@ -1030,6 +1029,7 @@ dependencies = [
  "btleplug",
  "camino",
  "clap",
+ "hex",
  "hw-wallet",
  "jni",
  "parking_lot",
@@ -2329,7 +2329,6 @@ dependencies = [
 name = "trezor-connect"
 version = "0.1.1"
 dependencies = [
- "anyhow",
  "async-trait",
  "ble-transport",
  "bs58",

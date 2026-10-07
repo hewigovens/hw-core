@@ -4,9 +4,8 @@ use std::time::Duration;
 
 use ble_transport::{BleManager, BleProfile, BleSession, DeviceInfo, DiscoveredDevice};
 use hw_wallet::ble::{
-    SessionPhase as WalletSessionPhase, backend_from_session, connect_and_bootstrap_session,
-    connect_trezor_device, scan_trezor, session_phase, session_state as build_session_state,
-    workflow as new_workflow, workflow_with_storage,
+    SessionPhase as WalletSessionPhase, connect_and_bootstrap_session, connect_trezor_device,
+    session_phase, session_state as build_session_state,
 };
 use parking_lot::Mutex;
 use tokio::sync::{Mutex as AsyncMutex, Notify};
@@ -15,10 +14,10 @@ use trezor_connect::thp::{Phase, ThpWorkflow};
 
 use crate::errors::HWCoreError;
 use crate::types::{
-    AddressResult, BleDeviceInfo, GetAddressRequest, HandshakeCache, HostConfig, PairingProgress,
-    PairingPrompt, SessionHandshakeState, SessionRetryPolicy, SessionState, SignMessageRequest,
-    SignMessageResult, SignTxRequest, SignTxResult, SignTypedDataRequest, SignTypedDataResult,
-    ThpState, WorkflowEvent, WorkflowEventKind,
+    AddressResult, BleDeviceInfo, GetAddressRequest, HostConfig, PairingProgress, PairingPrompt,
+    SessionHandshakeState, SessionRetryPolicy, SessionState, SignMessageRequest, SignMessageResult,
+    SignTxRequest, SignTxResult, SignTypedDataRequest, SignTypedDataResult, WorkflowEvent,
+    WorkflowEventKind,
 };
 
 pub(crate) const MIN_SOLANA_SERIALIZED_TX_BYTES: usize = 16;
@@ -57,9 +56,11 @@ impl BleManagerHandle {
         &self,
         duration_ms: u64,
     ) -> Result<Vec<Arc<BleDiscoveredDevice>>, HWCoreError> {
-        let (profile, devices) = scan_trezor(&self.manager, Duration::from_millis(duration_ms))
-            .await
-            .map_err(HWCoreError::from)?;
+        let profile = BleProfile::TREZOR_SAFE7;
+        let devices = self
+            .manager
+            .scan_profile(profile, Duration::from_millis(duration_ms))
+            .await?;
         Ok(devices
             .into_iter()
             .map(|device| Arc::new(BleDiscoveredDevice::new(device, profile)))
@@ -100,33 +101,11 @@ impl BleDiscoveredDevice {
     #[uniffi::method]
     pub async fn connect(&self) -> Result<Arc<BleSessionHandle>, HWCoreError> {
         let device = self.take_device()?;
-        let info = device.info().clone();
         let session = connect_trezor_device(device, self.profile)
             .await
             .map_err(HWCoreError::from)?;
 
-        Ok(Arc::new(BleSessionHandle::new(session, info)))
-    }
-
-    #[uniffi::method]
-    pub async fn connect_ready_workflow(
-        &self,
-        config: HostConfig,
-        try_to_unlock: bool,
-    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        self.connect_ready_workflow_with_policy(config, None, try_to_unlock, None)
-            .await
-    }
-
-    #[uniffi::method]
-    pub async fn connect_ready_workflow_with_storage(
-        &self,
-        config: HostConfig,
-        storage_path: Option<String>,
-        try_to_unlock: bool,
-    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        self.connect_ready_workflow_with_policy(config, storage_path, try_to_unlock, None)
-            .await
+        Ok(Arc::new(BleSessionHandle::new(session)))
     }
 
     #[uniffi::method]
@@ -152,11 +131,11 @@ impl BleDiscoveredDevice {
         let handle = Arc::new(BleWorkflowHandle::new(workflow));
         *handle.session_ready.lock().await = true;
         handle
-            .push_event(WorkflowEvent {
-                kind: WorkflowEventKind::Ready,
-                code: "SESSION_READY".to_string(),
-                message: "BLE workflow is authenticated and session-ready".to_string(),
-            })
+            .push(
+                WorkflowEventKind::Ready,
+                "SESSION_READY",
+                "BLE workflow is authenticated and session-ready",
+            )
             .await;
         Ok(handle)
     }
@@ -165,14 +144,12 @@ impl BleDiscoveredDevice {
 #[derive(uniffi::Object)]
 pub struct BleSessionHandle {
     session: AsyncMutex<Option<BleSession>>,
-    info: DeviceInfo,
 }
 
 impl BleSessionHandle {
-    pub(crate) fn new(session: BleSession, info: DeviceInfo) -> Self {
+    pub(crate) fn new(session: BleSession) -> Self {
         Self {
             session: AsyncMutex::new(Some(session)),
-            info,
         }
     }
 
@@ -187,77 +164,20 @@ impl BleSessionHandle {
 #[uniffi::export(async_runtime = "tokio")]
 impl BleSessionHandle {
     #[uniffi::method]
-    pub fn device_info(&self) -> BleDeviceInfo {
-        self.info.clone()
-    }
-
-    #[uniffi::method]
-    pub async fn into_workflow(
-        self: Arc<Self>,
-        config: HostConfig,
-    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        self.into_workflow_with_storage(config, None).await
-    }
-
-    #[uniffi::method]
     pub async fn into_workflow_with_storage(
         self: Arc<Self>,
         config: HostConfig,
         storage_path: Option<String>,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
         let session = self.take_session().await?;
-        let backend = backend_from_session(session, DEFAULT_THP_TIMEOUT);
+        let backend = BleBackend::from_session(session, DEFAULT_THP_TIMEOUT);
         let workflow = if let Some(path) = storage_path {
             let storage = storage_from_path(path)?;
-            workflow_with_storage(backend, config.into(), storage).await?
+            ThpWorkflow::with_storage(backend, config.into(), storage).await?
         } else {
-            new_workflow(backend, config.into())
+            ThpWorkflow::new(backend, config.into())
         };
         Ok(Arc::new(BleWorkflowHandle::new(workflow)))
-    }
-
-    #[uniffi::method]
-    pub async fn into_ready_workflow(
-        self: Arc<Self>,
-        config: HostConfig,
-        try_to_unlock: bool,
-    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        self.into_ready_workflow_with_policy(config, None, try_to_unlock, None)
-            .await
-    }
-
-    #[uniffi::method]
-    pub async fn into_ready_workflow_with_storage(
-        self: Arc<Self>,
-        config: HostConfig,
-        storage_path: Option<String>,
-        try_to_unlock: bool,
-    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        self.into_ready_workflow_with_policy(config, storage_path, try_to_unlock, None)
-            .await
-    }
-
-    #[uniffi::method]
-    pub async fn into_ready_workflow_with_policy(
-        self: Arc<Self>,
-        config: HostConfig,
-        storage_path: Option<String>,
-        try_to_unlock: bool,
-        retry_policy: Option<SessionRetryPolicy>,
-    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        let session = self.take_session().await?;
-        let backend = backend_from_session(session, DEFAULT_THP_TIMEOUT);
-        let workflow = if let Some(path) = storage_path {
-            let storage = storage_from_path(path)?;
-            workflow_with_storage(backend, config.into(), storage).await?
-        } else {
-            new_workflow(backend, config.into())
-        };
-        let handle = Arc::new(BleWorkflowHandle::new(workflow));
-        handle
-            .prepare_ready_session_with_policy(try_to_unlock, retry_policy)
-            .await?;
-        Ok(handle)
     }
 }
 
