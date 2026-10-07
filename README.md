@@ -110,7 +110,6 @@ Pairing state is stored at `~/.hw-core/thp-host.json`. Add `-vv` for protocol lo
 Current and planned milestones are tracked in:
 
 - [docs/roadmap.md](docs/roadmap.md)
-- [docs/plan.md](docs/plan.md)
 
 ## License
 

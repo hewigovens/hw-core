@@ -132,8 +132,7 @@ and update the SHA in `tests/fixtures/README.md`.
 
 ## Documentation map
 
-- Project roadmap: `docs/roadmap.md`
-- Consolidated execution plan: `docs/plan.md`
+- Project roadmap: `docs/roadmap.md` (work items are tracked in GitHub issues)
 - Canonical smoke matrix: `docs/smoke-matrix.md`
 - Release checklist: `docs/release-checklist.md`
 - Security policy: `SECURITY.md`
