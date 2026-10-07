@@ -54,100 +54,15 @@ build-android-release:
     ./scripts/sync-bindings.sh --android --release
 
 run-android log_file="target/android-logcat.log":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    LOG_FILE="{{log_file}}"
     just build-android
-    (
-      cd android
-      ./gradlew :sample-app:app:installDebug
-    )
-    ADB_BIN="$(command -v adb || true)"
-    if [[ -z "$ADB_BIN" ]]; then
-      for candidate in "${ANDROID_SDK_ROOT:-}/platform-tools/adb" "${ANDROID_HOME:-}/platform-tools/adb" "$HOME/Library/Android/sdk/platform-tools/adb" "/opt/homebrew/share/android-commandlinetools/platform-tools/adb"; do
-        if [[ -x "$candidate" ]]; then
-          ADB_BIN="$candidate"
-          break
-        fi
-      done
-    fi
-    if [[ -z "$ADB_BIN" ]]; then
-      echo "adb not found. Install Android platform-tools or add adb to PATH." >&2
-      exit 1
-    fi
-    echo "Using adb: $ADB_BIN"
-    "$ADB_BIN" start-server >/dev/null
-    if [[ -z "${ANDROID_SERIAL:-}" ]]; then
-      ANDROID_SERIAL="$(
-        "$ADB_BIN" devices \
-          | awk 'NR > 1 && $2 == "device" { print $1; exit }'
-      )"
-      if [[ -z "$ANDROID_SERIAL" ]]; then
-        "$ADB_BIN" devices -l
-        echo "No connected Android device found. Set ANDROID_SERIAL if needed." >&2
-        exit 1
-      fi
-    fi
-    "$ADB_BIN" -s "$ANDROID_SERIAL" wait-for-device
-    mkdir -p "$(dirname "$LOG_FILE")"
-    "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -c
-    "$ADB_BIN" -s "$ANDROID_SERIAL" shell am start -n dev.hewig.hwcore/.MainActivity
-    echo "Launched dev.hewig.hwcore on device: $ANDROID_SERIAL"
-    echo "Streaming logs from $ANDROID_SERIAL to $LOG_FILE (Ctrl+C to stop)..."
-    "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -v time \
-      | tee "$LOG_FILE" \
-      | rg --line-buffered "HWCoreSample|HWCoreBtleplug|hwcore-rs|hwcore JNI_OnLoad|BLE THP|THP create_channel|trezor_connect|ble_transport|hw_wallet|WF |AndroidRuntime|JNI DETECTED ERROR|Connect failed|Pair only failed|btleplug droidplug"
+    cd android && ./gradlew :sample-app:app:installDebug
+    ./scripts/adb.sh launch "{{log_file}}"
 
 android-devices:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    ADB_BIN="$(command -v adb || true)"
-    if [[ -z "$ADB_BIN" ]]; then
-      for candidate in "${ANDROID_SDK_ROOT:-}/platform-tools/adb" "${ANDROID_HOME:-}/platform-tools/adb" "$HOME/Library/Android/sdk/platform-tools/adb" "/opt/homebrew/share/android-commandlinetools/platform-tools/adb"; do
-        if [[ -x "$candidate" ]]; then
-          ADB_BIN="$candidate"
-          break
-        fi
-      done
-    fi
-    if [[ -z "$ADB_BIN" ]]; then
-      echo "adb not found. Install Android platform-tools or add adb to PATH." >&2
-      exit 1
-    fi
-    "$ADB_BIN" devices -l
+    ./scripts/adb.sh devices
 
 android-logs:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    ADB_BIN="$(command -v adb || true)"
-    if [[ -z "$ADB_BIN" ]]; then
-      for candidate in "${ANDROID_SDK_ROOT:-}/platform-tools/adb" "${ANDROID_HOME:-}/platform-tools/adb" "$HOME/Library/Android/sdk/platform-tools/adb" "/opt/homebrew/share/android-commandlinetools/platform-tools/adb"; do
-        if [[ -x "$candidate" ]]; then
-          ADB_BIN="$candidate"
-          break
-        fi
-      done
-    fi
-    if [[ -z "$ADB_BIN" ]]; then
-      echo "adb not found. Install Android platform-tools or add adb to PATH." >&2
-      exit 1
-    fi
-    "$ADB_BIN" start-server >/dev/null
-    if [[ -z "${ANDROID_SERIAL:-}" ]]; then
-      ANDROID_SERIAL="$(
-        "$ADB_BIN" devices \
-          | awk 'NR > 1 && $2 == "device" { print $1; exit }'
-      )"
-      if [[ -z "$ANDROID_SERIAL" ]]; then
-        "$ADB_BIN" devices -l
-        echo "No connected Android device found. Set ANDROID_SERIAL if needed." >&2
-        exit 1
-      fi
-    fi
-    "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -c
-    echo "Streaming logs from $ANDROID_SERIAL (Ctrl+C to stop)..."
-    "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -v time \
-      | rg --line-buffered "HWCoreSample|HWCoreBtleplug|hwcore-rs|hwcore JNI_OnLoad|BLE THP|THP create_channel|trezor_connect|ble_transport|hw_wallet|WF |AndroidRuntime|JNI DETECTED ERROR|Connect failed|Pair only failed|btleplug droidplug"
+    ./scripts/adb.sh logs
 
 sample:
     just bindings
