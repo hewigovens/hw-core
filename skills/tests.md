@@ -19,19 +19,17 @@ Integration tests that span multiple modules go in `tests.rs` sub-modules (e.g.,
 
 ## MockBackend Pattern
 
-Use `MockBackend` with `parking_lot::Mutex<VecDeque<Response>>` for canned responses:
+`MockBackend` (`trezor-connect/src/thp/workflow/tests.rs`) is built from scenario constructors (`autopair()`, `pairing_flow()`, `code_entry_flow()`, `paired_connection_flow()`) that set fixed response fields. Multi-step responses are queued in `Mutex<VecDeque<_>>`, and incoming requests are recorded in `parking_lot::Mutex` fields for later assertions:
 
 ```rust
-// good — queue expected responses, assert call counts
-let mock = MockBackend::new();
-mock.queue_response(Response::HandshakeOk);
-mock.queue_response(Response::PairingOk);
+// good — scenario constructor, then assert on recorded requests
+let mut workflow = ThpWorkflow::new(MockBackend::autopair(), host_config);
+workflow.create_channel().await.unwrap();
+workflow.handshake(false).await.unwrap();
+assert_eq!(workflow.state().phase(), Phase::Paired);
 
-let workflow = ThpWorkflow::new(mock);
-workflow.connect().await.unwrap();
-
-assert_eq!(mock.call_count("create_channel"), 1);
-assert_eq!(mock.call_count("handshake"), 1);
+let (backend, _, _) = workflow.into_parts();
+assert!(*backend.end_called.lock());
 ```
 
 ## Property-Based Testing
@@ -42,10 +40,12 @@ Use `proptest` for encode/decode roundtrip tests and boundary conditions:
 // good — thp-crypto frame roundtrip
 proptest! {
     #[test]
-    fn frame_roundtrip(payload in prop::collection::vec(any::<u8>(), 0..4096)) {
-        let encoded = encode_frame(&payload);
-        let decoded = decode_frame(&encoded).unwrap();
-        prop_assert_eq!(decoded, payload);
+    fn roundtrip(msg_id in any::<u32>(), payload in proptest::collection::vec(any::<u8>(), 0..1024), mtu in 16usize..256) {
+        let frame = ThpFrame { msg_id, payload: payload.clone() };
+        let chunks = encode_frame(&frame, mtu).unwrap();
+        let mut decoder = ThpFrameDecoder::new();
+        // push chunks, then decoder.try_next()
+        prop_assert_eq!(decoded.payload, payload);
     }
 }
 ```
@@ -72,16 +72,18 @@ Store test data as JSON files under `tests/data/` and load with `include_str!()`
 tests/data/
   bitcoin/
     btc_parse_with_ref_txs.json
+    btc_sign_with_ref_txs.json
   ethereum/
-    eth_sign_request.json
-  eip712/
-    typed_data.json
+    eth_build_sign_request.json
+    eip712_invalid_missing_domain_type.json
 ```
+
+Paths are relative to the including source file (e.g. from `crates/hw-wallet/src/btc.rs`):
 
 ```rust
 // good
-let json = include_str!("../tests/data/bitcoin/btc_parse_with_ref_txs.json");
-let fixture: BtcFixture = serde_json::from_str(json).unwrap();
+const BTC_PARSE_WITH_REF_TXS: &str =
+    include_str!("../../../tests/data/bitcoin/btc_parse_with_ref_txs.json");
 ```
 
 ## Test Naming

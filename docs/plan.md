@@ -1,6 +1,6 @@
 # hw-core Execution Plan
 
-Last updated: 2026-03-13
+Last updated: 2026-10-07
 Status legend: TODO | IN_PROGRESS | DONE | BLOCKED
 
 ## Objective
@@ -55,7 +55,7 @@ The library is not developer-ready until third-party app teams can consume it wi
 - Document the supported integration path for Android and Apple consumers.
 
 ### Completed
-- Updated Android BLE support to `btleplug` 0.12.0 and reduced the carried Android Java patch to the remaining upstream behavior gaps.
+- Updated Android BLE support to `btleplug` 0.13.4 (jni 0.22, vendored jni-utils Java sources) and reduced the carried Android Java patch to the remaining upstream behavior gaps.
 - Aligned the Android sample's critical pairing flow with the iOS-style blocking code prompt and added nonce access to the sample surface.
 - Set platform-specific host identifiers for the Android and Apple sample apps.
 
@@ -89,7 +89,7 @@ Without a narrow validation story, "supported" behavior will keep drifting from 
 
 ### Must Finish
 - [x] Define one canonical smoke matrix for CLI, Apple, and Android flows.
-- [ ] Add CI coverage for Apple sample build and smoke checks where runner support exists.
+- [x] Add CI coverage for Apple sample build and smoke checks where runner support exists.
 - [ ] Keep Android sample build validation in CI and extend it with the minimum high-signal checks.
 - [x] Update `README.md` and contributor docs so all referenced commands still work.
 - [x] Keep `docs/plan.md` and `docs/roadmap.md` synchronized as the only active planning docs.

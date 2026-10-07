@@ -62,7 +62,7 @@ just bindings
 Manual generation:
 
 ```bash
-cargo run -p hw-ffi --features bindings-cli --bin generate-bindings --auto target/bindings/swift target/bindings/kotlin
+cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
 ```
 
 ## Emulator integration tests
@@ -85,7 +85,10 @@ pip install trezor dbus-fast click typing-extensions
 # 4. Run the tests
 TREZOR_EMU_BINARY=./tests/fixtures/trezor-emu-core-T3W1 \
 BRIDGE_DIR=./tests/fixtures \
-  cargo test -p hw-cli --test emu_ble -- --ignored --nocapture
+  cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
+TREZOR_EMU_BINARY=./tests/fixtures/trezor-emu-core-T3W1 \
+BRIDGE_DIR=./tests/fixtures \
+  cargo test -p hw-ffi --test emu_ble -- --ignored --nocapture --test-threads=1
 ```
 
 ### Building the emulator binary

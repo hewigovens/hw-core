@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn elligator2_matches_trezor_suite_fixtures() {
-        // Fixtures copied from trezor-suite packages/protocol/tests/protocol-thp/curve25519.fixtures.ts.
+        // Fixtures copied from trezor-suite packages/protocol/src/protocol-thp/crypto/__fixtures__/curve25519.fixtures.ts.
         let fixtures = [
             (
                 "0000000000000000000000000000000000000000000000000000000000000000",

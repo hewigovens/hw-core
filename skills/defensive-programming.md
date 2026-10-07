@@ -86,10 +86,10 @@ if key.ct_eq(&[0u8; 32]).into() { ... }
 Implement `Drop` on types that own background tasks or system resources:
 
 ```rust
-// good — BleLink shuts down notification listener on drop
+// good — BleLink aborts its notification listener task on drop
 impl Drop for BleLink {
     fn drop(&mut self) {
-        let _ = self.shutdown_tx.send(());
+        self.notify_task.abort();
     }
 }
 ```

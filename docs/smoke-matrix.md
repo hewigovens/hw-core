@@ -1,6 +1,6 @@
 # hw-core Smoke Matrix
 
-Last updated: 2026-03-10
+Last updated: 2026-10-07
 
 This is the canonical validation matrix for developer-facing surfaces. If a flow
 is not listed here, it is not part of the required smoke gate.
@@ -24,6 +24,7 @@ is not listed here, it is not part of the required smoke gate.
 | Sample build (macOS) | `just build-mac-ui` | macOS | macOS sample builds |
 | Sample build (iOS) | `just build-ios` | macOS with Xcode | iOS sample builds |
 | UI smoke (macOS) | `just test-mac-ui` | macOS | Primary sample controls launch and UI test passes |
+| UI smoke (iOS) | `just smoke-ios-ui` | macOS with Xcode + iPhone simulator (run `just generate-apple-projects` first) | iOS sample UI tests pass on a simulator (runs in `ios-ci.yml`) |
 
 ## Android
 

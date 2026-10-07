@@ -53,21 +53,26 @@ Do not classify errors by matching on message strings. Add structured variants i
 // bad — breaks if message changes
 fn is_retryable(err: &BackendError) -> bool {
     match err {
-        BackendError::Device(msg) => msg.contains("error code 5"),
+        BackendError::Device(msg) => msg.contains("device locked"),
         _ => false,
     }
 }
 
-// good — structured variant
+// good — structured variants mapped from THP/Failure codes in one place
 enum BackendError {
-    DeviceBusy,
-    TransportTimeout,
+    TransportBusy, // THP error 1
+    DeviceLocked,  // THP error 5
+    DeviceBusy,    // Failure_Busy
+    PinExpected,   // Failure_PinExpected
     DeviceError { code: u32, message: String },
     // ...
 }
 
-fn is_retryable(err: &BackendError) -> bool {
-    matches!(err, BackendError::DeviceBusy | BackendError::TransportTimeout)
+fn is_retryable_handshake_error(error: &ThpWorkflowError) -> bool {
+    matches!(
+        error,
+        ThpWorkflowError::Backend(BackendError::DeviceLocked | BackendError::TransportBusy)
+    )
 }
 ```
 
@@ -78,13 +83,14 @@ Use `#[from]` for automatic conversion from inner errors. Add context with `.map
 ```rust
 #[derive(Debug, thiserror::Error)]
 pub enum WalletError {
+    #[error("invalid BIP32 path: {0}")]
+    InvalidBip32Path(String),
+    #[error("BLE error: {0}")]
+    Ble(#[from] ble_transport::BleError),
     #[error("workflow error: {0}")]
-    Workflow(#[from] ThpWorkflowError),
-
-    #[error("BLE transport: {0}")]
-    Transport(#[from] BleError),
-
-    #[error("{0}")]
-    Other(String),
+    Workflow(#[from] trezor_connect::thp::ThpWorkflowError),
+    #[error("signing error: {0}")]
+    Signing(String),
+    // ...
 }
 ```

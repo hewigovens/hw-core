@@ -11,20 +11,21 @@ thp-proto        Prost-generated protobuf types from vendored messages-thp.proto
 ble-transport    BLE primitives via btleplug (scanning, connection, I/O)
 trezor-connect   Host-facing THP workflow API + BLE backend
 hw-wallet        Shared wallet orchestration for CLI and FFI
-hw-chain         Chain enum + SLIP-44 coin type constants
-hw-ffi           UniFFI 0.31 cdylib for mobile/desktop (Swift/Kotlin bindings)
+hw-chain         Chain enum, ChainConfig (code, SLIP-44, default BIP32 path)
+hw-ffi           UniFFI 0.32 cdylib for mobile/desktop (Swift/Kotlin bindings)
 hw-cli           Interactive CLI using clap
 ```
 
 ## Dependency Graph
 
 ```
-thp-crypto ─┬─→ thp-core ─┐
-            │              ├─→ trezor-connect ─┬─→ hw-wallet ─┬─→ hw-ffi
-thp-proto ──┘              │                   │              └─→ hw-cli
-ble-transport ─────────────┘                   │
-hw-chain ──────────────────────────────────────┘
+thp-crypto ──→ thp-core ──┐
+thp-proto ────────────────┤
+hw-chain ─────────────────┼─→ trezor-connect ──→ hw-wallet ──┬─→ hw-ffi
+ble-transport ────────────┘                                  └─→ hw-cli
 ```
+
+`ble-transport` is optional in `trezor-connect` (`ble` feature). `hw-wallet` also depends on `hw-chain` and `ble-transport`; `hw-ffi` and `hw-cli` depend on `trezor-connect` and `ble-transport` directly.
 
 ## Feature Flags
 
@@ -35,11 +36,11 @@ hw-chain ───────────────────────�
 ## Key Design Patterns
 
 - **`ThpBackend` trait** (`trezor-connect/src/thp/backend.rs`): Async trait defining all THP protocol operations. `BleBackend` is the concrete implementation. Tests use `MockBackend`.
-- **Workflow state machine** (`trezor-connect/src/thp/workflow.rs`): `ThpWorkflow<B: ThpBackend>` drives Handshake → Pairing → Paired lifecycle. State held in `ThpState` with `parking_lot::Mutex`.
+- **Workflow state machine** (`trezor-connect/src/thp/workflow.rs`): `ThpWorkflow<B: ThpBackend>` drives Handshake → Pairing → Paired lifecycle. State held in a `ThpState` field on the workflow.
 - **`PairingController` trait** (`trezor-connect/src/thp/types.rs`): Async trait for custom pairing UX. CLI implements `CliPairingController`.
-- **`ThpStorage` trait** (`trezor-connect/src/thp/storage.rs`): `FileStorage` persists host credentials as JSON. Tests use `InMemoryStorage`.
+- **`ThpStorage` trait** (`trezor-connect/src/thp/storage/mod.rs`): `FileStorage` persists host credentials as JSON. Tests use `InMemoryStorage`.
 - **`BleProfile`** (`ble-transport`): Pluggable wallet vendor support (currently Trezor Safe 7).
 
 ## License
 
-GPL-3.0-only
+Apache-2.0

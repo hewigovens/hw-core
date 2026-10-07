@@ -31,48 +31,52 @@ Do not put everything in one file. If a file exceeds ~500 lines, consider splitt
 
 ## Trait Design
 
-Use `#[allow(async_fn_in_trait)]` for async traits (Rust 2024 edition). Do not use the `async-trait` proc macro for new code.
+Use native `async fn` in traits with `#[allow(async_fn_in_trait)]` on the trait (Rust 2024 edition), as in `thp/backend.rs`. Do not use the `async-trait` proc macro for statically dispatched traits.
 
 ```rust
 // good
-pub trait ThpBackend {
-    #[allow(async_fn_in_trait)]
-    async fn create_channel(&mut self) -> Result<(), BackendError>;
+#[allow(async_fn_in_trait)]
+pub trait ThpBackend: Send {
+    async fn create_channel(
+        &mut self,
+        request: CreateChannelRequest,
+    ) -> BackendResult<CreateChannelResponse>;
 }
 
-// bad — unnecessary macro
+// bad — unnecessary macro for a generic-only trait
 #[async_trait]
-pub trait ThpBackend {
-    async fn create_channel(&mut self) -> Result<(), BackendError>;
-}
+pub trait ThpBackend: Send { ... }
 ```
+
+Exception: traits used as `dyn` objects (e.g. `PairingController`, `ThpStorage`) need `#[async_trait]`, since native async trait methods are not object-safe.
 
 ## Interior Mutability
 
 Use `parking_lot::Mutex` over `std::sync::Mutex` for non-async contexts. For async-aware locking, use `tokio::sync::Mutex`.
 
 ```rust
-// good — synchronous state
-state: parking_lot::Mutex<ThpState>,
+// good — synchronous state (test mocks in thp/workflow/tests.rs)
+tag_requests: parking_lot::Mutex<Vec<PairingTagRequest>>,
 
-// good — held across .await
-session: tokio::sync::Mutex<Option<Session>>,
+// good — held across .await (thp-core/src/session.rs)
+transport: tokio::sync::Mutex<snow::TransportState>,
 ```
 
 ## Protobuf
 
-Proto files are vendored in `thp-proto/`. Generated via `prost-build` + `protoc-bin-vendored` in `thp-proto/build.rs`. Do not edit generated code.
+Proto files are vendored in `crates/thp-proto/proto/`. Generated via `prost-build` + `protoc-bin-vendored` in `crates/thp-proto/build.rs`. Do not edit generated code.
 
 ## FFI
 
-UniFFI 0.31 with derive macros. Annotate exported types and methods:
+UniFFI 0.32 with derive macros. Annotate exported types and methods:
 
 ```rust
 #[derive(uniffi::Object)]
 pub struct BleWorkflowHandle { ... }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl BleWorkflowHandle {
-    pub async fn pair(&self) -> Result<(), HWCoreError> { ... }
+    #[uniffi::method]
+    pub async fn pair_only(&self, try_to_unlock: bool) -> Result<SessionState, HWCoreError> { ... }
 }
 ```

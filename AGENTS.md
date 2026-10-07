@@ -50,6 +50,9 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
   - derivation path/account handling
   - signing request construction
   - user-facing pairing/connect/address/sign flows
+- Fetch/update `~/workspace/github/trezor-suite` (and `~/workspace/github/trezor-firmware`) before comparing; local checkouts go stale.
+- Suite's connect logic lives in `packages/connect-core` (formerly `packages/connect`); the THP transport loop is in `packages/transport-common/src/thp`.
+- Firmware THP implementation is in `rust/trezor-thp`; the spec is `docs/common/thp/specification.md`.
 
 ## Other Notes
 
