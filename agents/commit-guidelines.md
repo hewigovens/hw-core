@@ -1,6 +1,6 @@
 # Commit Guidelines
 
-**IMPORTANT**: Always run `just ci` locally before opening a PR.
+For code changes, run `just ci` locally before opening a PR. Documentation-only changes use the [documentation validation policy](../AGENTS.md#formatting-mandatory).
 
 ## Version Control: jj + Sibling Workspaces
 
@@ -27,7 +27,15 @@ jj bookmark set <branch> -r @- && jj git push -b <branch>   # later pushes
 Secondary workspaces have no `.git`, so pass the repo to `gh`:
 `gh pr create --repo hewigovens/hw-core --head <branch>`.
 
-After the PR merges: `jj workspace forget <topic>`, remove `../hw-core-<topic>`, and `jj bookmark delete <branch>`.
+Keep work awaiting review in its registered workspace. After the PR merges, verify the workspace contains no unlanded work before forgetting it with `jj workspace forget <topic>` and removing its directory and local bookmark.
+
+## JJ Concurrency and Build Isolation
+
+- Serialize JJ commands within each workspace, including reads that can snapshot the working copy. Parallel JJ work belongs in separate workspaces.
+- Use `jj --ignore-working-copy log`, `jj --ignore-working-copy diff --from <base> --to <head>`, and `jj --ignore-working-copy workspace list` for history-only reads. Omit the flag when inspecting or recording current file edits.
+- After history changes or concurrent workspace work, check `jj --ignore-working-copy log -r 'divergent()' --no-graph`; preserve unrelated divergence and compare immutable commits before resolving versions created by this task.
+- Keep scratch logs and fixtures outside the workspace unless intentionally part of the change.
+- Keep each workspace's own Cargo `target/` for concurrent builds; do not share `CARGO_TARGET_DIR`. Preserve the configured compiler cache rather than changing global settings.
 
 ## Commit Message Format
 

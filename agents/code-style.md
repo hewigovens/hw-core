@@ -6,7 +6,7 @@
 
 ## Module Organization
 
-- Split large files by responsibility; consider splitting past ~500 lines.
+- Split files when they acquire a second responsibility, not at a line-count threshold; keep cohesive types and their small private helpers together.
 - Keep a struct and a large trait impl in separate files, e.g. `trezor-connect/src/ble.rs` (`BleBackend`) and `ble/backend_impl.rs` (its `ThpBackend` impl), with tests in `ble/tests.rs`.
 
 ## Trait Design

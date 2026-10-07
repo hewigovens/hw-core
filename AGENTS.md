@@ -8,18 +8,25 @@ hw-core is a Rust workspace for host-to-hardware crypto wallet communication. Th
 
 ## Agent Docs
 
-**All agent docs are mandatory reading** before making changes.
+Read this file first, then load the focused guides needed for the task. Repository constraints live here; detailed rules have one owning guide.
 
-- [Project Overview](agents/project-overview.md) – Crate architecture, dependency graph, feature flags, and key design patterns
-- [Development Commands](agents/development-commands.md) – Building, testing, linting, running the CLI, and generating bindings
-- [Code Style](agents/code-style.md) – Module organization, async patterns, and trait design
-- [Error Handling](agents/error-handling.md) – Layered `thiserror` enums, `Result` returns, and no panics in production
-- [Defensive Programming](agents/defensive-programming.md) – Type safety, exhaustive matching, and safe defaults
-- [Naming](agents/naming.md) – Rust naming conventions and project-specific terminology
-- [Tests](agents/tests.md) – Test organization, MockBackend, proptest, and fixture patterns
-- [Comments](agents/comments.md) – When and how to write comments and doc comments
-- [Commit Guidelines](agents/commit-guidelines.md) – jj + sibling workspace workflow, Conventional Commits format, and PR checklist
-- [Common Issues](agents/common-issues.md) – Known build, BLE, and platform-specific issues
+| Task | Read |
+| --- | --- |
+| Crate boundaries, shared behavior, or FFI ownership | [Project Overview](agents/project-overview.md) |
+| Build, lint, bindings, or running sample apps | [Development Commands](agents/development-commands.md) |
+| Rust implementation | [Code Style](agents/code-style.md), [Error Handling](agents/error-handling.md), [Defensive Programming](agents/defensive-programming.md), [Comments](agents/comments.md) |
+| New types or APIs | [Naming](agents/naming.md) |
+| Tests, fixtures, or validation | [Tests](agents/tests.md) |
+| Reviewing a patch | [Code Review](agents/code-review.md) and the guides for the changed area |
+| JJ history, workspaces, or PRs | [Commit Guidelines](agents/commit-guidelines.md) |
+| Build, BLE, or platform troubleshooting | [Common Issues](agents/common-issues.md) |
+
+## Task Scope
+
+- Investigation and code review are read-only unless implementation is requested. Report concrete findings and the smallest viable fix.
+- Keep implementation within the requested behavior; preserve unrelated work and report unrelated defects separately.
+- Keep changes local unless publication is requested. A request to implement does not authorize pushing, opening or merging PRs, or posting external comments.
+- Report build, focused tests, binding generation, emulator, physical-device, and platform checks separately. State what ran and what was skipped or blocked; success in one layer does not prove another.
 
 ## Version Control
 
@@ -42,11 +49,7 @@ cargo fmt --all
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-## Comments and Docstrings
-
-- Comments and docstrings are opt-in, not default.
-- When needed, keep them to a single line.
-- Prefer no comment unless it explains intent, invariants, or safety that the code cannot make obvious on its own.
+For documentation-only changes, check the diff, local links, and command references; application builds, formatting, and lint are unnecessary unless executable behavior also changes. See [Tests](agents/tests.md) for focused validation and [Commit Guidelines](agents/commit-guidelines.md) for PR gates.
 
 ## Source of Truth for Behavior
 
