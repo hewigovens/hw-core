@@ -43,33 +43,26 @@ apply_android_java_patch() {
 }
 
 sync_android_java_support() {
-  local jni_utils_dir="${JNI_UTILS_RS_DIR:-}"
   local btleplug_dir="${BTLEPLUG_RS_DIR:-}"
 
-  if [[ -z "$jni_utils_dir" ]]; then
-    jni_utils_dir="$(find_registry_crate_dir "jni-utils-*")"
-  fi
   if [[ -z "$btleplug_dir" ]]; then
     btleplug_dir="$(find_registry_crate_dir "btleplug-*")"
   fi
 
-  if [[ -z "$jni_utils_dir" || ! -d "$jni_utils_dir" ]]; then
-    echo "ERROR: Could not locate jni-utils source. Set JNI_UTILS_RS_DIR to your local jni-utils-rs checkout." >&2
-    exit 1
-  fi
   if [[ -z "$btleplug_dir" || ! -d "$btleplug_dir" ]]; then
     echo "ERROR: Could not locate btleplug source. Set BTLEPLUG_RS_DIR to your local btleplug checkout." >&2
     exit 1
   fi
 
-  local jni_src="$jni_utils_dir/java/src/main/java/io/github/gedgygedgy/rust"
-  local btleplug_src="$btleplug_dir/src/droidplug/java/src/main/java/com/nonpolynomial/btleplug"
+  local java_src="$btleplug_dir/src/droidplug/java/src/main/java"
+  local jni_src="$java_src/io/github/gedgygedgy/rust"
+  local btleplug_src="$java_src/com/nonpolynomial/btleplug"
   local jni_dst="$ANDROID_LIB_DIR/src/main/java/io/github/gedgygedgy/rust"
   local btleplug_dst="$ANDROID_LIB_DIR/src/main/java/com/nonpolynomial/btleplug"
   local patch_dir="$ROOT_DIR/android/patches"
 
   if [[ ! -d "$jni_src" ]]; then
-    echo "ERROR: Missing jni-utils Java sources at: $jni_src" >&2
+    echo "ERROR: Missing vendored jni-utils Java sources at: $jni_src" >&2
     exit 1
   fi
   if [[ ! -d "$btleplug_src" ]]; then
@@ -217,7 +210,7 @@ if [[ "$DO_ANDROID" -eq 1 ]]; then
     echo "  -> $dst"
   done
 
-  echo "==> Syncing Android Java support sources (jni-utils + btleplug)..."
+  echo "==> Syncing Android Java support sources (btleplug)..."
   sync_android_java_support
   echo "  -> Copied Java support into $ANDROID_LIB_DIR/src/main/java"
 

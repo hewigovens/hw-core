@@ -27,7 +27,7 @@ rust.unused_variables = "warn"
 aes-gcm = { version = "0.11", features = ["aes"] }
 anyhow = "1"
 async-trait = "0.1"
-btleplug = "0.12.0"
+btleplug = "0.13.4"
 ble-transport = { version = "0.1.0", path = "crates/ble-transport" }
 bs58 = "0.5"
 clap = { version = "4.6", features = ["derive"] }

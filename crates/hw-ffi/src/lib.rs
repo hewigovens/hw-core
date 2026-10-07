@@ -47,21 +47,40 @@ pub(crate) fn init_platform_tracing_once() {
 }
 
 #[cfg(target_os = "android")]
+#[derive(Debug, thiserror::Error)]
+enum JniInitError {
+    #[error("{0}")]
+    Jni(#[from] jni::errors::Error),
+    #[error("{0}")]
+    Btleplug(String),
+}
+
+#[cfg(target_os = "android")]
 #[allow(non_snake_case)]
 #[unsafe(no_mangle)]
-pub extern "system" fn JNI_OnLoad(
+/// # Safety
+/// A non-null `vm` must be a valid `JavaVM` pointer. A null pointer returns `JNI_ERR`.
+pub unsafe extern "system" fn JNI_OnLoad(
     vm: *mut jni::sys::JavaVM,
     _reserved: *mut std::ffi::c_void,
 ) -> jni::sys::jint {
+    if vm.is_null() {
+        eprintln!("hwcore JNI_OnLoad init failed: null JavaVM");
+        return jni::sys::JNI_ERR;
+    }
+
     let init_result = (|| -> Result<(), String> {
         init_platform_tracing_once();
 
-        let vm = unsafe { jni::JavaVM::from_raw(vm) }.map_err(|err| err.to_string())?;
-        let env = vm.get_env().map_err(|err| err.to_string())?;
-        jni_utils::init(&env).map_err(|err| err.to_string())?;
-        btleplug::platform::init(&env).map_err(|err| err.to_string())?;
-        #[cfg(debug_assertions)]
-        tracing::info!("hwcore JNI_OnLoad complete; Rust tracing enabled");
+        // SAFETY: null was rejected above.
+        let vm = unsafe { jni::JavaVM::from_raw(vm) };
+        vm.attach_current_thread(|env| {
+            btleplug::platform::init(env).map_err(|err| JniInitError::Btleplug(err.to_string()))?;
+            #[cfg(debug_assertions)]
+            tracing::info!("hwcore JNI_OnLoad complete; Rust tracing enabled");
+            Ok(())
+        })
+        .map_err(|err: JniInitError| err.to_string())?;
         Ok(())
     })();
 
