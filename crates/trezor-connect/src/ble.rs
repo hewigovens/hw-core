@@ -59,6 +59,13 @@ const MIN_THP_FRAME_SIZE: usize = 9; // 1 magic + 2 channel + 2 len + 4 crc
 const MAX_THP_RESPONSE_PAYLOAD_SIZE: usize = u16::MAX as usize - 4; // Length includes CRC.
 const MAX_THP_CONTINUATION_FRAMES: usize = 10;
 const THP_CONTROL_BITS_MASK: u8 = (1 << 3) | (1 << 4);
+const THP_ERROR_TRANSPORT_BUSY: u8 = 1;
+const THP_ERROR_UNALLOCATED_CHANNEL: u8 = 2;
+const THP_ERROR_DECRYPTION_FAILED: u8 = 3;
+const THP_ERROR_DEVICE_LOCKED: u8 = 5;
+const FAILURE_PIN_EXPECTED: i32 = 5;
+const FAILURE_BUSY: i32 = 15;
+const FAILURE_FIRMWARE_ERROR: i32 = 99;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct RecentReplayableResponse {
@@ -241,9 +248,10 @@ fn decode_failure_as_backend_error(payload: &[u8]) -> BackendError {
     match FailureProto::decode(payload) {
         Ok(msg) => {
             if let Some(code) = msg.code {
-                match code as u8 {
-                    5 => return BackendError::DeviceBusy,
-                    99 => return BackendError::DeviceFirmwareBusy,
+                match code {
+                    FAILURE_PIN_EXPECTED => return BackendError::PinExpected,
+                    FAILURE_BUSY => return BackendError::DeviceBusy,
+                    FAILURE_FIRMWARE_ERROR => return BackendError::DeviceFirmwareError,
                     _ => {}
                 }
                 let message = msg.message.unwrap_or_default();
@@ -565,13 +573,16 @@ impl BleBackend {
     }
 
     fn device_error_from_code(code: u8) -> BackendError {
-        match code {
-            5 => BackendError::DeviceBusy,
-            99 => BackendError::DeviceFirmwareBusy,
-            _ => BackendError::DeviceError {
-                code: code as u32,
-                message: format!("device returned error code {code}"),
-            },
+        let message = match code {
+            THP_ERROR_TRANSPORT_BUSY => return BackendError::TransportBusy,
+            THP_ERROR_DEVICE_LOCKED => return BackendError::DeviceLocked,
+            THP_ERROR_UNALLOCATED_CHANNEL => "unallocated channel".to_string(),
+            THP_ERROR_DECRYPTION_FAILED => "decryption failed".to_string(),
+            _ => format!("device returned THP error code {code}"),
+        };
+        BackendError::DeviceError {
+            code: code as u32,
+            message,
         }
     }
 

@@ -54,7 +54,7 @@ impl MockBackend {
             last_sign_typed_data_request: None,
             last_sign_tx_request: None,
             create_session_responses: VecDeque::from([
-                Err(BackendError::DeviceFirmwareBusy),
+                Err(BackendError::DeviceFirmwareError),
                 Ok(CreateSessionResponse),
             ]),
             get_address_response: None,

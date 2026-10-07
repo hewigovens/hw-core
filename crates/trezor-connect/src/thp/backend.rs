@@ -10,10 +10,14 @@ pub enum BackendError {
     TransportBusy,
     #[error("transport error: {0}")]
     Transport(String),
-    #[error("device busy (error code 5)")]
+    #[error("device is locked")]
+    DeviceLocked,
+    #[error("device busy")]
     DeviceBusy,
-    #[error("device firmware busy (error code 99)")]
-    DeviceFirmwareBusy,
+    #[error("device expects PIN entry")]
+    PinExpected,
+    #[error("device firmware error")]
+    DeviceFirmwareError,
     #[error("session requires connection confirmation")]
     SessionConfirmationRequired,
     #[error("device error: code={code}, {message}")]

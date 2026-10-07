@@ -68,7 +68,9 @@ impl From<trezor_connect::thp::BackendError> for HWCoreError {
         match error {
             BackendError::TransportTimeout => HWCoreError::Timeout(error.to_string()),
             BackendError::DeviceBusy
-            | BackendError::DeviceFirmwareBusy
+            | BackendError::DeviceLocked
+            | BackendError::PinExpected
+            | BackendError::DeviceFirmwareError
             | BackendError::SessionConfirmationRequired
             | BackendError::DeviceError { .. }
             | BackendError::Device(_) => HWCoreError::Device(error.to_string()),

@@ -604,6 +604,44 @@ fn error_frames_are_never_replayed_or_acked() {
     assert!(!should_ack_magic(wire::MAGIC_ERROR));
 }
 
+#[test]
+fn thp_transport_error_codes_map_to_spec_meanings() {
+    assert!(matches!(
+        BleBackend::device_error_from_code(1),
+        BackendError::TransportBusy
+    ));
+    assert!(matches!(
+        BleBackend::device_error_from_code(5),
+        BackendError::DeviceLocked
+    ));
+    assert!(matches!(
+        BleBackend::device_error_from_code(3),
+        BackendError::DeviceError { code: 3, .. }
+    ));
+}
+
+#[test]
+fn failure_codes_map_to_protobuf_meanings() {
+    let failure = |code: i32| {
+        let mut payload = Vec::new();
+        FailureProto {
+            code: Some(code),
+            message: None,
+        }
+        .encode(&mut payload)
+        .expect("encode failure");
+        decode_failure_as_backend_error(&payload)
+    };
+
+    assert!(matches!(failure(5), BackendError::PinExpected));
+    assert!(matches!(failure(15), BackendError::DeviceBusy));
+    assert!(matches!(failure(99), BackendError::DeviceFirmwareError));
+    assert!(matches!(
+        failure(5 + 256),
+        BackendError::DeviceError { code: 261, .. }
+    ));
+}
+
 fn hex_to_bytes(s: &str) -> Vec<u8> {
     let stripped = s.strip_prefix("0x").unwrap_or(s);
     if stripped.is_empty() {

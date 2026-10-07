@@ -65,7 +65,9 @@ fn classify_workflow_error(error: &ThpWorkflowError) -> WalletErrorKind {
         ThpWorkflowError::Backend(
             BackendError::Device(_)
             | BackendError::DeviceBusy
-            | BackendError::DeviceFirmwareBusy
+            | BackendError::DeviceLocked
+            | BackendError::PinExpected
+            | BackendError::DeviceFirmwareError
             | BackendError::SessionConfirmationRequired
             | BackendError::DeviceError { .. },
         ) => WalletErrorKind::Device,

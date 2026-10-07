@@ -483,7 +483,7 @@ fn is_transport_timeout(error: &ThpWorkflowError) -> bool {
 fn is_retryable_handshake_error(error: &ThpWorkflowError) -> bool {
     matches!(
         error,
-        ThpWorkflowError::Backend(BackendError::DeviceBusy | BackendError::TransportBusy)
+        ThpWorkflowError::Backend(BackendError::DeviceLocked | BackendError::TransportBusy)
     )
 }
 
@@ -492,7 +492,9 @@ fn is_retryable_session_error(error: &ThpWorkflowError) -> bool {
         error,
         ThpWorkflowError::Backend(
             BackendError::DeviceBusy
-                | BackendError::DeviceFirmwareBusy
+                | BackendError::DeviceLocked
+                | BackendError::PinExpected
+                | BackendError::DeviceFirmwareError
                 | BackendError::TransportBusy
                 | BackendError::SessionConfirmationRequired
         )
@@ -501,14 +503,19 @@ fn is_retryable_session_error(error: &ThpWorkflowError) -> bool {
 
 fn normalize_session_error(error: ThpWorkflowError) -> WalletError {
     match error {
-        ThpWorkflowError::Backend(BackendError::DeviceFirmwareBusy) => {
+        ThpWorkflowError::Backend(BackendError::DeviceFirmwareError) => {
             WalletError::Workflow(ThpWorkflowError::Backend(BackendError::Device(
-                "device reported firmware busy (error code 99). Ensure the Trezor screen is unlocked and idle, then retry.".into(),
+                "device reported a firmware error. Ensure the Trezor screen is unlocked and idle, then retry.".into(),
+            )))
+        }
+        ThpWorkflowError::Backend(BackendError::DeviceLocked | BackendError::PinExpected) => {
+            WalletError::Workflow(ThpWorkflowError::Backend(BackendError::Device(
+                "device is locked. Unlock the Trezor and retry.".into(),
             )))
         }
         ThpWorkflowError::Backend(BackendError::DeviceBusy) => {
             WalletError::Workflow(ThpWorkflowError::Backend(BackendError::Device(
-                "device is not ready yet (error code 5). Wait for the device prompt/unlock and retry.".into(),
+                "device is busy. Finish or cancel the action on the Trezor and retry.".into(),
             )))
         }
         other => WalletError::Workflow(other),
@@ -564,6 +571,18 @@ mod tests {
     use super::*;
     use trezor_connect::thp::PairingMethod;
     use trezor_connect::thp::state::{HandshakeCache, HandshakeCredentials};
+
+    #[test]
+    fn device_locked_and_transport_busy_retry_handshake() {
+        for err in [BackendError::DeviceLocked, BackendError::TransportBusy] {
+            assert!(is_retryable_handshake_error(&ThpWorkflowError::Backend(
+                err
+            )));
+        }
+        assert!(!is_retryable_handshake_error(&ThpWorkflowError::Backend(
+            BackendError::PinExpected
+        )));
+    }
 
     #[test]
     fn session_phase_starts_with_channel_creation() {
