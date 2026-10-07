@@ -40,6 +40,6 @@ trezor-noise-rust-crypto = { version = "0.6.2", default-features = false, featur
 rustix = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "test-util"] }
 parking_lot = { workspace = true }
 tempfile = "3"

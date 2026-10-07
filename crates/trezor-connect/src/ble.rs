@@ -176,27 +176,47 @@ impl PumpChannel for Channel<NoiseBackend> {
     }
 }
 
-async fn flush<C: ChannelIO>(link: &mut BleLink, channel: &mut Buffered<C>) -> BackendResult<()> {
+/// Packet I/O for the THP pump; `recv_packet` returns `None` when `wait` elapses.
+#[allow(async_fn_in_trait)]
+trait PacketLink {
+    async fn send_packet(&mut self, packet: &[u8]) -> BackendResult<()>;
+    async fn recv_packet(&mut self, wait: Duration) -> BackendResult<Option<Vec<u8>>>;
+}
+
+impl PacketLink for BleLink {
+    async fn send_packet(&mut self, packet: &[u8]) -> BackendResult<()> {
+        self.write(packet)
+            .await
+            .map_err(|e| BackendError::Transport(e.to_string()))
+    }
+
+    async fn recv_packet(&mut self, wait: Duration) -> BackendResult<Option<Vec<u8>>> {
+        match time::timeout(wait, self.read()).await {
+            Ok(Ok(packet)) => Ok(Some(packet)),
+            Ok(Err(err)) => Err(BackendError::Transport(err.to_string())),
+            Err(_) => Ok(None),
+        }
+    }
+}
+
+async fn flush<L: PacketLink, C: ChannelIO>(
+    link: &mut L,
+    channel: &mut Buffered<C>,
+) -> BackendResult<()> {
     while channel.packet_out_ready() {
         let packet = channel.packet_out().map_err(thp_error)?;
-        link.write(&packet)
-            .await
-            .map_err(|e| BackendError::Transport(e.to_string()))?;
+        link.send_packet(&packet).await?;
     }
     Ok(())
 }
 
-async fn read_packet(link: &mut BleLink, wait: Duration) -> BackendResult<Option<Vec<u8>>> {
-    match time::timeout(wait, link.read()).await {
-        Ok(Ok(packet)) => Ok(Some(packet)),
-        Ok(Err(err)) => Err(BackendError::Transport(err.to_string())),
-        Err(_) => Ok(None),
-    }
+fn can_retransmit(retry: Option<u8>) -> bool {
+    retry.is_some_and(|r| r.saturating_add(1) < MAX_RETRANSMISSION_COUNT)
 }
 
 /// Sends pending packets and feeds incoming ones until `done` holds, retransmitting unacked messages.
-async fn pump<C: PumpChannel>(
-    link: &mut BleLink,
+async fn pump<L: PacketLink, C: PumpChannel>(
+    link: &mut L,
     channel: &mut Buffered<C>,
     response_timeout: Duration,
     mut done: impl FnMut(&Buffered<C>, &PacketInResult) -> bool,
@@ -207,20 +227,18 @@ async fn pump<C: PumpChannel>(
         let wait = retry.map_or(response_timeout, |r| {
             Duration::from_millis(retransmit_after_ms(r).into())
         });
-        let Some(packet) = read_packet(link, wait).await? else {
-            match retry {
-                Some(r) if r.saturating_add(1) < MAX_RETRANSMISSION_COUNT => {
-                    channel.message_retransmit().map_err(thp_error)?;
-                    continue;
-                }
-                _ => return Err(BackendError::TransportTimeout),
+        let Some(packet) = link.recv_packet(wait).await? else {
+            if !can_retransmit(retry) {
+                return Err(BackendError::TransportTimeout);
             }
+            channel.message_retransmit().map_err(thp_error)?;
+            continue;
         };
         let result = channel.packet_in(&packet);
         match &result {
             PacketInResult::TransportError {
                 error: TransportError::TransportBusy,
-            } if retry.is_some() => {
+            } if can_retransmit(retry) => {
                 let backoff = rand::random_range(0..MAX_BUSY_BACKOFF_MS);
                 debug!("THP transport busy; resending in {backoff}ms");
                 time::sleep(Duration::from_millis(backoff)).await;
@@ -237,6 +255,28 @@ async fn pump<C: PumpChannel>(
         if done(channel, &result) {
             return flush(link, channel).await;
         }
+    }
+}
+
+/// Reads the next device message, acknowledging any ButtonRequest on the way.
+async fn receive_message<L: PacketLink>(
+    link: &mut L,
+    channel: &mut Buffered<Channel<NoiseBackend>>,
+    timeout: Duration,
+) -> BackendResult<(u16, Vec<u8>)> {
+    loop {
+        pump(link, channel, timeout, |_, result| result.got_message()).await?;
+        // trezor-thp queues the ACK when the message is consumed, so flush after message_out.
+        let (_session, message_type, payload) = channel.message_out().map_err(thp_error)?;
+        trace!(message_type, len = payload.len(), "THP receive");
+        if message_type != MESSAGE_TYPE_BUTTON_REQUEST {
+            flush(link, channel).await?;
+            return Ok((message_type, payload));
+        }
+        debug!("THP ButtonRequest; sending ButtonAck");
+        channel
+            .message_in(SESSION_ID, MESSAGE_TYPE_BUTTON_ACK, &[])
+            .map_err(thp_error)?;
     }
 }
 
@@ -308,27 +348,15 @@ impl BleBackend {
             .map_err(thp_error)
     }
 
-    /// Reads the next device message, acknowledging any ButtonRequest on the way.
     async fn receive_raw(&mut self) -> BackendResult<(u16, Vec<u8>)> {
-        loop {
-            let timeout = self.handshake_timeout;
-            let link = self.inner.link_mut();
-            let ThpChannel::Open(channel) = &mut self.channel else {
-                return Err(BackendError::Transport(
-                    "THP channel is not established".into(),
-                ));
-            };
-            pump(link, channel, timeout, |_, result| result.got_message()).await?;
-            let (_session, message_type, payload) = channel.message_out().map_err(thp_error)?;
-            trace!(message_type, len = payload.len(), "THP receive");
-            if message_type != MESSAGE_TYPE_BUTTON_REQUEST {
-                return Ok((message_type, payload));
-            }
-            debug!("THP ButtonRequest; sending ButtonAck");
-            channel
-                .message_in(SESSION_ID, MESSAGE_TYPE_BUTTON_ACK, &[])
-                .map_err(thp_error)?;
-        }
+        let timeout = self.handshake_timeout;
+        let link = self.inner.link_mut();
+        let ThpChannel::Open(channel) = &mut self.channel else {
+            return Err(BackendError::Transport(
+                "THP channel is not established".into(),
+            ));
+        };
+        receive_message(link, channel, timeout).await
     }
 
     async fn receive(&mut self) -> BackendResult<(u16, Vec<u8>)> {
