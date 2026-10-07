@@ -6,8 +6,8 @@ use anyhow::{Context, Result, bail};
 use ble_transport::{BleManager, BleProfile, DiscoveredDevice};
 use hw_wallet::WalletError;
 use hw_wallet::ble::{
-    SessionBootstrapOptions, SessionPhase, advance_session_bootstrap, backend_from_session,
-    connect_trezor_device, scan_profile_until_match, workflow_with_storage,
+    SessionBootstrapOptions, SessionPhase, advance_session_bootstrap, connect_trezor_device,
+    scan_profile_until_match,
 };
 use tokio::time::timeout;
 use tracing::debug;
@@ -130,19 +130,7 @@ pub fn select_device(
         return Ok(devices.remove(0));
     }
 
-    println!("Multiple devices found:");
-    for (idx, device) in devices.iter().enumerate() {
-        let info = device.info();
-        println!(
-            "  {}. id={} name={} rssi={}",
-            idx + 1,
-            info.id,
-            info.name.as_deref().unwrap_or("unknown"),
-            info.rssi
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "n/a".to_string())
-        );
-    }
+    print_discovered_devices(&devices);
 
     let selected = prompt_device_selection(devices.len())?;
     Ok(devices.remove(selected))
@@ -241,7 +229,7 @@ pub async fn connect_workflow(
     };
     println!("BLE session established.");
     debug!("BLE session established");
-    let backend = backend_from_session(session, Duration::from_secs(options.thp_timeout_secs));
+    let backend = BleBackend::from_session(session, Duration::from_secs(options.thp_timeout_secs));
     debug!(
         "configured THP backend response timeout: {:?}",
         backend.handshake_timeout()
@@ -256,7 +244,7 @@ pub async fn connect_workflow(
         vec![ThpPairingMethod::CodeEntry]
     };
     let storage = Arc::new(FileStorage::new(storage_path.clone()));
-    let workflow = workflow_with_storage(backend, config, storage)
+    let workflow = ThpWorkflow::with_storage(backend, config, storage)
         .await
         .context("workflow setup failed")?;
     debug!(

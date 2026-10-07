@@ -6,36 +6,12 @@ pub const DEFAULT_BITCOIN_BIP32_PATH: &str = "m/84'/0'/0'/0/0";
 
 pub const DEFAULT_SOLANA_BIP32_PATH: &str = "m/44'/501'/0'/0'";
 
-pub const CHAIN_ETH: &str = "eth";
-
-pub const CHAIN_BTC: &str = "btc";
-
-pub const CHAIN_SOL: &str = "sol";
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ChainConfig {
     pub code: &'static str,
     pub slip44: u32,
     pub default_path: &'static str,
 }
-
-pub const ETHEREUM_CONFIG: ChainConfig = ChainConfig {
-    code: CHAIN_ETH,
-    slip44: 60,
-    default_path: DEFAULT_ETHEREUM_BIP32_PATH,
-};
-
-pub const BITCOIN_CONFIG: ChainConfig = ChainConfig {
-    code: CHAIN_BTC,
-    slip44: 0,
-    default_path: DEFAULT_BITCOIN_BIP32_PATH,
-};
-
-pub const SOLANA_CONFIG: ChainConfig = ChainConfig {
-    code: CHAIN_SOL,
-    slip44: 501,
-    default_path: DEFAULT_SOLANA_BIP32_PATH,
-};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Chain {
@@ -49,9 +25,21 @@ impl Chain {
 
     pub const fn config(self) -> ChainConfig {
         match self {
-            Self::Ethereum => ETHEREUM_CONFIG,
-            Self::Bitcoin => BITCOIN_CONFIG,
-            Self::Solana => SOLANA_CONFIG,
+            Self::Ethereum => ChainConfig {
+                code: "eth",
+                slip44: 60,
+                default_path: DEFAULT_ETHEREUM_BIP32_PATH,
+            },
+            Self::Bitcoin => ChainConfig {
+                code: "btc",
+                slip44: 0,
+                default_path: DEFAULT_BITCOIN_BIP32_PATH,
+            },
+            Self::Solana => ChainConfig {
+                code: "sol",
+                slip44: 501,
+                default_path: DEFAULT_SOLANA_BIP32_PATH,
+            },
         }
     }
 
@@ -91,10 +79,13 @@ mod tests {
 
     #[test]
     fn config_values() {
+        assert_eq!(Chain::Ethereum.as_str(), "eth");
         assert_eq!(Chain::Ethereum.config().slip44, 60);
         assert_eq!(Chain::Ethereum.default_path(), DEFAULT_ETHEREUM_BIP32_PATH);
+        assert_eq!(Chain::Bitcoin.as_str(), "btc");
         assert_eq!(Chain::Bitcoin.config().slip44, 0);
         assert_eq!(Chain::Bitcoin.default_path(), DEFAULT_BITCOIN_BIP32_PATH);
+        assert_eq!(Chain::Solana.as_str(), "sol");
         assert_eq!(Chain::Solana.config().slip44, 501);
         assert_eq!(Chain::Solana.default_path(), DEFAULT_SOLANA_BIP32_PATH);
     }

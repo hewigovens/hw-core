@@ -31,15 +31,8 @@ pub struct ScanArgs {
     pub duration_secs: u64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum PairingMethod {
-    Ble,
-}
-
 #[derive(Args, Debug)]
 pub struct PairArgs {
-    #[arg(long, value_enum, default_value_t = PairingMethod::Ble)]
-    pub pairing_method: PairingMethod,
     #[arg(long, alias = "duration-secs", default_value_t = 60)]
     pub timeout_secs: u64,
     #[arg(long, default_value_t = 60)]
@@ -234,14 +227,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pair_defaults_to_ble_and_60s_timeout() {
+    fn pair_defaults_to_60s_timeout() {
         let cli = Cli::parse_from(["hw-cli", "pair"]);
         let Command::Pair(args) = cli.command else {
             panic!("expected pair command");
         };
 
         assert_eq!(cli.verbose, 0);
-        assert_eq!(args.pairing_method, PairingMethod::Ble);
         assert_eq!(args.timeout_secs, 60);
         assert_eq!(args.thp_timeout_secs, 60);
     }

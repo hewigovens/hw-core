@@ -3,7 +3,6 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use ble_transport::BleManager;
 use ble_transport::BleProfile;
-use hw_wallet::ble::scan_profile;
 use tracing::debug;
 
 use crate::cli::ScanArgs;
@@ -22,7 +21,8 @@ pub async fn run(args: ScanArgs) -> Result<()> {
         "Scanning for {} devices for {}s...",
         profile.name, args.duration_secs
     );
-    let devices = scan_profile(&manager, profile, Duration::from_secs(args.duration_secs))
+    let devices = manager
+        .scan_profile(profile, Duration::from_secs(args.duration_secs))
         .await
         .context("BLE scan failed")?;
     debug!("scan command: discovered {} device(s)", devices.len());

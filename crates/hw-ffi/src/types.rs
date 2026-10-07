@@ -325,26 +325,3 @@ pub fn chain_config(chain: Chain) -> ChainConfig {
 pub fn session_retry_policy_default() -> SessionRetryPolicy {
     hw_wallet::ble::SessionRetryPolicy::default()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{Chain, chain_config};
-
-    #[test]
-    fn chain_config_exposes_known_defaults() {
-        let eth = chain_config(Chain::Ethereum);
-        assert_eq!(eth.code, "eth");
-        assert_eq!(eth.slip44, 60);
-        assert_eq!(eth.default_path, "m/44'/60'/0'/0/0");
-
-        let btc = chain_config(Chain::Bitcoin);
-        assert_eq!(btc.code, "btc");
-        assert_eq!(btc.slip44, 0);
-        assert_eq!(btc.default_path, "m/84'/0'/0'/0/0");
-
-        let sol = chain_config(Chain::Solana);
-        assert_eq!(sol.code, "sol");
-        assert_eq!(sol.slip44, 501);
-        assert_eq!(sol.default_path, "m/44'/501'/0'/0'");
-    }
-}

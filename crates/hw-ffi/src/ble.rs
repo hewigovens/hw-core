@@ -4,9 +4,8 @@ use std::time::Duration;
 
 use ble_transport::{BleManager, BleProfile, BleSession, DeviceInfo, DiscoveredDevice};
 use hw_wallet::ble::{
-    SessionPhase as WalletSessionPhase, backend_from_session, connect_and_bootstrap_session,
-    connect_trezor_device, scan_trezor, session_phase, session_state as build_session_state,
-    workflow as new_workflow, workflow_with_storage,
+    SessionPhase as WalletSessionPhase, connect_and_bootstrap_session, connect_trezor_device,
+    session_phase, session_state as build_session_state,
 };
 use parking_lot::Mutex;
 use tokio::sync::{Mutex as AsyncMutex, Notify};
@@ -57,9 +56,11 @@ impl BleManagerHandle {
         &self,
         duration_ms: u64,
     ) -> Result<Vec<Arc<BleDiscoveredDevice>>, HWCoreError> {
-        let (profile, devices) = scan_trezor(&self.manager, Duration::from_millis(duration_ms))
-            .await
-            .map_err(HWCoreError::from)?;
+        let profile = BleProfile::TREZOR_SAFE7;
+        let devices = self
+            .manager
+            .scan_profile(profile, Duration::from_millis(duration_ms))
+            .await?;
         Ok(devices
             .into_iter()
             .map(|device| Arc::new(BleDiscoveredDevice::new(device, profile)))
@@ -206,12 +207,12 @@ impl BleSessionHandle {
         storage_path: Option<String>,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
         let session = self.take_session().await?;
-        let backend = backend_from_session(session, DEFAULT_THP_TIMEOUT);
+        let backend = BleBackend::from_session(session, DEFAULT_THP_TIMEOUT);
         let workflow = if let Some(path) = storage_path {
             let storage = storage_from_path(path)?;
-            workflow_with_storage(backend, config.into(), storage).await?
+            ThpWorkflow::with_storage(backend, config.into(), storage).await?
         } else {
-            new_workflow(backend, config.into())
+            ThpWorkflow::new(backend, config.into())
         };
         Ok(Arc::new(BleWorkflowHandle::new(workflow)))
     }
@@ -246,12 +247,12 @@ impl BleSessionHandle {
         retry_policy: Option<SessionRetryPolicy>,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
         let session = self.take_session().await?;
-        let backend = backend_from_session(session, DEFAULT_THP_TIMEOUT);
+        let backend = BleBackend::from_session(session, DEFAULT_THP_TIMEOUT);
         let workflow = if let Some(path) = storage_path {
             let storage = storage_from_path(path)?;
-            workflow_with_storage(backend, config.into(), storage).await?
+            ThpWorkflow::with_storage(backend, config.into(), storage).await?
         } else {
-            new_workflow(backend, config.into())
+            ThpWorkflow::new(backend, config.into())
         };
         let handle = Arc::new(BleWorkflowHandle::new(workflow));
         handle

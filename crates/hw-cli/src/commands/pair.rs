@@ -2,19 +2,16 @@ use anyhow::{Context, Result, bail};
 use hw_wallet::ble::{SessionPhase, advance_to_paired};
 use tracing::info;
 
-use crate::cli::{PairArgs, PairingMethod};
+use crate::cli::PairArgs;
 use crate::commands::common::{ConnectWorkflowOptions, connect_workflow};
 use crate::config::default_storage_path;
 use crate::pairing::CliPairingController;
 
 pub async fn run(args: PairArgs, skip_pairing: bool) -> Result<()> {
     info!(
-        "pair command started: pairing_method={:?}, scan_timeout_secs={}, thp_timeout_secs={}, force={}",
-        args.pairing_method, args.timeout_secs, args.thp_timeout_secs, args.force
+        "pair command started: scan_timeout_secs={}, thp_timeout_secs={}, force={}",
+        args.timeout_secs, args.thp_timeout_secs, args.force
     );
-    if args.pairing_method != PairingMethod::Ble {
-        bail!("only --pairing-method ble is supported");
-    }
 
     let storage_path = args.storage_path.unwrap_or_else(default_storage_path);
     if args.force && storage_path.exists() {

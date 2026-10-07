@@ -43,16 +43,6 @@ impl WalletError {
             Self::Workflow(error) => classify_workflow_error(error),
         }
     }
-
-    pub fn code(&self) -> &'static str {
-        match self.kind() {
-            WalletErrorKind::Ble => "BLE",
-            WalletErrorKind::Workflow => "WORKFLOW",
-            WalletErrorKind::Device => "DEVICE",
-            WalletErrorKind::Validation => "VALIDATION",
-            WalletErrorKind::Timeout => "TIMEOUT",
-        }
-    }
 }
 
 fn classify_workflow_error(error: &ThpWorkflowError) -> WalletErrorKind {

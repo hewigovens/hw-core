@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use hw_wallet::chain::{Chain, ResolvedDerivationPath, resolve_derivation_path};
+use hw_wallet::chain::{Chain, resolve_derivation_path};
 use tracing::info;
 use trezor_connect::thp::{GetAddressRequest, ThpBackend, ThpWorkflow};
 
@@ -9,7 +9,7 @@ use crate::commands::common::{
 };
 
 pub async fn run(args: AddressArgs, skip_pairing: bool) -> Result<()> {
-    let resolved = ResolvedAddressTarget::from_args(&args)?;
+    let resolved = resolve_derivation_path(args.chain, args.path.as_deref())?;
     info!(
         "address command started: chain={:?} path='{}' scan_timeout_secs={} thp_timeout_secs={} show_on_device={} include_public_key={} chunkify={}",
         resolved.chain,
@@ -80,30 +80,6 @@ fn build_get_address_request(chain: Chain, path_indices: Vec<u32>) -> GetAddress
     }
 }
 
-#[derive(Debug)]
-struct ResolvedAddressTarget {
-    chain: Chain,
-    path: String,
-    path_indices: Vec<u32>,
-}
-
-impl ResolvedAddressTarget {
-    fn from_args(args: &AddressArgs) -> Result<Self> {
-        let resolved = resolve_derivation_path(args.chain, args.path.as_deref())?;
-        Ok(Self::from_wallet_resolved(resolved))
-    }
-}
-
-impl ResolvedAddressTarget {
-    fn from_wallet_resolved(resolved: ResolvedDerivationPath) -> Self {
-        Self {
-            chain: resolved.chain,
-            path: resolved.path,
-            path_indices: resolved.path_indices,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,62 +87,7 @@ mod tests {
     use crate::commands::test_support::{
         MockBackend, canned_eth_address_response, ready_workflow_with_mock,
     };
-    use hw_wallet::chain::{
-        DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
-    };
     use trezor_connect::thp::Chain as ThpChain;
-
-    fn args(chain: Option<Chain>, path: Option<&str>) -> AddressArgs {
-        AddressArgs {
-            chain,
-            path: path.map(ToOwned::to_owned),
-            show_on_device: true,
-            include_public_key: false,
-            chunkify: false,
-            timeout_secs: 60,
-            thp_timeout_secs: 60,
-            device_id: None,
-            storage_path: None,
-            host_name: None,
-            app_name: "hw-core/cli".to_string(),
-        }
-    }
-
-    #[test]
-    fn defaults_to_eth_default_path() {
-        let resolved = ResolvedAddressTarget::from_args(&args(None, None)).unwrap();
-        assert_eq!(resolved.chain, Chain::Ethereum);
-        assert_eq!(resolved.path, DEFAULT_ETHEREUM_BIP32_PATH);
-    }
-
-    #[test]
-    fn defaults_to_btc_path_when_chain_is_btc() {
-        let resolved = ResolvedAddressTarget::from_args(&args(Some(Chain::Bitcoin), None)).unwrap();
-        assert_eq!(resolved.chain, Chain::Bitcoin);
-        assert_eq!(resolved.path, DEFAULT_BITCOIN_BIP32_PATH);
-    }
-
-    #[test]
-    fn defaults_to_sol_path_when_chain_is_sol() {
-        let resolved = ResolvedAddressTarget::from_args(&args(Some(Chain::Solana), None)).unwrap();
-        assert_eq!(resolved.chain, Chain::Solana);
-        assert_eq!(resolved.path, DEFAULT_SOLANA_BIP32_PATH);
-    }
-
-    #[test]
-    fn infers_chain_from_eth_path() {
-        let resolved =
-            ResolvedAddressTarget::from_args(&args(None, Some("m/44'/60'/0'/0/0"))).unwrap();
-        assert_eq!(resolved.chain, Chain::Ethereum);
-    }
-
-    #[test]
-    fn rejects_chain_path_mismatch() {
-        let err =
-            ResolvedAddressTarget::from_args(&args(Some(Chain::Ethereum), Some("m/84'/0'/0'/0/0")))
-                .unwrap_err();
-        assert!(err.to_string().contains("chain/path mismatch"));
-    }
 
     #[tokio::test]
     async fn address_flow_orchestrates_handshake_confirmation_and_session_retry() {

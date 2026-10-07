@@ -8,14 +8,14 @@ use trezor_connect::thp::{
 
 use crate::error::{WalletError, WalletResult};
 use crate::hex::decode;
-use crate::message_signing::validate_eth_signing_path;
+use crate::message_signing::validate_signing_path_for_chain;
 
 pub fn build_sign_typed_hash_request(
     path: Vec<u32>,
     domain_separator_hash: &str,
     message_hash: Option<&str>,
 ) -> WalletResult<SignTypedDataRequest> {
-    validate_eth_signing_path(&path, "typed-data")?;
+    validate_signing_path_for_chain(Chain::Ethereum, &path, "typed-data")?;
 
     let domain_separator_hash = decode(domain_separator_hash)?;
     if domain_separator_hash.len() != 32 {
@@ -52,7 +52,7 @@ pub fn build_sign_typed_data_request(
     data_json: &str,
     metamask_v4_compat: bool,
 ) -> WalletResult<SignTypedDataRequest> {
-    validate_eth_signing_path(&path, "typed-data")?;
+    validate_signing_path_for_chain(Chain::Ethereum, &path, "typed-data")?;
 
     let parsed: Eip712TypedDataInput = serde_json::from_str(data_json)
         .map_err(|err| WalletError::Signing(format!("invalid EIP-712 JSON: {err}")))?;

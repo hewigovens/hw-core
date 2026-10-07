@@ -15,16 +15,6 @@ use crate::types::{
     SignTxResult, SignTypedDataRequest, SignTypedDataResult, SignatureEncoding,
 };
 
-fn hex_prefixed(bytes: &[u8]) -> String {
-    let mut value = String::with_capacity(2 + bytes.len() * 2);
-    value.push_str("0x");
-    for byte in bytes {
-        use std::fmt::Write as _;
-        let _ = write!(value, "{byte:02x}");
-    }
-    value
-}
-
 pub(crate) async fn get_address_for_workflow<B>(
     workflow: &mut ThpWorkflow<B>,
     request: GetAddressRequest,
@@ -40,7 +30,7 @@ where
     Ok(AddressResult {
         chain: response.chain,
         address: response.address,
-        mac: response.mac.as_deref().map(hex_prefixed),
+        mac: response.mac.map(|mac| format!("0x{}", hex::encode(mac))),
         public_key: response.public_key,
     })
 }
@@ -52,7 +42,7 @@ where
     B: trezor_connect::thp::ThpBackend + Send,
 {
     let nonce = workflow.get_nonce().await.map_err(HWCoreError::from)?;
-    Ok(hex_prefixed(&nonce))
+    Ok(format!("0x{}", hex::encode(nonce)))
 }
 
 pub(crate) async fn sign_tx_for_workflow<B>(

@@ -193,11 +193,6 @@ impl GetAddressRequest {
         self
     }
 
-    pub fn with_encoded_network(mut self, value: Option<Vec<u8>>) -> Self {
-        self.encoded_network = value;
-        self
-    }
-
     pub fn with_include_public_key(mut self, value: bool) -> Self {
         self.include_public_key = value;
         self
@@ -244,11 +239,6 @@ impl SignMessageRequest {
 
     pub fn with_chunkify(mut self, value: bool) -> Self {
         self.chunkify = value;
-        self
-    }
-
-    pub fn with_encoded_network(mut self, value: Option<Vec<u8>>) -> Self {
-        self.encoded_network = value;
         self
     }
 }
@@ -317,11 +307,6 @@ impl SignTypedDataRequest {
             payload: SignTypedDataPayload::TypedData(typed_data),
             encoded_network: None,
         }
-    }
-
-    pub fn with_encoded_network(mut self, value: Option<Vec<u8>>) -> Self {
-        self.encoded_network = value;
-        self
     }
 }
 

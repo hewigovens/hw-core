@@ -4,10 +4,6 @@ use hw_wallet::chain::{Chain, DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32
 use hw_wallet::eip712::normalize_typed_data_signature;
 use hw_wallet::message::{build_sign_message_request, normalize_message_signature};
 use tracing::info;
-use trezor_connect::thp::{
-    SignMessageRequest, SignMessageResponse, SignTypedDataRequest, SignTypedDataResponse,
-    ThpBackend, ThpWorkflow,
-};
 
 use self::eth_request::{EthSignRequest, build_eth_sign_request_from_args};
 use crate::cli::{SignMessageArgs, SignMessageBtcArgs, SignMessageCommand, SignMessageEthArgs};
@@ -43,7 +39,10 @@ async fn run_eth(args: SignMessageEthArgs, skip_pairing: bool) -> Result<()> {
                 path, args.hex, args.chunkify, args.timeout_secs, args.thp_timeout_secs
             );
             print_requesting("ETH message signature");
-            let response = sign_message_with_workflow(&mut workflow, request).await?;
+            let response = workflow
+                .sign_message(request)
+                .await
+                .context("sign-message failed")?;
             let normalized = normalize_message_signature(&response)?;
             print_message_signature_response(
                 &response.address,
@@ -57,7 +56,10 @@ async fn run_eth(args: SignMessageEthArgs, skip_pairing: bool) -> Result<()> {
                 path, args.timeout_secs, args.thp_timeout_secs
             );
             print_requesting("ETH typed-data signature");
-            let response = sign_typed_data_with_workflow(&mut workflow, request).await?;
+            let response = workflow
+                .sign_typed_data(request)
+                .await
+                .context("sign-message failed for --type eip712")?;
             let normalized = normalize_typed_data_signature(&response)?;
             print_message_signature_response(&response.address, &normalized, &response.signature);
         }
@@ -90,36 +92,13 @@ async fn run_btc(args: SignMessageBtcArgs, skip_pairing: bool) -> Result<()> {
     let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign-message").await?;
 
     print_requesting("BTC message signature");
-    let response = sign_message_with_workflow(&mut workflow, request).await?;
+    let response = workflow
+        .sign_message(request)
+        .await
+        .context("sign-message failed")?;
     let normalized = normalize_message_signature(&response)?;
     print_message_signature_response(&response.address, &normalized.value, &response.signature);
     Ok(())
-}
-
-async fn sign_message_with_workflow<B>(
-    workflow: &mut ThpWorkflow<B>,
-    request: SignMessageRequest,
-) -> Result<SignMessageResponse>
-where
-    B: ThpBackend + Send,
-{
-    workflow
-        .sign_message(request)
-        .await
-        .context("sign-message failed")
-}
-
-async fn sign_typed_data_with_workflow<B>(
-    workflow: &mut ThpWorkflow<B>,
-    request: SignTypedDataRequest,
-) -> Result<SignTypedDataResponse>
-where
-    B: ThpBackend + Send,
-{
-    workflow
-        .sign_typed_data(request)
-        .await
-        .context("sign-message failed for --type eip712")
 }
 
 #[cfg(test)]
@@ -147,9 +126,7 @@ mod tests {
             true,
         )
         .unwrap();
-        let response = sign_message_with_workflow(&mut workflow, request)
-            .await
-            .unwrap();
+        let response = workflow.sign_message(request).await.unwrap();
 
         assert_eq!(response.chain, ThpChain::Ethereum);
         assert_eq!(response.signature.len(), 65);
@@ -174,9 +151,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let response = sign_message_with_workflow(&mut workflow, request)
-            .await
-            .unwrap();
+        let response = workflow.sign_message(request).await.unwrap();
 
         assert_eq!(response.chain, ThpChain::Bitcoin);
         assert_eq!(response.signature.len(), 65);
@@ -209,9 +184,7 @@ mod tests {
             true,
         )
         .unwrap();
-        let response = sign_typed_data_with_workflow(&mut workflow, request)
-            .await
-            .unwrap();
+        let response = workflow.sign_typed_data(request).await.unwrap();
 
         assert_eq!(response.chain, ThpChain::Ethereum);
         assert_eq!(response.signature.len(), 65);

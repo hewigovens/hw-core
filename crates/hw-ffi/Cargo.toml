@@ -21,6 +21,7 @@ required-features = ["bindings-cli"]
 [dependencies]
 async-trait = { workspace = true }
 ble-transport = { workspace = true }
+hex = { workspace = true }
 hw-wallet = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }

@@ -1029,6 +1029,7 @@ dependencies = [
  "btleplug",
  "camino",
  "clap",
+ "hex",
  "hw-wallet",
  "jni",
  "parking_lot",

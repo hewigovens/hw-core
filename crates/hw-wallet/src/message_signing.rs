@@ -1,35 +1,9 @@
 use hw_chain::Chain;
-use trezor_connect::thp::{SignMessageRequest, SignTypedDataRequest};
+use trezor_connect::thp::SignTypedDataRequest;
 
 use crate::chain::infer_chain_from_path;
 use crate::eip712::{build_sign_typed_data_request, build_sign_typed_hash_request};
 use crate::error::{WalletError, WalletResult};
-use crate::message::build_sign_message_request;
-
-pub fn build_eth_eip191_request(
-    path: Vec<u32>,
-    message: &str,
-    is_hex: bool,
-    chunkify: bool,
-) -> WalletResult<SignMessageRequest> {
-    build_sign_message_request(Chain::Ethereum, path, message, is_hex, chunkify)
-}
-
-pub fn build_eth_eip712_json_request(
-    path: Vec<u32>,
-    data_json: &str,
-    metamask_v4_compat: bool,
-) -> WalletResult<SignTypedDataRequest> {
-    build_sign_typed_data_request(path, data_json, metamask_v4_compat)
-}
-
-pub fn build_eth_eip712_hash_request(
-    path: Vec<u32>,
-    domain_separator_hash: &str,
-    message_hash: Option<&str>,
-) -> WalletResult<SignTypedDataRequest> {
-    build_sign_typed_hash_request(path, domain_separator_hash, message_hash)
-}
 
 pub fn build_eth_eip712_request(
     path: Vec<u32>,
@@ -43,10 +17,10 @@ pub fn build_eth_eip712_request(
             "ETH EIP-712 signing must use either `data_json` or hash fields, not both".into(),
         )),
         (Some(data_json), None, None) => {
-            build_eth_eip712_json_request(path, data_json, metamask_v4_compat)
+            build_sign_typed_data_request(path, data_json, metamask_v4_compat)
         }
         (None, Some(domain_separator_hash), message_hash) => {
-            build_eth_eip712_hash_request(path, domain_separator_hash, message_hash)
+            build_sign_typed_hash_request(path, domain_separator_hash, message_hash)
         }
         (None, None, Some(_)) => Err(WalletError::Signing(
             "ETH EIP-712 hash signing requires `domain_separator_hash`".into(),
@@ -79,13 +53,10 @@ pub(crate) fn validate_signing_path_for_chain(
     Ok(())
 }
 
-pub(crate) fn validate_eth_signing_path(path: &[u32], operation: &str) -> WalletResult<()> {
-    validate_signing_path_for_chain(Chain::Ethereum, path, operation)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::build_sign_message_request;
     use serde::Deserialize;
 
     const EIP712_MIXED_JSON_AND_HASHES: &str =
@@ -116,7 +87,8 @@ mod tests {
 
     #[test]
     fn build_eth_eip191_request_accepts_message_mode() {
-        let request = build_eth_eip191_request(
+        let request = build_sign_message_request(
+            Chain::Ethereum,
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0],
             "hello",
             false,
@@ -131,7 +103,7 @@ mod tests {
 
     #[test]
     fn build_eth_eip712_json_request_accepts_json_mode() {
-        let request = build_eth_eip712_json_request(
+        let request = build_sign_typed_data_request(
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000],
             r#"{
                 "types": {
@@ -151,7 +123,7 @@ mod tests {
 
     #[test]
     fn build_eth_eip712_hash_request_accepts_hash_mode() {
-        let request = build_eth_eip712_hash_request(
+        let request = build_sign_typed_hash_request(
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000],
             "0x1111111111111111111111111111111111111111111111111111111111111111",
             Some("0x2222222222222222222222222222222222222222222222222222222222222222"),
@@ -196,7 +168,7 @@ mod tests {
 
     #[test]
     fn build_eth_eip712_json_request_rejects_fixture_missing_domain_type() {
-        let err = build_eth_eip712_json_request(
+        let err = build_sign_typed_data_request(
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000],
             EIP712_MISSING_DOMAIN_TYPE,
             true,
@@ -207,7 +179,7 @@ mod tests {
 
     #[test]
     fn build_eth_eip712_json_request_rejects_fixture_missing_primary_type() {
-        let err = build_eth_eip712_json_request(
+        let err = build_sign_typed_data_request(
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000],
             EIP712_MISSING_PRIMARY_TYPE,
             true,

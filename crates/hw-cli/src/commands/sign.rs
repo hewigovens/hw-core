@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use hw_wallet::eth::verify_sign_tx_response;
 use tracing::info;
-use trezor_connect::thp::{SignTxRequest, ThpBackend, ThpWorkflow};
 
 use self::request::{
     build_btc_sign_request_from_args, build_eth_sign_request_from_args,
@@ -31,7 +30,10 @@ async fn run_eth(args: SignEthArgs, skip_pairing: bool) -> Result<()> {
     let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign").await?;
 
     print_requesting("ETH transaction signature");
-    let response = sign_tx_with_workflow(&mut workflow, request.request.clone()).await?;
+    let response = workflow
+        .sign_tx(request.request.clone())
+        .await
+        .context("sign-tx failed")?;
     let verification = verify_sign_tx_response(&request.request, &response).ok();
     print_eth_sign_tx_response(&response, verification.as_ref());
 
@@ -47,7 +49,10 @@ async fn run_sol(args: SignSolArgs, skip_pairing: bool) -> Result<()> {
     let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign").await?;
 
     print_requesting("SOL transaction signature");
-    let response = sign_tx_with_workflow(&mut workflow, request.request).await?;
+    let response = workflow
+        .sign_tx(request.request)
+        .await
+        .context("sign-tx failed")?;
     print_hex_field("signature", &response.r);
     Ok(())
 }
@@ -62,24 +67,14 @@ async fn run_btc(args: SignBtcArgs, skip_pairing: bool) -> Result<()> {
     let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign").await?;
 
     print_requesting("BTC transaction signature");
-    let response = sign_tx_with_workflow(&mut workflow, request).await?;
+    let response = workflow.sign_tx(request).await.context("sign-tx failed")?;
     print_hex_field("signature", &response.r);
     Ok(())
 }
 
-async fn sign_tx_with_workflow<B>(
-    workflow: &mut ThpWorkflow<B>,
-    request: SignTxRequest,
-) -> Result<trezor_connect::thp::SignTxResponse>
-where
-    B: ThpBackend + Send,
-{
-    workflow.sign_tx(request).await.context("sign-tx failed")
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use trezor_connect::thp::SignTxRequest;
 
     use crate::commands::test_support::{
         MockBackend, canned_btc_sign_response, canned_eth_sign_response, canned_sol_sign_response,
@@ -105,7 +100,7 @@ mod tests {
             .with_max_priority_fee(vec![1])
             .with_to("0x000000000000000000000000000000000000dead".into())
             .with_value(vec![0]);
-        let response = sign_tx_with_workflow(&mut workflow, request).await.unwrap();
+        let response = workflow.sign_tx(request).await.unwrap();
 
         assert_eq!(response.v, 0);
         let backend = workflow.backend_mut();
@@ -127,7 +122,7 @@ mod tests {
             vec![0x8000_002c, 0x8000_01f5, 0x8000_0000, 0x8000_0000],
             vec![0x01, 0x02, 0x03],
         );
-        let response = sign_tx_with_workflow(&mut workflow, request).await.unwrap();
+        let response = workflow.sign_tx(request).await.unwrap();
 
         assert_eq!(response.chain, ThpChain::Solana);
         assert_eq!(response.r.len(), 64);
@@ -150,7 +145,7 @@ mod tests {
 
         let tx = parse_btc_tx_json(BTC_SIGN_WITH_REF_TXS).unwrap();
         let request = build_btc_sign_tx_request(tx).unwrap();
-        let response = sign_tx_with_workflow(&mut workflow, request).await.unwrap();
+        let response = workflow.sign_tx(request).await.unwrap();
 
         assert_eq!(response.chain, ThpChain::Bitcoin);
         assert_eq!(response.r.len(), 64);

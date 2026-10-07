@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use ble_transport::{BleLink, BleSession, DeviceInfo};
+use ble_transport::{BleLink, BleSession};
 use prost::Message;
 use tokio::time;
 use tracing::{debug, trace};
@@ -288,7 +288,6 @@ enum ThpChannel {
 
 pub struct BleBackend {
     link: BleLink,
-    device: DeviceInfo,
     handshake_timeout: Duration,
     channel: ThpChannel,
     credentials: SharedCredentials,
@@ -296,24 +295,19 @@ pub struct BleBackend {
 }
 
 impl BleBackend {
-    pub fn new(link: BleLink, device: DeviceInfo) -> Self {
+    pub fn new(link: BleLink, handshake_timeout: Duration) -> Self {
         Self {
             link,
-            device,
-            handshake_timeout: Duration::from_secs(10),
+            handshake_timeout,
             channel: ThpChannel::Closed,
             credentials: SharedCredentials::default(),
             nfc_secret: None,
         }
     }
 
-    pub fn from_session(session: BleSession) -> Self {
-        let (device, link) = session.into_parts();
-        Self::new(link, device)
-    }
-
-    pub fn device_info(&self) -> &DeviceInfo {
-        &self.device
+    pub fn from_session(session: BleSession, handshake_timeout: Duration) -> Self {
+        let (_, link) = session.into_parts();
+        Self::new(link, handshake_timeout)
     }
 
     pub fn handshake_timeout(&self) -> Duration {

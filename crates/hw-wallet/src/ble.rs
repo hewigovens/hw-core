@@ -14,24 +14,6 @@ use trezor_connect::thp::{
 
 use crate::error::{WalletError, WalletResult};
 
-pub async fn scan_profile(
-    manager: &BleManager,
-    profile: BleProfile,
-    duration: Duration,
-) -> WalletResult<Vec<DiscoveredDevice>> {
-    let devices = manager.scan_profile(profile, duration).await?;
-    Ok(devices)
-}
-
-pub async fn scan_trezor(
-    manager: &BleManager,
-    duration: Duration,
-) -> WalletResult<(BleProfile, Vec<DiscoveredDevice>)> {
-    let profile = BleProfile::TREZOR_SAFE7;
-    let devices = scan_profile(manager, profile, duration).await?;
-    Ok((profile, devices))
-}
-
 pub async fn connect_trezor_device(
     device: DiscoveredDevice,
     profile: BleProfile,
@@ -47,24 +29,6 @@ pub async fn connect_trezor_device(
             }
         })?;
     Ok(session)
-}
-
-pub fn backend_from_session(session: BleSession, thp_timeout: Duration) -> BleBackend {
-    let mut backend = BleBackend::from_session(session);
-    backend.set_handshake_timeout(thp_timeout);
-    backend
-}
-
-pub async fn workflow_with_storage(
-    backend: BleBackend,
-    config: HostConfig,
-    storage: Arc<dyn ThpStorage>,
-) -> WalletResult<ThpWorkflow<BleBackend>> {
-    Ok(ThpWorkflow::with_storage(backend, config, storage).await?)
-}
-
-pub fn workflow(backend: BleBackend, config: HostConfig) -> ThpWorkflow<BleBackend> {
-    ThpWorkflow::new(backend, config)
 }
 
 pub const CREATE_CHANNEL_ATTEMPTS: usize = 3;
@@ -215,19 +179,19 @@ pub async fn connect_and_bootstrap_session(
     options: SessionBootstrapOptions,
 ) -> WalletResult<ThpWorkflow<BleBackend>> {
     let session = connect_trezor_device(device, profile).await?;
-    let backend = backend_from_session(session, options.thp_timeout);
+    let backend = BleBackend::from_session(session, options.thp_timeout);
 
     let mut workflow = if let Some(storage) = storage {
-        workflow_with_storage(backend, config, storage).await?
+        ThpWorkflow::with_storage(backend, config, storage).await?
     } else {
-        workflow(backend, config)
+        ThpWorkflow::new(backend, config)
     };
 
     prepare_session_bootstrap(&mut workflow, &options).await?;
     Ok(workflow)
 }
 
-pub async fn prepare_session_bootstrap<B>(
+async fn prepare_session_bootstrap<B>(
     workflow: &mut ThpWorkflow<B>,
     options: &SessionBootstrapOptions,
 ) -> WalletResult<()>
@@ -237,22 +201,6 @@ where
     let mut session_ready = false;
     match advance_session_bootstrap(workflow, &mut session_ready, options).await? {
         SessionPhase::Ready => Ok(()),
-        SessionPhase::NeedsPairingCode => Err(WalletError::Workflow(
-            ThpWorkflowError::PairingInteractionRequired,
-        )),
-        _ => Err(WalletError::Workflow(ThpWorkflowError::InvalidPhase)),
-    }
-}
-
-pub async fn establish_authenticated_phase<B>(
-    workflow: &mut ThpWorkflow<B>,
-    try_to_unlock: bool,
-) -> WalletResult<()>
-where
-    B: ThpBackend + Send,
-{
-    match advance_to_paired(workflow, try_to_unlock).await? {
-        SessionPhase::NeedsSession => Ok(()),
         SessionPhase::NeedsPairingCode => Err(WalletError::Workflow(
             ThpWorkflowError::PairingInteractionRequired,
         )),
@@ -369,7 +317,7 @@ where
     }
 }
 
-pub async fn create_channel_with_retry<B>(
+async fn create_channel_with_retry<B>(
     workflow: &mut ThpWorkflow<B>,
     attempts: usize,
     retry_delay: Duration,
@@ -409,7 +357,7 @@ where
     unreachable!("attempts is always >= 1")
 }
 
-pub async fn handshake_with_retry<B>(
+async fn handshake_with_retry<B>(
     workflow: &mut ThpWorkflow<B>,
     try_to_unlock: bool,
     attempts: usize,
@@ -437,7 +385,7 @@ where
     unreachable!("attempts is always >= 1")
 }
 
-pub async fn create_session_with_retry<B>(
+async fn create_session_with_retry<B>(
     workflow: &mut ThpWorkflow<B>,
     passphrase: Option<String>,
     on_device: bool,
@@ -531,7 +479,7 @@ pub async fn scan_profile_until_match(
     while start.elapsed() < duration {
         let remaining = duration.saturating_sub(start.elapsed());
         let window = remaining.min(SCAN_WINDOW);
-        let devices = scan_profile(manager, profile, window).await?;
+        let devices = manager.scan_profile(profile, window).await?;
         if devices.is_empty() {
             continue;
         }
