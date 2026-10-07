@@ -5,8 +5,6 @@ hw-core is a Rust workspace for host-to-hardware crypto wallet communication. Th
 ## Crate Architecture
 
 ```
-thp-crypto       Noise XX crypto primitives + wire framing (CipherSuite trait, CRC32, chunking)
-thp-core         Async THP session state machine (uses snow crate for Noise XX)
 thp-proto        Prost-generated protobuf types from vendored messages-thp.proto
 ble-transport    BLE primitives via btleplug (scanning, connection, I/O)
 trezor-connect   Host-facing THP workflow API + BLE backend
@@ -19,8 +17,7 @@ hw-cli           Interactive CLI using clap
 ## Dependency Graph
 
 ```
-thp-crypto ──→ thp-core ──┐
-thp-proto ────────────────┤
+thp-proto ────────────────┐
 hw-chain ─────────────────┼─→ trezor-connect ──→ hw-wallet ──┬─→ hw-ffi
 ble-transport ────────────┘                                  └─→ hw-cli
 ```

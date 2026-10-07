@@ -6,7 +6,7 @@
 - Functions/methods: `snake_case` (`create_channel`, `parse_encrypted_response`)
 - Constants: `SCREAMING_SNAKE_CASE` (`DEFAULT_ETHEREUM_BIP32_PATH`, `THP_ERROR_DEVICE_LOCKED`)
 - Modules: `snake_case` (`backend_impl`, `curve25519`)
-- Crate names: `kebab-case` (`thp-crypto`, `ble-transport`, `hw-wallet`)
+- Crate names: `kebab-case` (`thp-proto`, `ble-transport`, `hw-wallet`)
 
 ## Project-Specific Naming
 

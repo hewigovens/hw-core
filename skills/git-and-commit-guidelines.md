@@ -24,13 +24,13 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 
 ### Scopes
 
-Use the crate name without prefix: `crypto`, `core`, `proto`, `ble`, `connect`, `wallet`, `ffi`, `cli`, `chain`.
+Use the crate name without prefix: `proto`, `ble`, `connect`, `wallet`, `ffi`, `cli`, `chain`.
 
 ```
 feat(connect): add Solana signing support
 fix(ble): handle transport timeout on Android
 refactor(wallet): extract session retry logic
-test(crypto): add proptest for continuation frames
+test(connect): add vectors for continuation frames
 chore(ci): add cargo fmt check step
 ```
 

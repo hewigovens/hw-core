@@ -5,7 +5,6 @@ pub mod error;
 pub mod proto;
 pub mod state;
 pub mod storage;
-pub mod transport;
 pub mod types;
 pub mod wire;
 pub mod workflow;
@@ -16,7 +15,6 @@ pub use hw_chain::Chain;
 pub use state::{Phase, ThpState};
 pub use storage::{FileStorage, HostSnapshot, StorageError, ThpStorage};
 pub use thp_proto::hw::trezor::messages::thp as messages;
-pub use transport::{ThpTransport, TransportError};
 pub use types::{
     BtcHDNode, BtcHDNodePath, BtcInputScriptType, BtcMultisig, BtcMultisigPubkeysOrder, BtcOrigTx,
     BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestAmount, BtcPaymentRequestMemo,

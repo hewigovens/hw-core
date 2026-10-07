@@ -10,7 +10,6 @@ use tokio::time;
 use tracing::{debug, trace};
 
 use crate::thp::Chain;
-use crate::thp::ThpTransport;
 use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
 use crate::thp::crypto::curve25519::{
     Curve25519KeyPair, derive_public_from_private, get_curve25519_key_pair,
@@ -508,7 +507,6 @@ type ResponseOrReason<T> = std::result::Result<T, BackendError>;
 pub struct BleBackend {
     inner: TransportBackend,
     device: DeviceInfo,
-    transport: ThpTransport,
     handshake_timeout: Duration,
     state: ThpWireState,
     rx_buffer: Vec<u8>,
@@ -525,7 +523,6 @@ impl BleBackend {
         Self {
             inner: TransportBackend::new(link),
             device,
-            transport: ThpTransport::new(),
             handshake_timeout: Duration::from_secs(10),
             state: ThpWireState::new(),
             rx_buffer: Vec::new(),

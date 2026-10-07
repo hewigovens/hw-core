@@ -58,8 +58,8 @@ Use `parking_lot::Mutex` over `std::sync::Mutex` for non-async contexts. For asy
 // good — synchronous state (test mocks in thp/workflow/tests.rs)
 tag_requests: parking_lot::Mutex<Vec<PairingTagRequest>>,
 
-// good — held across .await (thp-core/src/session.rs)
-transport: tokio::sync::Mutex<snow::TransportState>,
+// good — held across .await
+session: tokio::sync::Mutex<Option<Session>>,
 ```
 
 ## Protobuf

@@ -899,7 +899,6 @@ impl ThpBackend for BleBackend {
 
     async fn abort(&mut self) -> BackendResult<()> {
         self.nfc_secret = None;
-        self.transport.reset();
         self.reset_receive_state();
         self.inner
             .abort()

@@ -22,26 +22,22 @@ Never use `unwrap()`, `expect()`, or `panic!()` on fallible operations in non-te
 let session = self.session.lock().expect("session must exist");
 
 // good — return an error
-let session = self.session.lock();
-let session = session.as_ref().ok_or(TransportError::NoSession)?;
+let cache = self
+    .state
+    .handshake_cache()
+    .ok_or(ThpWorkflowError::MissingHandshake)?;
 ```
 
 For compile-time constants that are known to be valid, use `OnceLock` and validate in a test:
 
 ```rust
-// bad
-let params = "Noise_XX_25519_AESGCM_SHA256".parse().unwrap();
-
-// good
-static NOISE_PARAMS: OnceLock<NoiseParams> = OnceLock::new();
-let params = NOISE_PARAMS.get_or_init(|| {
-    "Noise_XX_25519_AESGCM_SHA256".parse()
-        .expect("compile-time constant")
-});
-
-#[test]
-fn noise_params_parse() {
-    let _ = *NOISE_PARAMS; // validates the constant
+// good — thp/crypto/curve25519.rs
+fn constants() -> &'static CurveConstants {
+    static INSTANCE: OnceLock<CurveConstants> = OnceLock::new();
+    INSTANCE.get_or_init(|| {
+        let c3 = BigInt::parse_bytes(b"1968...", 10).expect("compile-time constant c3");
+        // ...
+    })
 }
 ```
 
