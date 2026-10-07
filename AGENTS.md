@@ -18,8 +18,14 @@ hw-core is a Rust workspace for host-to-hardware crypto wallet communication. Th
 - [Naming](skills/naming.md) – Rust naming conventions and project-specific terminology
 - [Tests](skills/tests.md) – Test organization, MockBackend, proptest, and fixture patterns
 - [Comments](skills/comments.md) – When and how to write comments and doc comments
-- [Git and Commit Guidelines](skills/git-and-commit-guidelines.md) – Conventional Commits format and PR checklist
+- [Commit Guidelines](skills/commit-guidelines.md) – jj + sibling workspace workflow, Conventional Commits format, and PR checklist
 - [Common Issues](skills/common-issues.md) – Known build, BLE, and platform-specific issues
+
+## Version Control
+
+- The repo is colocated jj + git. Use `jj` for most work (commits, rebases, bookmarks, pushes); never `git pull` or `git checkout` in the main checkout.
+- Work in a sibling jj workspace per task: `jj workspace add ../hw-core-<topic> --name <topic> -r main@origin`.
+- Details in [Commit Guidelines](skills/commit-guidelines.md).
 
 ## Formatting (mandatory)
 
