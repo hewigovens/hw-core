@@ -21,68 +21,57 @@ High-level references:
 ## Architecture
 
 ```mermaid
-%%{init: {'theme':'base', 'flowchart': {'rankSpacing': 45, 'nodeSpacing': 25, 'curve': 'basis'}}}%%
 flowchart TB
-  subgraph L1["Application Layer"]
+  subgraph apps["Apps"]
     direction LR
-    CLI["hw-cli"]
-    APP["Apple / Android apps"]
+    CLI["hw-cli<br/>scan · pair · address · sign"]
+    APPLE["iOS / macOS sample app"]
+    ANDROID["Android sample app"]
   end
 
-  subgraph L2["FFI Layer"]
+  subgraph packages["Platform packages"]
     direction LR
-    FFI_PAD[" "]
-    FFI["hw-ffi (UniFFI)"]
-    FFI_PAD --- FFI
+    SWIFT["HWCoreKit<br/>Swift package"]
+    KOTLIN["android/lib<br/>Kotlin library"]
   end
 
-  subgraph L3["Wallet Layer"]
-    direction TB
-    WALLET["hw-wallet (shared orchestration)"]
-    CHAIN["hw-chain (chain config)"]
-    WALLET --> CHAIN
-  end
+  FFI["hw-ffi<br/>UniFFI bindings · Android JNI init"]
+  WALLET["hw-wallet<br/>connect + retry policy · ETH/BTC/SOL requests · EIP-712"]
+  CHAIN["hw-chain<br/>chains · default BIP32 paths"]
 
-  subgraph L4["Protocol Layer"]
+  subgraph connect["trezor-connect"]
     direction LR
-    PROTO_PAD[" "]
-    subgraph L4S[" "]
-      direction TB
-      CONNECT["trezor-connect (THP workflow/backend)"]
-      THP["thp-proto (protobuf types)"]
-      BLE["ble-transport (BLE link)"]
-      CONNECT --> THP
-      THP --> BLE
-    end
-    PROTO_PAD --- CONNECT
+    WORKFLOW["THP workflow<br/>handshake · pairing · sessions"]
+    BACKEND["BLE backend<br/>framing · Noise · encryption"]
+    MAPPING["chain messages<br/>ETH · BTC · SOL"]
+    STORAGE["host credential storage"]
   end
 
-  subgraph L5["Hardware Layer"]
-    direction LR
-    HW_PAD[" "]
-    DEVICE["Trezor Safe 7"]
-    HW_PAD --- DEVICE
-  end
+  PROTO["thp-proto<br/>prost THP messages"]
+  BLE["ble-transport<br/>btleplug"]
+  DEVICE["Trezor Safe 7"]
 
+  APPLE --> SWIFT --> FFI
+  ANDROID --> KOTLIN --> FFI
   CLI --> WALLET
-  APP --> FFI_PAD
   FFI --> WALLET
-  CHAIN --> PROTO_PAD
-  BLE --> HW_PAD
+  WALLET --> CHAIN
+  WALLET --> connect
+  connect --> CHAIN
+  connect --> PROTO
+  BACKEND --> BLE
+  BLE -- "BLE GATT" --> DEVICE
 
-  classDef appLayer fill:#E3F2FD,stroke:#1E88E5,color:#0D47A1,stroke-width:1.5px;
-  classDef ffiLayer fill:#E8F5E9,stroke:#43A047,color:#1B5E20,stroke-width:1.5px;
-  classDef walletLayer fill:#FFF8E1,stroke:#FB8C00,color:#E65100,stroke-width:1.5px;
-  classDef protoLayer fill:#ECEFF1,stroke:#546E7A,color:#263238,stroke-width:1.5px;
-  classDef hwLayer fill:#FFEBEE,stroke:#E53935,color:#B71C1C,stroke-width:1.5px;
-  classDef spacer fill:transparent,stroke:transparent,color:transparent;
-
-  class CLI,APP appLayer;
-  class FFI ffiLayer;
-  class WALLET,CHAIN walletLayer;
-  class CONNECT,BLE,THP protoLayer;
-  class DEVICE hwLayer;
-  class FFI_PAD,PROTO_PAD,HW_PAD spacer;
+  classDef app fill:#E3F2FD,stroke:#1E88E5,color:#0D47A1;
+  classDef ffi fill:#E8F5E9,stroke:#43A047,color:#1B5E20;
+  classDef wallet fill:#FFF8E1,stroke:#FB8C00,color:#E65100;
+  classDef proto fill:#ECEFF1,stroke:#546E7A,color:#263238;
+  classDef hw fill:#FFEBEE,stroke:#E53935,color:#B71C1C;
+  class CLI,APPLE,ANDROID app;
+  class SWIFT,KOTLIN,FFI ffi;
+  class WALLET,CHAIN wallet;
+  class WORKFLOW,BACKEND,MAPPING,STORAGE,PROTO,BLE proto;
+  class DEVICE hw;
 ```
 
 ## Status
