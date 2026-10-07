@@ -8,7 +8,7 @@ use self::request::{
 };
 use crate::cli::{SignArgs, SignBtcArgs, SignCommand, SignEthArgs, SignSolArgs};
 use crate::commands::common::{
-    connect_ready_command_workflow, print_eth_sign_tx_response, print_hex_field, print_requesting,
+    connect_ready_workflow, print_eth_sign_tx_response, print_hex_field, print_requesting,
 };
 
 mod request;
@@ -25,9 +25,13 @@ async fn run_eth(args: SignEthArgs, skip_pairing: bool) -> Result<()> {
     let request = build_eth_sign_request_from_args(&args)?;
     info!(
         "sign command started: chain=ethereum path='{}' to={} chain_id={} scan_timeout_secs={} thp_timeout_secs={}",
-        args.path, request.to, request.chain_id, args.timeout_secs, args.thp_timeout_secs
+        args.path,
+        request.to,
+        request.chain_id,
+        args.connect.timeout_secs,
+        args.connect.thp_timeout_secs
     );
-    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign").await?;
+    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "sign").await?;
 
     print_requesting("ETH transaction signature");
     let response = workflow
@@ -44,9 +48,9 @@ async fn run_sol(args: SignSolArgs, skip_pairing: bool) -> Result<()> {
     let request = build_sol_sign_request_from_args(&args)?;
     info!(
         "sign command started: chain=solana path='{}' tx_bytes={} scan_timeout_secs={} thp_timeout_secs={}",
-        args.path, request.tx_bytes, args.timeout_secs, args.thp_timeout_secs
+        args.path, request.tx_bytes, args.connect.timeout_secs, args.connect.thp_timeout_secs
     );
-    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign").await?;
+    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "sign").await?;
 
     print_requesting("SOL transaction signature");
     let response = workflow
@@ -61,10 +65,10 @@ async fn run_btc(args: SignBtcArgs, skip_pairing: bool) -> Result<()> {
     let request = build_btc_sign_request_from_args(&args)?;
     info!(
         "sign command started: chain=bitcoin scan_timeout_secs={} thp_timeout_secs={}",
-        args.timeout_secs, args.thp_timeout_secs
+        args.connect.timeout_secs, args.connect.thp_timeout_secs
     );
 
-    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign").await?;
+    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "sign").await?;
 
     print_requesting("BTC transaction signature");
     let response = workflow.sign_tx(request).await.context("sign-tx failed")?;

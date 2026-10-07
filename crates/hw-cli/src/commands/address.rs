@@ -4,9 +4,7 @@ use tracing::info;
 use trezor_connect::thp::{GetAddressRequest, ThpBackend, ThpWorkflow};
 
 use crate::cli::AddressArgs;
-use crate::commands::common::{
-    connect_ready_command_workflow, print_address_response, print_requesting,
-};
+use crate::commands::common::{connect_ready_workflow, print_address_response, print_requesting};
 
 pub async fn run(args: AddressArgs, skip_pairing: bool) -> Result<()> {
     let resolved = resolve_derivation_path(args.chain, args.path.as_deref())?;
@@ -14,14 +12,14 @@ pub async fn run(args: AddressArgs, skip_pairing: bool) -> Result<()> {
         "address command started: chain={:?} path='{}' scan_timeout_secs={} thp_timeout_secs={} show_on_device={} include_public_key={} chunkify={}",
         resolved.chain,
         resolved.path,
-        args.timeout_secs,
-        args.thp_timeout_secs,
+        args.connect.timeout_secs,
+        args.connect.thp_timeout_secs,
         args.show_on_device,
         args.include_public_key,
         args.chunkify
     );
 
-    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "address").await?;
+    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "address").await?;
 
     print_requesting(&format!("{:?} address", resolved.chain));
     let response = get_address_with_workflow(

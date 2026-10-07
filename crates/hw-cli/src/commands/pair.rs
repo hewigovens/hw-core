@@ -5,17 +5,21 @@ use hw_wallet::ble::{
 use tracing::info;
 
 use crate::cli::PairArgs;
-use crate::commands::common::{ConnectWorkflowOptions, connect_workflow};
+use crate::commands::common::connect_workflow;
 use crate::config::default_storage_path;
 use crate::pairing::CliPairingController;
 
 pub async fn run(args: PairArgs, skip_pairing: bool) -> Result<()> {
     info!(
         "pair command started: scan_timeout_secs={}, thp_timeout_secs={}, force={}",
-        args.timeout_secs, args.thp_timeout_secs, args.force
+        args.connect.timeout_secs, args.connect.thp_timeout_secs, args.force
     );
 
-    let storage_path = args.storage_path.unwrap_or_else(default_storage_path);
+    let mut connect = args.connect;
+    let storage_path = connect
+        .storage_path
+        .get_or_insert_with(default_storage_path)
+        .clone();
     if args.force && storage_path.exists() {
         std::fs::remove_file(&storage_path).with_context(|| {
             format!(
@@ -27,15 +31,8 @@ pub async fn run(args: PairArgs, skip_pairing: bool) -> Result<()> {
     }
 
     let (mut workflow, storage_path) = connect_workflow(
-        ConnectWorkflowOptions {
-            scan_timeout_secs: args.timeout_secs,
-            thp_timeout_secs: args.thp_timeout_secs,
-            device_id: args.device_id.clone(),
-            storage_path: Some(storage_path),
-            host_name: args.host_name.clone(),
-            app_name: args.app_name.clone(),
-            skip_pairing,
-        },
+        &connect,
+        skip_pairing,
         "pair",
         "Remove this Trezor from macOS Bluetooth settings, then re-run `hw-cli pair --force`.",
     )

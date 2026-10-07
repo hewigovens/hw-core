@@ -60,6 +60,19 @@ mod tests {
 
     use std::path::PathBuf;
 
+    use crate::cli::ConnectArgs;
+
+    fn test_connect_args() -> ConnectArgs {
+        ConnectArgs {
+            timeout_secs: 60,
+            thp_timeout_secs: 60,
+            device_id: None,
+            storage_path: None,
+            host_name: None,
+            app_name: "hw-core/cli".into(),
+        }
+    }
+
     #[test]
     fn build_eth_sign_request_from_args_rejects_mixed_eip712_inputs() {
         let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -73,12 +86,7 @@ mod tests {
                 chunkify: false,
                 data_file: Some(fixture),
                 metamask_v4_compat: true,
-                timeout_secs: 60,
-                thp_timeout_secs: 60,
-                device_id: None,
-                storage_path: None,
-                host_name: None,
-                app_name: "hw-core/cli".into(),
+                connect: test_connect_args(),
             },
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0],
         )
@@ -101,12 +109,7 @@ mod tests {
                 chunkify: false,
                 data_file: None,
                 metamask_v4_compat: true,
-                timeout_secs: 60,
-                thp_timeout_secs: 60,
-                device_id: None,
-                storage_path: None,
-                host_name: None,
-                app_name: "hw-core/cli".into(),
+                connect: test_connect_args(),
             },
             vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0],
         )

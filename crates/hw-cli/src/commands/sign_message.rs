@@ -8,7 +8,7 @@ use tracing::info;
 use self::eth_request::{EthSignRequest, build_eth_sign_request_from_args};
 use crate::cli::{SignMessageArgs, SignMessageBtcArgs, SignMessageCommand, SignMessageEthArgs};
 use crate::commands::common::{
-    connect_ready_command_workflow, print_message_signature_response, print_requesting,
+    connect_ready_workflow, print_message_signature_response, print_requesting,
 };
 
 mod eth_request;
@@ -30,13 +30,17 @@ async fn run_eth(args: SignMessageEthArgs, skip_pairing: bool) -> Result<()> {
     let request = build_eth_sign_request_from_args(&args, path_indices)
         .context("failed to build ETH sign-message request")?;
 
-    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign-message").await?;
+    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "sign-message").await?;
 
     match request {
         EthSignRequest::Message(request) => {
             info!(
                 "sign-message command started: chain=ethereum type=eip191 path='{}' hex={} chunkify={} scan_timeout_secs={} thp_timeout_secs={}",
-                path, args.hex, args.chunkify, args.timeout_secs, args.thp_timeout_secs
+                path,
+                args.hex,
+                args.chunkify,
+                args.connect.timeout_secs,
+                args.connect.thp_timeout_secs
             );
             print_requesting("ETH message signature");
             let response = workflow
@@ -53,7 +57,7 @@ async fn run_eth(args: SignMessageEthArgs, skip_pairing: bool) -> Result<()> {
         EthSignRequest::TypedData(request) => {
             info!(
                 "sign-message command started: chain=ethereum type=eip712 path='{}' scan_timeout_secs={} thp_timeout_secs={}",
-                path, args.timeout_secs, args.thp_timeout_secs
+                path, args.connect.timeout_secs, args.connect.thp_timeout_secs
             );
             print_requesting("ETH typed-data signature");
             let response = workflow
@@ -86,10 +90,10 @@ async fn run_btc(args: SignMessageBtcArgs, skip_pairing: bool) -> Result<()> {
 
     info!(
         "sign-message command started: chain=bitcoin path='{}' hex={} chunkify={} scan_timeout_secs={} thp_timeout_secs={}",
-        path, args.hex, args.chunkify, args.timeout_secs, args.thp_timeout_secs
+        path, args.hex, args.chunkify, args.connect.timeout_secs, args.connect.thp_timeout_secs
     );
 
-    let mut workflow = connect_ready_command_workflow(&args, skip_pairing, "sign-message").await?;
+    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "sign-message").await?;
 
     print_requesting("BTC message signature");
     let response = workflow
