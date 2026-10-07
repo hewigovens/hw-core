@@ -131,11 +131,11 @@ impl BleDiscoveredDevice {
         let handle = Arc::new(BleWorkflowHandle::new(workflow));
         *handle.session_ready.lock().await = true;
         handle
-            .push_event(WorkflowEvent {
-                kind: WorkflowEventKind::Ready,
-                code: "SESSION_READY".to_string(),
-                message: "BLE workflow is authenticated and session-ready".to_string(),
-            })
+            .push(
+                WorkflowEventKind::Ready,
+                "SESSION_READY",
+                "BLE workflow is authenticated and session-ready",
+            )
             .await;
         Ok(handle)
     }
