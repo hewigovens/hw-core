@@ -79,8 +79,8 @@ flowchart TB
 | Capability | Ethereum | Bitcoin | Solana |
 |---|---|---|---|
 | Address retrieval | Done | Done | Done |
-| Transaction signing | Done | Partial | Done |
-| Message signing | EIP-191, EIP-712 | Done | Not yet |
+| Transaction signing | Partial: no network/token definitions ([#99](https://github.com/hewigovens/hw-core/issues/99)) | Partial: output script-type validation ([#101](https://github.com/hewigovens/hw-core/issues/101)); SLIP-24 not validated on hardware ([#102](https://github.com/hewigovens/hw-core/issues/102)) | Partial: no `additional_info` for token transfers ([#100](https://github.com/hewigovens/hw-core/issues/100)) |
+| Message signing | Done (EIP-191 + EIP-712) | Done | Not planned |
 
 Transport is BLE only (Trezor Safe 7). Supported hosts: macOS and Linux (CLI), iOS/macOS via [HWCoreKit](apple/HWCoreKit/README.md), and Android via the [Kotlin library](android/README.md). See [docs/roadmap.md](docs/roadmap.md) for details.
 
