@@ -74,17 +74,19 @@ impl EmulatorHarness {
 
         // Firmware core v2.12+ aborts at startup unless the TROPIC01 model is listening.
         let tropic_model = std::env::var("TROPIC_MODEL_CONFIG").ok().map(|config| {
+            // model_server runs from the profile dir, so a relative config path must be resolved first.
+            let config = std::fs::canonicalize(&config)
+                .unwrap_or_else(|err| panic!("TROPIC_MODEL_CONFIG {config}: {err}"));
+            assert!(
+                TcpStream::connect(("127.0.0.1", TROPIC_MODEL_PORT)).is_err(),
+                "port {TROPIC_MODEL_PORT} is already in use; stop the other TROPIC01 model first"
+            );
             let log = File::create(log_dir.join("tropic-model.log"))
                 .expect("failed to create tropic model log");
-            let child = Command::new("model_server")
-                .args([
-                    "tcp",
-                    "-c",
-                    &config,
-                    "-p",
-                    &TROPIC_MODEL_PORT.to_string(),
-                    "-o",
-                ])
+            let mut child = Command::new("model_server")
+                .args(["tcp", "-c"])
+                .arg(&config)
+                .args(["-p", &TROPIC_MODEL_PORT.to_string(), "-o"])
                 .arg(profile_dir.join("tropic_model_config_output.yml"))
                 .current_dir(&profile_dir)
                 .stdout(Stdio::from(
@@ -93,7 +95,7 @@ impl EmulatorHarness {
                 .stderr(Stdio::from(log))
                 .spawn()
                 .expect("model_server failed to start (install ts-tvl)");
-            wait_for_tcp_port(TROPIC_MODEL_PORT, Duration::from_secs(10));
+            wait_for_tcp_port(&mut child, TROPIC_MODEL_PORT, Duration::from_secs(10));
             eprintln!("[harness] tropic model ready on port {TROPIC_MODEL_PORT}");
             child
         });
@@ -236,9 +238,12 @@ fn wait_for_emulator_ready(event_port: u16, timeout: Duration) {
     }
 }
 
-fn wait_for_tcp_port(port: u16, timeout: Duration) {
+fn wait_for_tcp_port(child: &mut Child, port: u16, timeout: Duration) {
     let start = Instant::now();
     while TcpStream::connect(("127.0.0.1", port)).is_err() {
+        if let Ok(Some(status)) = child.try_wait() {
+            panic!("process listening on port {port} exited early: {status}");
+        }
         assert!(
             start.elapsed() <= timeout,
             "port {port} did not open within {timeout:?}"

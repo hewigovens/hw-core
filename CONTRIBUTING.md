@@ -79,7 +79,8 @@ Natively, on Debian trixie or another distro that ships SDL3:
 # 1. Install system deps
 sudo apt-get install -y libdbus-1-dev pkg-config dbus libsdl3-0 libsdl3-image0 libjpeg62-turbo patchelf
 
-# 2. Install Python deps, including the TROPIC01 model (ts-tvl) required by core v2.12+
+# 2. Install Python deps in a venv, including the TROPIC01 model (ts-tvl) required by core v2.12+
+python3 -m venv .venv && . .venv/bin/activate
 pip install trezor dbus-fast click typing-extensions \
   "git+https://github.com/tropicsquare/ts-tvl@0e50063160a608d6375cd87f3afbc6f1b7726b1b"
 
@@ -87,9 +88,9 @@ pip install trezor dbus-fast click typing-extensions \
 # Place it at tests/fixtures/trezor-emu-core-T3W1
 
 # 4. Run the tests
-export TREZOR_EMU_BINARY=./tests/fixtures/trezor-emu-core-T3W1
-export BRIDGE_DIR=./tests/fixtures
-export TROPIC_MODEL_CONFIG=./tests/fixtures/tropic_model/config.yml
+export TREZOR_EMU_BINARY="$PWD/tests/fixtures/trezor-emu-core-T3W1"
+export BRIDGE_DIR="$PWD/tests/fixtures"
+export TROPIC_MODEL_CONFIG="$PWD/tests/fixtures/tropic_model/config.yml"
 cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1
 cargo test -p hw-ffi --test emu_ble -- --ignored --nocapture --test-threads=1
 ```
