@@ -34,21 +34,7 @@ assert!(*backend.end_called.lock());
 
 ## Property-Based Testing
 
-Use `proptest` for encode/decode roundtrip tests and boundary conditions:
-
-```rust
-// good — thp-crypto frame roundtrip
-proptest! {
-    #[test]
-    fn roundtrip(msg_id in any::<u32>(), payload in proptest::collection::vec(any::<u8>(), 0..1024), mtu in 16usize..256) {
-        let frame = ThpFrame { msg_id, payload: payload.clone() };
-        let chunks = encode_frame(&frame, mtu).unwrap();
-        let mut decoder = ThpFrameDecoder::new();
-        // push chunks, then decoder.try_next()
-        prop_assert_eq!(decoded.payload, payload);
-    }
-}
-```
+Prefer `proptest` for encode/decode roundtrips and boundary conditions when adding new codecs.
 
 ## Crypto Test Vectors
 

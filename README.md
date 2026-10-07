@@ -49,7 +49,7 @@ flowchart TB
     subgraph L4S[" "]
       direction TB
       CONNECT["trezor-connect (THP workflow/backend)"]
-      THP["thp-core / thp-crypto / thp-proto"]
+      THP["thp-proto (protobuf types)"]
       BLE["ble-transport (BLE link)"]
       CONNECT --> THP
       THP --> BLE
@@ -114,7 +114,7 @@ Pairing state is stored at `~/.hw-core/thp-host.json`. Add `-vv` for protocol lo
 - `crates/hw-chain`: `Chain` enum and `ChainConfig` (code, SLIP-44 coin type, default BIP32 path)
 - `crates/trezor-connect`: host-facing THP workflow + backend bridge
 - `crates/ble-transport`: BLE manager and profile-specific transport behavior
-- `crates/thp-*`: protocol primitives (crypto + wire framing, state machine, protobuf types)
+- `crates/thp-proto`: prost-generated THP protobuf types
 
 ## Roadmap
 
