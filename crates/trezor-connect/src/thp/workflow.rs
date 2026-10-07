@@ -3,6 +3,7 @@ use std::sync::Arc;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use tracing::debug;
+use unicode_normalization::UnicodeNormalization;
 
 use super::{
     backend::ThpBackend,
@@ -585,7 +586,7 @@ where
     ) -> Result<()> {
         self.backend
             .create_new_session(CreateSessionRequest {
-                passphrase,
+                passphrase: passphrase.map(|p| p.nfkd().collect()),
                 on_device,
                 derive_cardano,
             })

@@ -36,6 +36,7 @@ hw-chain = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 crc32fast = { workspace = true }
+unicode-normalization = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true }

@@ -20,6 +20,7 @@ struct MockBackend {
     last_tag_request: Mutex<Option<PairingTagRequest>>,
     pairing_requested: Mutex<bool>,
     end_called: Mutex<bool>,
+    session_passphrases: Mutex<Vec<Option<String>>>,
 }
 
 impl MockBackend {
@@ -77,6 +78,7 @@ impl MockBackend {
             last_tag_request: Mutex::new(None),
             pairing_requested: Mutex::new(false),
             end_called: Mutex::new(false),
+            session_passphrases: Mutex::new(Vec::new()),
         }
     }
 
@@ -134,6 +136,7 @@ impl MockBackend {
             last_tag_request: Mutex::new(None),
             pairing_requested: Mutex::new(false),
             end_called: Mutex::new(false),
+            session_passphrases: Mutex::new(Vec::new()),
         }
     }
 
@@ -187,6 +190,7 @@ impl MockBackend {
             last_tag_request: Mutex::new(None),
             pairing_requested: Mutex::new(false),
             end_called: Mutex::new(false),
+            session_passphrases: Mutex::new(Vec::new()),
         }
     }
 
@@ -244,6 +248,7 @@ impl MockBackend {
             last_tag_request: Mutex::new(None),
             pairing_requested: Mutex::new(false),
             end_called: Mutex::new(false),
+            session_passphrases: Mutex::new(Vec::new()),
         }
     }
 }
@@ -330,8 +335,9 @@ impl ThpBackend for MockBackend {
 
     async fn create_new_session(
         &mut self,
-        _request: CreateSessionRequest,
+        request: CreateSessionRequest,
     ) -> BackendResult<CreateSessionResponse> {
+        self.session_passphrases.lock().push(request.passphrase);
         if self.require_end_before_session && !*self.end_called.lock() {
             return Err(BackendError::SessionConfirmationRequired);
         }
@@ -488,6 +494,34 @@ async fn autopair_flow_sets_paired_state() {
     assert!(state.is_paired());
     assert_eq!(state.phase(), Phase::Paired);
     assert!(*backend.end_called.lock());
+}
+
+#[tokio::test]
+async fn create_session_sends_nfkd_normalized_passphrase() {
+    let mut workflow = ThpWorkflow::new(
+        MockBackend::autopair(),
+        HostConfig {
+            pairing_methods: vec![PairingMethod::SkipPairing],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        },
+    );
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+
+    workflow
+        .create_session(Some("caf\u{e9} \u{fb01}".into()), false, false)
+        .await
+        .unwrap();
+    workflow.create_session(None, false, false).await.unwrap();
+
+    let (backend, _, _) = workflow.into_parts();
+    assert_eq!(
+        *backend.session_passphrases.lock(),
+        vec![Some("cafe\u{301} fi".to_string()), None]
+    );
 }
 
 #[tokio::test]
