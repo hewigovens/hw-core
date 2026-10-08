@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use super::Chain;
 use super::types::*;
 
 #[derive(Debug, Error)]
@@ -75,6 +76,9 @@ pub trait ThpBackend: Send {
         &mut self,
         request: GetAddressRequest,
     ) -> BackendResult<GetAddressResponse>;
+
+    /// Fetches the chain-formatted public key without on-device confirmation.
+    async fn get_public_key(&mut self, chain: Chain, path: Vec<u32>) -> BackendResult<String>;
 
     async fn get_nonce(&mut self) -> BackendResult<Vec<u8>>;
 

@@ -93,6 +93,7 @@ mod tests {
             "hello",
             false,
             true,
+            &[],
         )
         .unwrap();
 

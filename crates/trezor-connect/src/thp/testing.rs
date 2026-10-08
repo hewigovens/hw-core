@@ -19,6 +19,7 @@ pub struct MockCounters {
     pub credential_calls: usize,
     pub create_session_calls: usize,
     pub get_address_calls: usize,
+    pub get_public_key_calls: usize,
     pub get_nonce_calls: usize,
     pub sign_message_calls: usize,
     pub sign_typed_data_calls: usize,
@@ -45,6 +46,9 @@ pub struct MockBackend {
     pub tag_requests: Vec<PairingTagRequest>,
     pub session_passphrases: Vec<Option<String>>,
     pub last_get_address_request: Option<GetAddressRequest>,
+    pub last_get_public_key_request: Option<(Chain, Vec<u32>)>,
+    /// Overrides the canned address returned as the public key by `get_public_key`.
+    pub public_key_response: Option<String>,
     pub last_sign_message_request: Option<SignMessageRequest>,
     pub last_sign_typed_data_request: Option<SignTypedDataRequest>,
     pub last_sign_tx_request: Option<SignTxRequest>,
@@ -85,6 +89,8 @@ impl MockBackend {
             tag_requests: Vec::new(),
             session_passphrases: Vec::new(),
             last_get_address_request: None,
+            last_get_public_key_request: None,
+            public_key_response: None,
             last_sign_message_request: None,
             last_sign_typed_data_request: None,
             last_sign_tx_request: None,
@@ -295,6 +301,15 @@ impl ThpBackend for MockBackend {
         })
     }
 
+    async fn get_public_key(&mut self, chain: Chain, path: Vec<u32>) -> BackendResult<String> {
+        self.counters.get_public_key_calls += 1;
+        self.last_get_public_key_request = Some((chain, path));
+        Ok(self
+            .public_key_response
+            .clone()
+            .unwrap_or_else(|| canned_address(chain).into()))
+    }
+
     async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {
         self.counters.get_nonce_calls += 1;
         Ok(vec![0xAA; 32])
@@ -307,10 +322,16 @@ impl ThpBackend for MockBackend {
         self.counters.sign_message_calls += 1;
         let chain = request.chain;
         self.last_sign_message_request = Some(request);
+        // Mirrors the real decoders: Solana returns signed data but no address.
+        let (address, signed_data) = match chain {
+            Chain::Ethereum | Chain::Bitcoin => (canned_address(chain).into(), None),
+            Chain::Solana => (String::new(), Some(vec![0xff; 4])),
+        };
         Ok(SignMessageResponse {
             chain,
-            address: canned_address(chain).into(),
+            address,
             signature: vec![0x99; 65],
+            signed_data,
         })
     }
 

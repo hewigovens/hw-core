@@ -125,7 +125,8 @@ async fn sign_message_uses_requested_chain() {
     ];
     for (chain, path, message, is_hex, chunkify) in cases {
         let mut workflow = ready_workflow().await;
-        let request = build_sign_message_request(chain, path, message, is_hex, chunkify).unwrap();
+        let request =
+            build_sign_message_request(chain, path, message, is_hex, chunkify, &[]).unwrap();
         let response = workflow.sign_message(request).await.unwrap();
 
         assert_eq!(response.chain, chain);

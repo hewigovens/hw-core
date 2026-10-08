@@ -50,6 +50,8 @@ pub enum ProtoMappingError {
     UnsupportedChain(Chain),
     #[error("unexpected message type {0}")]
     UnexpectedMessage(u16),
+    #[error("message is not valid UTF-8")]
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
 }
 
 #[derive(Debug)]
@@ -353,7 +355,7 @@ pub fn encode_sign_message_request(
     match request.chain {
         Chain::Bitcoin => bitcoin::encode_sign_message_request(request),
         Chain::Ethereum => ethereum::encode_sign_message_request(request),
-        Chain::Solana => Err(ProtoMappingError::UnsupportedChain(Chain::Solana)),
+        Chain::Solana => solana::encode_sign_message_request(request),
     }
 }
 
@@ -365,7 +367,7 @@ pub fn decode_sign_message_response(
     match chain {
         Chain::Bitcoin => bitcoin::decode_sign_message_response(message_type, payload),
         Chain::Ethereum => ethereum::decode_sign_message_response(message_type, payload),
-        Chain::Solana => Err(ProtoMappingError::UnsupportedChain(Chain::Solana)),
+        Chain::Solana => solana::decode_sign_message_response(message_type, payload),
     }
 }
 

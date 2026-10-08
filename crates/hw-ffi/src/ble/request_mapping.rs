@@ -90,6 +90,7 @@ pub(crate) fn map_sign_message_request(
         &request.message,
         request.is_hex,
         request.chunkify,
+        &[],
     )
     .map_err(HWCoreError::from)
 }

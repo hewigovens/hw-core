@@ -85,6 +85,7 @@ async fn run_btc(args: SignMessageBtcArgs, skip_pairing: bool) -> Result<()> {
         &args.message,
         args.hex,
         args.chunkify,
+        &[],
     )
     .context("failed to build BTC sign-message request")?;
 
