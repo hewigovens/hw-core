@@ -2,12 +2,11 @@ use hw_wallet::ble::{
     BootstrapTarget, SessionBootstrap, SessionBootstrapOptions, SessionPhase, SessionRetryPolicy,
 };
 use hw_wallet::btc::TxInput as BtcTxInput;
-use hw_wallet::eip712::build_sign_typed_data_request;
-use hw_wallet::message::build_sign_message_request;
+use hw_wallet::message::{SignMessageRequestExt, SignTypedDataRequestExt};
 use trezor_connect::thp::testing::MockBackend;
 use trezor_connect::thp::{
-    BtcSignTx, Chain, EthSignTx, EthTxSignature, HostConfig, PairingMethod, SignTxRequest,
-    SignTxResponse, SolanaSignTx, ThpWorkflow,
+    BtcSignTx, Chain, EthSignTx, EthTxSignature, HostConfig, PairingMethod, SignMessageRequest,
+    SignTxRequest, SignTxResponse, SignTypedDataRequest, SolanaSignTx, ThpWorkflow,
 };
 
 const BTC_SIGN_WITH_REF_TXS: &str =
@@ -138,7 +137,7 @@ async fn sign_message_uses_requested_chain() {
     for (chain, path, message, is_hex, chunkify) in cases {
         let mut workflow = ready_workflow().await;
         let request =
-            build_sign_message_request(chain, path, message, is_hex, chunkify, &[]).unwrap();
+            SignMessageRequest::from_message(chain, path, message, is_hex, chunkify, &[]).unwrap();
         let response = workflow.sign_message(request).await.unwrap();
 
         assert_eq!(response.chain, chain);
@@ -154,7 +153,7 @@ async fn sign_message_uses_requested_chain() {
 #[tokio::test]
 async fn sign_typed_data_uses_ethereum_chain() {
     let mut workflow = ready_workflow().await;
-    let request = build_sign_typed_data_request(
+    let request = SignTypedDataRequest::from_eip712_json(
         ETH_PATH.to_vec(),
         r#"{
             "types": {

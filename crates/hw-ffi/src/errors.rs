@@ -73,19 +73,19 @@ impl HWCoreError {
 
 impl From<BleError> for HWCoreError {
     fn from(error: BleError) -> Self {
-        Self::from_kind(WalletErrorKind::of_ble(&error), error.to_string())
+        Self::from_kind(WalletErrorKind::from(&error), error.to_string())
     }
 }
 
 impl From<BackendError> for HWCoreError {
     fn from(error: BackendError) -> Self {
-        Self::from_kind(WalletErrorKind::of_backend(&error), error.to_string())
+        Self::from_kind(WalletErrorKind::from(&error), error.to_string())
     }
 }
 
 impl From<ThpWorkflowError> for HWCoreError {
     fn from(error: ThpWorkflowError) -> Self {
-        let kind = WalletErrorKind::of_workflow(&error);
+        let kind = WalletErrorKind::from(&error);
         let message = match error {
             ThpWorkflowError::Backend(error) => error.to_string(),
             ThpWorkflowError::Storage(error) => error.to_string(),

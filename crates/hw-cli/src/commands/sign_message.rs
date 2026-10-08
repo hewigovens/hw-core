@@ -3,9 +3,11 @@ use hw_wallet::bip32::parse_bip32_path;
 use hw_wallet::chain::{
     Chain, DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
 };
-use hw_wallet::eip712::normalize_typed_data_signature;
-use hw_wallet::message::{build_sign_message_request, normalize_message_signature};
+use hw_wallet::message::{
+    NormalizedMessageSignature, SignMessageRequestExt, SignTypedDataResponseExt,
+};
 use tracing::info;
+use trezor_connect::thp::SignMessageRequest;
 
 use self::eth_request::{EthSignRequest, build_eth_sign_request_from_args};
 use crate::cli::{
@@ -53,7 +55,7 @@ async fn run_eth(args: SignMessageEthArgs, skip_pairing: bool) -> Result<()> {
                 .sign_message(request)
                 .await
                 .context("sign-message failed")?;
-            let normalized = normalize_message_signature(&response)?;
+            let normalized = NormalizedMessageSignature::from(&response);
             print_message_signature_response(
                 &response.address,
                 &normalized.value,
@@ -70,7 +72,7 @@ async fn run_eth(args: SignMessageEthArgs, skip_pairing: bool) -> Result<()> {
                 .sign_typed_data(request)
                 .await
                 .context("sign-message failed for --type eip712")?;
-            let normalized = normalize_typed_data_signature(&response)?;
+            let normalized = response.formatted_signature()?;
             print_message_signature_response(&response.address, &normalized, &response.signature);
         }
     }
@@ -85,7 +87,7 @@ async fn run_btc(args: SignMessageBtcArgs, skip_pairing: bool) -> Result<()> {
         .unwrap_or(DEFAULT_BITCOIN_BIP32_PATH)
         .to_string();
     let path_indices = parse_bip32_path(&path)?;
-    let request = build_sign_message_request(
+    let request = SignMessageRequest::from_message(
         Chain::Bitcoin,
         path_indices,
         &args.message,
@@ -107,7 +109,7 @@ async fn run_btc(args: SignMessageBtcArgs, skip_pairing: bool) -> Result<()> {
         .sign_message(request)
         .await
         .context("sign-message failed")?;
-    let normalized = normalize_message_signature(&response)?;
+    let normalized = NormalizedMessageSignature::from(&response);
     print_message_signature_response(&response.address, &normalized.value, &response.signature);
     Ok(())
 }
@@ -119,7 +121,7 @@ async fn run_sol(args: SignMessageSolArgs, skip_pairing: bool) -> Result<()> {
         .unwrap_or(DEFAULT_SOLANA_BIP32_PATH)
         .to_string();
     let path_indices = parse_bip32_path(&path)?;
-    let request = build_sign_message_request(
+    let request = SignMessageRequest::from_message(
         Chain::Solana,
         path_indices,
         &args.message,

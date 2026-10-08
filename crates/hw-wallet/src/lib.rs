@@ -2,12 +2,10 @@ pub mod bip32;
 pub mod ble;
 pub mod btc;
 pub mod chain;
-pub mod eip712;
 pub mod error;
 pub mod eth;
 pub mod hex;
 pub mod message;
-pub mod message_signing;
 pub mod sol;
 
 pub use error::{WalletError, WalletErrorKind, WalletResult};

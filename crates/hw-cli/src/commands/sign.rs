@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use hw_wallet::eth::verify_sign_tx_response;
+use hw_wallet::eth::VerifiedSignature;
 use tracing::info;
 use trezor_connect::thp::SignTxResponse;
 
@@ -45,7 +45,7 @@ async fn run_eth(args: SignEthArgs, skip_pairing: bool) -> Result<()> {
             response.chain()
         );
     };
-    let verification = verify_sign_tx_response(&request.request, &signature).ok();
+    let verification = VerifiedSignature::recover(&request.request, &signature).ok();
     print_eth_sign_tx_response(&signature, verification.as_ref());
 
     Ok(())

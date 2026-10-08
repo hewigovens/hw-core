@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use hw_wallet::chain::{Chain, resolve_derivation_path};
+use hw_wallet::chain::{Chain, ResolvedDerivationPath};
 use tracing::info;
 use trezor_connect::thp::{GetAddressRequest, ThpBackend, ThpWorkflow};
 
@@ -7,7 +7,7 @@ use crate::cli::AddressArgs;
 use crate::commands::common::{connect_ready_workflow, print_address_response, print_requesting};
 
 pub async fn run(args: AddressArgs, skip_pairing: bool) -> Result<()> {
-    let resolved = resolve_derivation_path(args.chain, args.path.as_deref())?;
+    let resolved = ResolvedDerivationPath::resolve(args.chain, args.path.as_deref())?;
     info!(
         "address command started: chain={:?} path='{}' scan_timeout_secs={} thp_timeout_secs={} show_on_device={} include_public_key={} chunkify={}",
         resolved.chain,
