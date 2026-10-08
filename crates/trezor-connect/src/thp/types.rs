@@ -207,6 +207,12 @@ pub struct GetAddressResponse {
     pub public_key: Option<String>,
 }
 
+pub const SOLANA_PUBLIC_KEY_LEN: usize = 32;
+
+pub fn decode_solana_public_key(value: &str) -> Option<[u8; SOLANA_PUBLIC_KEY_LEN]> {
+    bs58::decode(value).into_vec().ok()?.try_into().ok()
+}
+
 #[derive(Debug, Clone)]
 pub struct SignMessageRequest {
     pub chain: Chain,
@@ -214,6 +220,8 @@ pub struct SignMessageRequest {
     pub message: Vec<u8>,
     pub chunkify: bool,
     pub encoded_network: Option<Vec<u8>>,
+    /// Solana OCMS v1 signers; empty means the workflow uses the signing key alone.
+    pub solana_signers: Vec<[u8; SOLANA_PUBLIC_KEY_LEN]>,
 }
 
 impl SignMessageRequest {
@@ -224,6 +232,7 @@ impl SignMessageRequest {
             message,
             chunkify: false,
             encoded_network: None,
+            solana_signers: Vec::new(),
         }
     }
 
@@ -234,6 +243,22 @@ impl SignMessageRequest {
             message,
             chunkify: false,
             encoded_network: None,
+            solana_signers: Vec::new(),
+        }
+    }
+
+    pub fn solana(
+        path: Vec<u32>,
+        message: String,
+        signers: Vec<[u8; SOLANA_PUBLIC_KEY_LEN]>,
+    ) -> Self {
+        Self {
+            chain: Chain::Solana,
+            path,
+            message: message.into_bytes(),
+            chunkify: false,
+            encoded_network: None,
+            solana_signers: signers,
         }
     }
 
@@ -246,8 +271,11 @@ impl SignMessageRequest {
 #[derive(Debug, Clone)]
 pub struct SignMessageResponse {
     pub chain: Chain,
+    /// Empty when the signing address is unknown (Solana with several supplied signers).
     pub address: String,
     pub signature: Vec<u8>,
+    /// Exact bytes the device signed (Solana OCMS v1 envelope).
+    pub signed_data: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]

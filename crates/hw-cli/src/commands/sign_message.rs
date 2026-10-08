@@ -1,14 +1,19 @@
 use anyhow::{Context, Result};
 use hw_wallet::bip32::parse_bip32_path;
-use hw_wallet::chain::{Chain, DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32_PATH};
+use hw_wallet::chain::{
+    Chain, DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
+};
 use hw_wallet::eip712::normalize_typed_data_signature;
 use hw_wallet::message::{build_sign_message_request, normalize_message_signature};
 use tracing::info;
 
 use self::eth_request::{EthSignRequest, build_eth_sign_request_from_args};
-use crate::cli::{SignMessageArgs, SignMessageBtcArgs, SignMessageCommand, SignMessageEthArgs};
+use crate::cli::{
+    SignMessageArgs, SignMessageBtcArgs, SignMessageCommand, SignMessageEthArgs, SignMessageSolArgs,
+};
 use crate::commands::common::{
     connect_ready_workflow, print_message_signature_response, print_requesting,
+    print_solana_message_signature_response,
 };
 
 mod eth_request;
@@ -17,6 +22,7 @@ pub async fn run(args: SignMessageArgs, skip_pairing: bool) -> Result<()> {
     match args.command {
         SignMessageCommand::Eth(args) => run_eth(args, skip_pairing).await,
         SignMessageCommand::Btc(args) => run_btc(args, skip_pairing).await,
+        SignMessageCommand::Sol(args) => run_sol(args, skip_pairing).await,
     }
 }
 
@@ -85,6 +91,7 @@ async fn run_btc(args: SignMessageBtcArgs, skip_pairing: bool) -> Result<()> {
         &args.message,
         args.hex,
         args.chunkify,
+        &[],
     )
     .context("failed to build BTC sign-message request")?;
 
@@ -102,5 +109,43 @@ async fn run_btc(args: SignMessageBtcArgs, skip_pairing: bool) -> Result<()> {
         .context("sign-message failed")?;
     let normalized = normalize_message_signature(&response)?;
     print_message_signature_response(&response.address, &normalized.value, &response.signature);
+    Ok(())
+}
+
+async fn run_sol(args: SignMessageSolArgs, skip_pairing: bool) -> Result<()> {
+    let path = args
+        .path
+        .as_deref()
+        .unwrap_or(DEFAULT_SOLANA_BIP32_PATH)
+        .to_string();
+    let path_indices = parse_bip32_path(&path)?;
+    let request = build_sign_message_request(
+        Chain::Solana,
+        path_indices,
+        &args.message,
+        args.hex,
+        args.chunkify,
+        &args.signers,
+    )
+    .context("failed to build SOL sign-message request")?;
+
+    info!(
+        "sign-message command started: chain=solana path='{}' hex={} chunkify={} signers={} scan_timeout_secs={} thp_timeout_secs={}",
+        path,
+        args.hex,
+        args.chunkify,
+        args.signers.len(),
+        args.connect.timeout_secs,
+        args.connect.thp_timeout_secs
+    );
+
+    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "sign-message").await?;
+
+    print_requesting("SOL message signature");
+    let response = workflow
+        .sign_message(request)
+        .await
+        .context("sign-message failed")?;
+    print_solana_message_signature_response(&response);
     Ok(())
 }

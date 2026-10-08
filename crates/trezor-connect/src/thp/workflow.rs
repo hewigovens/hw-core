@@ -6,7 +6,7 @@ use tracing::debug;
 use unicode_normalization::UnicodeNormalization;
 
 use super::{
-    backend::ThpBackend,
+    backend::{BackendError, ThpBackend},
     crypto::curve25519::derive_public_from_private,
     error::{Result, ThpWorkflowError},
     state::{HandshakeCache, HandshakeCredentials, Phase, ThpState},
@@ -17,8 +17,10 @@ use super::{
         KnownCredential, PairingController, PairingDecision, PairingMethod, PairingPrompt,
         PairingTagRequest, SelectMethodRequest, SignMessageRequest, SignMessageResponse,
         SignTxRequest, SignTxResponse, SignTypedDataRequest, SignTypedDataResponse,
+        decode_solana_public_key,
     },
 };
+use hw_chain::Chain;
 
 pub struct ThpWorkflow<B> {
     backend: B,
@@ -617,12 +619,41 @@ where
 
     pub async fn sign_message(
         &mut self,
-        request: SignMessageRequest,
+        mut request: SignMessageRequest,
     ) -> Result<SignMessageResponse> {
         if self.state.phase() != Phase::Paired {
             return Err(ThpWorkflowError::InvalidPhase);
         }
-        self.backend.sign_message(request).await.map_err(Into::into)
+        let signer_address = match request.chain {
+            Chain::Solana => self.resolve_solana_signers(&mut request).await?,
+            Chain::Ethereum | Chain::Bitcoin => None,
+        };
+        let mut response = self.backend.sign_message(request).await?;
+        if let Some(address) = signer_address {
+            response.address = address;
+        }
+        Ok(response)
+    }
+
+    /// Mirrors Suite: without signers, the silently fetched signing key is the sole signer.
+    async fn resolve_solana_signers(
+        &mut self,
+        request: &mut SignMessageRequest,
+    ) -> Result<Option<String>> {
+        match request.solana_signers.as_slice() {
+            [] => {}
+            // Firmware rejects a signing key outside the signer set, so a lone signer is the signer.
+            [signer] => return Ok(Some(bs58::encode(signer).into_string())),
+            _ => return Ok(None),
+        }
+        let public_key = self
+            .backend
+            .get_public_key(Chain::Solana, request.path.clone())
+            .await?;
+        let signer = decode_solana_public_key(&public_key)
+            .ok_or_else(|| BackendError::Device("invalid Solana public key".into()))?;
+        request.solana_signers.push(signer);
+        Ok(Some(public_key))
     }
 
     pub async fn sign_typed_data(

@@ -343,6 +343,7 @@ pub(super) fn decode_sign_message_response(
         chain: Chain::Ethereum,
         address: message.address,
         signature: message.signature,
+        signed_data: None,
     })
 }
 

@@ -1,5 +1,5 @@
 use hw_wallet::eth::VerifiedSignature;
-use trezor_connect::thp::SignTxResponse;
+use trezor_connect::thp::{SignMessageResponse, SignTxResponse};
 
 pub fn print_requesting(label: &str) {
     println!("Requesting {label} from device...");
@@ -31,6 +31,16 @@ pub fn print_message_signature_response(
     print_labeled_value("Address", address);
     print_labeled_value("Signature", normalized_signature);
     print_hex_field("Signature (hex)", raw_signature);
+}
+
+pub fn print_solana_message_signature_response(response: &SignMessageResponse) {
+    if !response.address.is_empty() {
+        print_labeled_value("Address", &response.address);
+    }
+    print_hex_field("Signature (hex)", &response.signature);
+    if let Some(signed_data) = &response.signed_data {
+        print_hex_field("Signed data (hex)", signed_data);
+    }
 }
 
 pub fn print_eth_sign_tx_response(

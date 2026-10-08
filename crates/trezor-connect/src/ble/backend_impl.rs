@@ -372,17 +372,18 @@ impl ThpBackend for BleBackend {
             .await?;
         if request.include_public_key {
             // Mirror Suite: keep GetPublicKey silent to avoid extra prompts.
-            let public_key = self
-                .call(
-                    encode_get_public_key_request(chain, &request.path, false),
-                    |message_type, payload| {
-                        decode_get_public_key_response(chain, message_type, payload)
-                    },
-                )
-                .await?;
+            let public_key = self.get_public_key(chain, request.path).await?;
             response.public_key = Some(public_key);
         }
         Ok(response)
+    }
+
+    async fn get_public_key(&mut self, chain: Chain, path: Vec<u32>) -> BackendResult<String> {
+        self.call(
+            encode_get_public_key_request(chain, &path, false),
+            |message_type, payload| decode_get_public_key_response(chain, message_type, payload),
+        )
+        .await
     }
 
     async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {

@@ -29,7 +29,7 @@ pub(super) fn build_eth_sign_request_from_args(
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("ETH EIP-191 signing requires `message`"))?;
 
-            build_sign_message_request(Chain::Ethereum, path, message, args.hex, args.chunkify)
+            build_sign_message_request(Chain::Ethereum, path, message, args.hex, args.chunkify, &[])
                 .map(EthSignRequest::Message)
                 .map_err(Into::into)
         }

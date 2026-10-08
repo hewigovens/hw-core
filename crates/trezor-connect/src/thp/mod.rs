@@ -23,6 +23,6 @@ pub use types::{
     CreateSessionRequest, Eip712StructMember, Eip712TypedData, EthAccessListEntry,
     GetAddressRequest, GetAddressResponse, HostConfig, PairingController, PairingDecision,
     PairingMethod, SignMessageRequest, SignMessageResponse, SignTxRequest, SignTxResponse,
-    SignTypedDataPayload, SignTypedDataRequest, SignTypedDataResponse,
+    SignTypedDataPayload, SignTypedDataRequest, SignTypedDataResponse, decode_solana_public_key,
 };
 pub use workflow::ThpWorkflow;

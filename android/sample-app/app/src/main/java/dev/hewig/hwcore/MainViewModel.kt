@@ -1212,11 +1212,10 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
     fun selectChain(chain: Chain) {
         val nextAddressPath = chainDefaultPath(chain)
-        val nextMessagePath = if (chain == Chain.SOLANA) ui.messageSignPathInput else chainDefaultPath(chain)
         ui = ui.copy(
             selectedChain = chain,
             addressPathInput = nextAddressPath,
-            messageSignPathInput = nextMessagePath,
+            messageSignPathInput = chainDefaultPath(chain),
             address = null,
             addressPublicKey = null,
             nonceResult = null,
@@ -1279,17 +1278,9 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
     fun messageSignPreview(): String {
         val state = ui
-        return when (state.selectedChain) {
-            Chain.ETHEREUM -> {
-                "ETH path=${resolvedPath(state.messageSignPathInput, Chain.ETHEREUM)} " +
-                    "hex=${state.messageIsHex} bytes=${state.messagePayload.toByteArray().size}"
-            }
-            Chain.BITCOIN -> {
-                "BTC path=${resolvedPath(state.messageSignPathInput, Chain.BITCOIN)} " +
-                    "hex=${state.messageIsHex} bytes=${state.messagePayload.toByteArray().size}"
-            }
-            Chain.SOLANA -> "SOL message signing not supported"
-        }
+        val chain = state.selectedChain
+        return "${chainLabel(chain)} path=${resolvedPath(state.messageSignPathInput, chain)} " +
+            "hex=${state.messageIsHex} bytes=${state.messagePayload.toByteArray().size}"
     }
 
     // -- Requests --
@@ -1379,11 +1370,6 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
     fun signMessage() {
         val chain = ui.selectedChain
-        if (chain == Chain.SOLANA) {
-            setError("Message signing supports ETH/BTC only")
-            return
-        }
-
         ui = ui.copy(messageSignResult = null, error = null, isBusy = true)
         log("Signing ${chainLabel(chain)} message...")
 
@@ -1397,7 +1383,8 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 val request = SignMessageRequest(
                     chain = chain,
                     path = resolvedPath(ui.messageSignPathInput, chain),
-                    message = ui.messagePayload.trim(),
+                    // Plaintext is signed byte-for-byte; whitespace around hex input isn't data.
+                    message = if (ui.messageIsHex) ui.messagePayload.trim() else ui.messagePayload,
                     isHex = ui.messageIsHex,
                     chunkify = ui.messageChunkify,
                 )

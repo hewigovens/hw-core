@@ -96,6 +96,7 @@ where
         signature: response.signature,
         signature_formatted: normalized.value,
         signature_encoding: map_signature_encoding(normalized.encoding),
+        signed_data: response.signed_data,
     })
 }
 

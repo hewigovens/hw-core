@@ -229,6 +229,9 @@ pub struct SignMessageRequest {
     pub message: String,
     pub is_hex: bool,
     pub chunkify: bool,
+    /// Solana only: base58 OCMS v1 signers; empty signs with the path's key alone.
+    #[uniffi(default = [])]
+    pub signers: Vec<String>,
 }
 
 #[derive(uniffi::Enum, Clone, Copy, Debug, Eq, PartialEq)]
@@ -240,10 +243,14 @@ pub enum SignatureEncoding {
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct SignMessageResult {
     pub chain: Chain,
+    /// Empty for Solana messages with several supplied signers.
     pub address: String,
     pub signature: Vec<u8>,
     pub signature_formatted: String,
     pub signature_encoding: SignatureEncoding,
+    /// Solana only: the serialized OCMS v1 message the device signed.
+    #[uniffi(default = None)]
+    pub signed_data: Option<Vec<u8>>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]

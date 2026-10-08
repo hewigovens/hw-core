@@ -205,7 +205,7 @@ fun MainScreen(
     val canGetAddress = !ui.isBusy && ui.sessionState?.canGetAddress == true
     val canGetNonce = canGetAddress
     val canSign = !ui.isBusy && ui.sessionState?.canSignTx == true
-    val canSignMessage = canSign && ui.selectedChain != Chain.SOLANA
+    val canSignMessage = canSign
     val canDisconnect = !ui.isBusy && ui.hasWorkflow
 
     fun requireBluetooth(action: () -> Unit) {
@@ -663,41 +663,33 @@ fun MainScreen(
 
                     Divider(modifier = Modifier.padding(vertical = 4.dp))
 
-                    if (ui.selectedChain == Chain.ETHEREUM || ui.selectedChain == Chain.BITCOIN) {
-                        Text("Message Sign", style = MaterialTheme.typography.titleSmall)
-                        OutlinedTextField(
-                            value = ui.messageSignPathInput,
-                            onValueChange = vm::updateMessageSignPathInput,
-                            label = { Text("Path (${vm.chainLabel(ui.selectedChain)})") },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !ui.isBusy,
-                        )
-                        OutlinedTextField(
-                            value = ui.messagePayload,
-                            onValueChange = vm::updateMessagePayload,
-                            label = { Text("Message") },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !ui.isBusy,
-                        )
-                        ToggleRow(
-                            title = "Message is hex",
-                            checked = ui.messageIsHex,
-                            onCheckedChange = vm::setMessageHexMode,
-                            enabled = !ui.isBusy,
-                        )
-                        ToggleRow(
-                            title = "Chunkify",
-                            checked = ui.messageChunkify,
-                            onCheckedChange = vm::setMessageChunkify,
-                            enabled = !ui.isBusy,
-                        )
-                    } else {
-                        Text(
-                            "Message signing is available for ETH/BTC only.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text("Message Sign", style = MaterialTheme.typography.titleSmall)
+                    OutlinedTextField(
+                        value = ui.messageSignPathInput,
+                        onValueChange = vm::updateMessageSignPathInput,
+                        label = { Text("Path (${vm.chainLabel(ui.selectedChain)})") },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !ui.isBusy,
+                    )
+                    OutlinedTextField(
+                        value = ui.messagePayload,
+                        onValueChange = vm::updateMessagePayload,
+                        label = { Text("Message") },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !ui.isBusy,
+                    )
+                    ToggleRow(
+                        title = "Message is hex",
+                        checked = ui.messageIsHex,
+                        onCheckedChange = vm::setMessageHexMode,
+                        enabled = !ui.isBusy,
+                    )
+                    ToggleRow(
+                        title = "Chunkify",
+                        checked = ui.messageChunkify,
+                        onCheckedChange = vm::setMessageChunkify,
+                        enabled = !ui.isBusy,
+                    )
 
                     Divider(modifier = Modifier.padding(vertical = 4.dp))
 
@@ -707,13 +699,11 @@ fun MainScreen(
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                     )
-                    if (ui.selectedChain != Chain.SOLANA) {
-                        Text(
-                            vm.messageSignPreview(),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                    }
+                    Text(
+                        vm.messageSignPreview(),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
                 }
             }
         }

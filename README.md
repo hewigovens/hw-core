@@ -81,7 +81,7 @@ flowchart TB
 |---|---|---|---|
 | Address retrieval | Done | Done | Done |
 | Transaction signing | Partial: no network/token definitions ([#99](https://github.com/hewigovens/hw-core/issues/99)) | Partial: output script-type validation ([#101](https://github.com/hewigovens/hw-core/issues/101)); SLIP-24 not validated on hardware ([#102](https://github.com/hewigovens/hw-core/issues/102)) | Partial: no `additional_info` for token transfers ([#100](https://github.com/hewigovens/hw-core/issues/100)) |
-| Message signing | Done (EIP-191 + EIP-712) | Done | Not planned |
+| Message signing | Done (EIP-191 + EIP-712) | Done | Done: off-chain messages, OCMS v1 ([#117](https://github.com/hewigovens/hw-core/issues/117)) |
 
 Transport is BLE only (Trezor Safe 7). Supported hosts: macOS and Linux (CLI), iOS/macOS via [HWCoreKit](apple/HWCoreKit/README.md), and Android via the [Kotlin library](android/README.md). See [docs/roadmap.md](docs/roadmap.md) for details.
 

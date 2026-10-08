@@ -563,3 +563,78 @@ async fn handshake_reallocates_channel_only_when_unlock_flag_differs() {
     let (backend, _, _) = workflow.into_parts();
     assert_eq!(backend.channel_requests, vec![true, false]);
 }
+
+const SOL_PATH: [u32; 4] = [0x8000_002c, 0x8000_01f5, 0x8000_0000, 0x8000_0000];
+
+async fn paired_workflow(backend: MockBackend) -> ThpWorkflow<MockBackend> {
+    let mut workflow = ThpWorkflow::new(backend, HostConfig::new("host", "app"));
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    workflow
+}
+
+async fn sign_solana(
+    backend: MockBackend,
+    signers: Vec<[u8; 32]>,
+) -> (Result<SignMessageResponse>, MockBackend) {
+    let mut workflow = paired_workflow(backend).await;
+    let result = workflow
+        .sign_message(SignMessageRequest::solana(
+            SOL_PATH.to_vec(),
+            "hello".into(),
+            signers,
+        ))
+        .await;
+    (result, workflow.into_parts().0)
+}
+
+#[tokio::test]
+async fn solana_sign_message_uses_silently_fetched_key_as_sole_signer() {
+    let mut backend = MockBackend::autopair();
+    let key = bs58::encode([0x33; 32]).into_string();
+    backend.public_key_response = Some(key.clone());
+
+    let (response, backend) = sign_solana(backend, vec![]).await;
+
+    assert_eq!(response.unwrap().address, key);
+    assert_eq!(
+        backend.last_get_public_key_request,
+        Some((Chain::Solana, SOL_PATH.to_vec()))
+    );
+    assert_eq!(
+        backend.last_sign_message_request.unwrap().solana_signers,
+        vec![[0x33; 32]]
+    );
+}
+
+#[tokio::test]
+async fn solana_sign_message_sends_given_signers_without_key_fetch() {
+    let lone_signer_address = bs58::encode([0x11; 32]).into_string();
+    for (signers, expected_address) in [
+        (vec![[0x11; 32]], lone_signer_address.as_str()),
+        (vec![[0x22; 32], [0x11; 32]], ""),
+    ] {
+        let (response, backend) = sign_solana(MockBackend::autopair(), signers.clone()).await;
+
+        assert_eq!(response.unwrap().address, expected_address);
+        assert_eq!(backend.counters.get_public_key_calls, 0);
+        assert_eq!(
+            backend.last_sign_message_request.unwrap().solana_signers,
+            signers
+        );
+    }
+}
+
+#[tokio::test]
+async fn solana_sign_message_rejects_malformed_device_public_key() {
+    let mut backend = MockBackend::autopair();
+    backend.public_key_response = Some("7bWpTW".into());
+
+    let (response, backend) = sign_solana(backend, vec![]).await;
+
+    assert!(matches!(
+        response,
+        Err(ThpWorkflowError::Backend(BackendError::Device(_)))
+    ));
+    assert_eq!(backend.counters.sign_message_calls, 0);
+}

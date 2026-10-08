@@ -171,4 +171,21 @@ public extension SignMessageRequest {
             chunkify: chunkify
         )
     }
+
+    static func solana(
+        path: String = Chain.solana.defaultPath,
+        message: String,
+        isHex: Bool = false,
+        chunkify: Bool = false,
+        signers: [String] = []
+    ) -> SignMessageRequest {
+        SignMessageRequest(
+            chain: .solana,
+            path: path,
+            message: message,
+            isHex: isHex,
+            chunkify: chunkify,
+            signers: signers
+        )
+    }
 }

@@ -35,6 +35,7 @@ just cli-address-eth
 just cli-sign-eth
 just cli-help
 just cli-sign-message-eth
+just cli-sign-message-sol
 ```
 
 Direct examples:
@@ -44,6 +45,7 @@ cargo run -p hw-cli -- -vv pair
 cargo run -p hw-cli -- -vv address --chain eth --include-public-key
 cargo run -p hw-cli -- -vv sign eth --path "m/44'/60'/0'/0/0" --tx '{"to":"0x000000000000000000000000000000000000dead","nonce":"0x0","gas_limit":"0x5208","chain_id":1,"max_fee_per_gas":"0x3b9aca00","max_priority_fee":"0x59682f00","value":"0x0"}'
 cargo run -p hw-cli -- -vv sign-message eth --message "hello"
+cargo run -p hw-cli -- -vv sign-message sol --message "hello"
 ```
 
 Notes:

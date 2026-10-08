@@ -406,7 +406,7 @@ final class ContentViewModel: ObservableObject {
     }
 
     var canSignMessage: Bool {
-        canSign && selectedChain != .solana
+        canSign
     }
 
     var canDisconnect: Bool {
@@ -615,11 +615,6 @@ final class ContentViewModel: ObservableObject {
                 status = "Connect first"
                 return
             }
-            guard selectedChain != .solana else {
-                status = "Message signing is available for ETH/BTC only"
-                return
-            }
-
             let request = try buildMessageSignRequest(chain: selectedChain)
             appendLog("message sign preview: \(messageSignPreview)")
             let result = try await session.signMessage(request)
@@ -651,14 +646,7 @@ final class ContentViewModel: ObservableObject {
     }
 
     var messageSignPreview: String {
-        switch selectedChain {
-        case .ethereum:
-            return "ETH path=\(resolvedPath(messageSignPathInput, chain: .ethereum)) hex=\(messageSignIsHex) bytes=\(messageSignPayload.utf8.count)"
-        case .bitcoin:
-            return "BTC path=\(resolvedPath(messageSignPathInput, chain: .bitcoin)) hex=\(messageSignIsHex) bytes=\(messageSignPayload.utf8.count)"
-        case .solana:
-            return "SOL message signing not supported"
-        }
+        "\(chainLabel(selectedChain)) path=\(resolvedPath(messageSignPathInput, chain: selectedChain)) hex=\(messageSignIsHex) bytes=\(messageSignPayload.utf8.count)"
     }
 
     func copyAddressToClipboard() {
@@ -984,29 +972,18 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func buildMessageSignRequest(chain: Chain) throws -> SignMessageRequest {
-        let payload = messageSignPayload.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !payload.isEmpty else {
+        let trimmed = messageSignPayload.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
             throw InputValidationError(message: "Message payload is required")
         }
-
-        switch chain {
-        case .ethereum:
-            return SignMessageRequest.ethereum(
-                path: resolvedPath(messageSignPathInput, chain: .ethereum),
-                message: payload,
-                isHex: messageSignIsHex,
-                chunkify: messageSignChunkify
-            )
-        case .bitcoin:
-            return SignMessageRequest.bitcoin(
-                path: resolvedPath(messageSignPathInput, chain: .bitcoin),
-                message: payload,
-                isHex: messageSignIsHex,
-                chunkify: messageSignChunkify
-            )
-        case .solana:
-            throw InputValidationError(message: "Message signing is available for ETH/BTC only")
-        }
+        // Plaintext is signed byte-for-byte; whitespace around hex input isn't data.
+        return SignMessageRequest(
+            chain: chain,
+            path: resolvedPath(messageSignPathInput, chain: chain),
+            message: messageSignIsHex ? trimmed : messageSignPayload,
+            isHex: messageSignIsHex,
+            chunkify: messageSignChunkify
+        )
     }
 
     private func describeSignResult(_ result: SignTxResult, chain: Chain) -> String {
