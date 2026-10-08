@@ -525,6 +525,11 @@ fn build_sign_output(output: TxInputOutput, owner: OutputOwner) -> WalletResult<
             "{label} with script_type PayToOpReturn requires op_return_data"
         )));
     }
+    if script_type == BtcOutputScriptType::PayToOpReturn && amount != 0 {
+        return Err(WalletError::Signing(format!(
+            "{label} with script_type PayToOpReturn must have zero amount, got {amount}"
+        )));
+    }
     let multisig = output.multisig.map(parse_multisig).transpose()?;
     if script_type == BtcOutputScriptType::PayToMultisig && multisig.is_none() {
         return Err(WalletError::Signing(
@@ -1105,6 +1110,29 @@ mod tests {
 
         let err = build_sign_output(output(None, None, None), OutputOwner::Signing).unwrap_err();
         assert!(err.to_string().contains("requires either address or path"));
+    }
+
+    #[test]
+    fn op_return_output_requires_zero_amount() {
+        for owner in [OutputOwner::Signing, OutputOwner::Original] {
+            let mut op_return = output(None, None, Some("paytoopreturn"));
+            op_return.op_return_data = Some("deadbeef".to_string());
+            let err = build_sign_output(op_return, owner).unwrap_err();
+            assert!(matches!(err, WalletError::Signing(_)), "{err}");
+            assert!(
+                err.to_string().contains(&format!(
+                    "{} with script_type PayToOpReturn must have zero amount, got 1000",
+                    owner.label()
+                )),
+                "{err}"
+            );
+
+            let mut op_return = output(None, None, Some("paytoopreturn"));
+            op_return.amount = "0".to_string();
+            op_return.op_return_data = Some("deadbeef".to_string());
+            let built = build_sign_output(op_return, owner).unwrap();
+            assert_eq!(built.amount, 0);
+        }
     }
 
     #[test]
