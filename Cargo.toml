@@ -31,6 +31,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 hex = "0.4"
 hw-chain = { version = "0.1.0", path = "crates/hw-chain" }
 hw-wallet = { version = "0.1.0", path = "crates/hw-wallet" }
+log = "0.4"
 parking_lot = "0.12"
 prost = "0.14.3"
 rand = "0.10.3"
@@ -42,6 +43,7 @@ thp-proto = { version = "0.1.0", path = "crates/thp-proto" }
 thiserror = "2"
 tokio = "1.53.2"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "tracing-log"] }
 trezor-connect = { version = "0.1.0", path = "crates/trezor-connect" }
 uuid = { version = "1", features = ["serde"] }
 x25519-dalek = { version = "3", features = ["static_secrets"] }

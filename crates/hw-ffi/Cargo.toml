@@ -38,10 +38,13 @@ uniffi_bindgen = { version = "0.32.0", features = [
 ], optional = true }
 
 [dev-dependencies]
+log = { workspace = true }
 trezor-connect = { workspace = true, features = ["ble", "test-support"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 btleplug = { workspace = true }
 jni = "0.22"
 tracing-android = "0.2.0"
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+
+[target.'cfg(any(target_os = "android", target_vendor = "apple"))'.dependencies]
+tracing-subscriber = { workspace = true }

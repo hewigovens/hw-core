@@ -11,7 +11,7 @@ How to get logs from each surface, and fixes for failures seen on real devices.
 | iOS sample | `just run-ios-device` builds, installs and streams the app console via `xcrun devicectl device process launch --console`. |
 | Sample app UI | Both sample apps show their workflow log on screen; it matches the `HWCoreSample` / console lines. |
 
-`trezor-thp` logs through the `log` crate, which the `tracing` setup does not capture. Transport behavior is still visible through hw-core's own `trace` lines.
+`trezor-thp` logs through the `log` crate; its records (retransmits, desync, ignored packets) are bridged into `tracing` under the `trezor_thp` target. The CLI applies its global level to them (`-v` info, `-vv` debug, `-vvv` trace), and debug builds of the FFI log them at `debug` to logcat (`hwcore-rs`) and to stderr on Apple platforms. Override the filter with `RUST_LOG`, e.g. `RUST_LOG=info,trezor_thp=trace`.
 
 ## Android
 
