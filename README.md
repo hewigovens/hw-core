@@ -17,6 +17,7 @@ High-level references:
 
 - THP spec: [trezor-firmware/docs/common/thp/specification.md](https://github.com/trezor/trezor-firmware/blob/main/docs/common/thp/specification.md)
 - Development and contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Logs and device troubleshooting: [docs/troubleshooting.md](docs/troubleshooting.md)
 
 ## Architecture
 
@@ -93,7 +94,7 @@ cargo run -p hw-cli -- address --chain eth
 cargo run -p hw-cli -- sign-message eth --message "hello"
 ```
 
-Pairing state is stored at `~/.hw-core/thp-host.json`. Add `-vv` for protocol logs. `just --list` shows the build, test and sample-app recipes; see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, bindings, and the T3W1 emulator integration tests.
+Pairing state is stored at `~/.hw-core/thp-host.json`. Add `-vv` for protocol logs. `just --list` shows the build, test and sample-app recipes; see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, bindings, and the T3W1 emulator integration tests. If something fails on a device, start with [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Workspace layout
 
