@@ -136,6 +136,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             message: "hello from ffi".into(),
             is_hex: false,
             chunkify: true,
+            signers: Vec::new(),
         },
     )
     .await
@@ -202,6 +203,25 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
         }
         other => panic!("expected hash payload, got {other:?}"),
     }
+
+    let signed_sol_message = sign_message_for_workflow(
+        &mut workflow,
+        SignMessageRequest {
+            chain: Chain::Solana,
+            path: "m/44'/501'/0'/0'".into(),
+            message: "hello from ffi".into(),
+            is_hex: false,
+            chunkify: false,
+            signers: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        signed_sol_message.address,
+        "So11111111111111111111111111111111111111112"
+    );
+    assert_eq!(signed_sol_message.signed_data, Some(vec![0xff; 4]));
 }
 
 #[test]
@@ -300,6 +320,7 @@ fn sign_message_request_maps_ethereum_chain() {
         message: "hello".into(),
         is_hex: false,
         chunkify: true,
+        signers: Vec::new(),
     })
     .expect("message request should map");
     assert_eq!(mapped.chain, Chain::Ethereum);
@@ -319,10 +340,34 @@ fn sign_message_request_maps_bitcoin_hex_payload() {
         message: "0x68656c6c6f".into(),
         is_hex: true,
         chunkify: false,
+        signers: Vec::new(),
     })
     .expect("message request should map");
     assert_eq!(mapped.chain, Chain::Bitcoin);
     assert_eq!(mapped.message, b"hello".to_vec());
+}
+
+#[test]
+fn sign_message_request_maps_solana_signers() {
+    let mapped = request_mapping::map_sign_message_request(SignMessageRequest {
+        chain: Chain::Solana,
+        path: "m/44'/501'/0'/0'".into(),
+        message: "hello".into(),
+        is_hex: false,
+        chunkify: false,
+        signers: vec![
+            "14CCvQzQzHCVgZM3j9soPnXuJXh1RmCfwLVUcdfbZVBS".into(),
+            "7v91N7iZ9mNicL8WfG6cgSCKyRXydQjLh6UYBWwm6y1Q".into(),
+        ],
+    })
+    .expect("solana message request should map");
+    assert_eq!(mapped.chain, Chain::Solana);
+    assert_eq!(
+        mapped.path,
+        vec![0x8000_002c, 0x8000_01f5, 0x8000_0000, 0x8000_0000]
+    );
+    assert_eq!(mapped.solana_signers.len(), 2);
+    assert_eq!(mapped.solana_signers[0][..2], [0x00, 0xd1]);
 }
 
 #[test]

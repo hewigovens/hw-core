@@ -439,23 +439,17 @@ struct MobileContentView: View {
 
     @ViewBuilder
     private var messageSignInputs: some View {
-        if viewModel.selectedChain == .ethereum || viewModel.selectedChain == .bitcoin {
-            Text("Message Sign")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            textInput("Path (\(viewModel.chainLabel(viewModel.selectedChain)))", text: $viewModel.messageSignPathInput)
-                .accessibilityIdentifier("input.message.path")
-            textInput("Message", text: $viewModel.messageSignPayload)
-                .accessibilityIdentifier("input.message.payload")
-            Toggle("Message is hex", isOn: $viewModel.messageSignIsHex)
-                .accessibilityIdentifier("toggle.message.hex")
-            Toggle("Chunkify", isOn: $viewModel.messageSignChunkify)
-                .accessibilityIdentifier("toggle.message.chunkify")
-        } else {
-            Text("Message signing is available for ETH/BTC only.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
+        Text("Message Sign")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+        textInput("Path (\(viewModel.chainLabel(viewModel.selectedChain)))", text: $viewModel.messageSignPathInput)
+            .accessibilityIdentifier("input.message.path")
+        textInput("Message", text: $viewModel.messageSignPayload)
+            .accessibilityIdentifier("input.message.payload")
+        Toggle("Message is hex", isOn: $viewModel.messageSignIsHex)
+            .accessibilityIdentifier("toggle.message.hex")
+        Toggle("Chunkify", isOn: $viewModel.messageSignChunkify)
+            .accessibilityIdentifier("toggle.message.chunkify")
     }
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {

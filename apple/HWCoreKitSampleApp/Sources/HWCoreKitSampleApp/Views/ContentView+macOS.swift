@@ -353,26 +353,20 @@ struct MacContentView: View {
 
     @ViewBuilder
     private var messageSignInputs: some View {
-        if viewModel.selectedChain == .ethereum || viewModel.selectedChain == .bitcoin {
-            Text("Message Sign")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            TextField("Path (\(viewModel.chainLabel(viewModel.selectedChain)))", text: $viewModel.messageSignPathInput)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("input.message.path")
-            TextField("Message", text: $viewModel.messageSignPayload)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("input.message.payload")
-            HStack(spacing: 8) {
-                Toggle("Message is hex", isOn: $viewModel.messageSignIsHex)
-                    .accessibilityIdentifier("toggle.message.hex")
-                Toggle("Chunkify", isOn: $viewModel.messageSignChunkify)
-                    .accessibilityIdentifier("toggle.message.chunkify")
-            }
-        } else {
-            Text("Message signing is available for ETH/BTC only.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+        Text("Message Sign")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        TextField("Path (\(viewModel.chainLabel(viewModel.selectedChain)))", text: $viewModel.messageSignPathInput)
+            .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier("input.message.path")
+        TextField("Message", text: $viewModel.messageSignPayload)
+            .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier("input.message.payload")
+        HStack(spacing: 8) {
+            Toggle("Message is hex", isOn: $viewModel.messageSignIsHex)
+                .accessibilityIdentifier("toggle.message.hex")
+            Toggle("Chunkify", isOn: $viewModel.messageSignChunkify)
+                .accessibilityIdentifier("toggle.message.chunkify")
         }
     }
 }
