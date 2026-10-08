@@ -124,7 +124,7 @@ impl TryFrom<i32> for BitcoinTxRequestType {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DecodedBitcoinTxRequest {
     pub request_type: Option<BitcoinTxRequestType>,
     pub request_index: Option<u32>,

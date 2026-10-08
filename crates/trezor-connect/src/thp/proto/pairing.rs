@@ -5,7 +5,7 @@ use super::{EncodedMessage, ProtoMappingError, WireMessage};
 use crate::thp::messages::{self, ThpMessageType};
 use crate::thp::types::{
     CodeEntryChallengeRequest, CodeEntryChallengeResponse, PairingMethod, PairingRequest,
-    PairingRequestApproved, PairingTagResponse, SelectMethodRequest, SelectMethodResponse,
+    PairingRequestApproved, SelectMethodRequest, SelectMethodResponse,
 };
 
 wire_messages! {
@@ -139,14 +139,6 @@ impl ParsedTagResponse {
             _ => return Err(ProtoMappingError::UnexpectedMessage(message_type)),
         };
         Ok(Self { secret })
-    }
-}
-
-impl From<ParsedTagResponse> for PairingTagResponse {
-    fn from(response: ParsedTagResponse) -> Self {
-        Self::Accepted {
-            secret: response.secret,
-        }
     }
 }
 
