@@ -20,3 +20,13 @@ pub struct CredentialResponse {
     pub credential: String,
     pub autoconnect: bool,
 }
+
+impl From<CredentialResponse> for KnownCredential {
+    fn from(response: CredentialResponse) -> Self {
+        Self {
+            credential: response.credential,
+            trezor_static_public_key: Some(response.trezor_static_public_key),
+            autoconnect: response.autoconnect,
+        }
+    }
+}

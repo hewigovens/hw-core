@@ -1,4 +1,5 @@
-use super::types::{KnownCredential, PairingMethod};
+use super::handshake::{HandshakeCache, HandshakeCredentials};
+use crate::thp::types::{KnownCredential, PairingMethod};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Phase {
@@ -6,24 +7,6 @@ pub enum Phase {
     Handshake,
     Pairing,
     Paired,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct HandshakeCache {
-    pub channel: u16,
-    pub pairing_methods: Vec<PairingMethod>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct HandshakeCredentials {
-    pub pairing_methods: Vec<PairingMethod>,
-    pub handshake_hash: Vec<u8>,
-    pub host_static_public_key: Vec<u8>,
-    pub nfc_data: Option<Vec<u8>>,
-    pub handshake_commitment: Option<Vec<u8>>,
-    pub trezor_cpace_public_key: Option<Vec<u8>>,
-    pub code_entry_challenge: Option<Vec<u8>>,
-    pub pairing_credentials: Vec<KnownCredential>,
 }
 
 #[derive(Debug, Default)]
