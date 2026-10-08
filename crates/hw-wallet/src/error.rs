@@ -25,6 +25,12 @@ pub enum WalletError {
     Workflow(#[from] ThpWorkflowError),
     #[error("signing error: {0}")]
     Signing(String),
+    #[error(
+        "solana serialized tx is too short ({len} bytes, minimum {min}); provide full serialized transaction bytes"
+    )]
+    SolanaTxTooShort { len: usize, min: usize },
+    #[error("Solana transaction version {0} is not supported by firmware")]
+    UnsupportedSolanaTxVersion(u8),
 }
 
 pub type WalletResult<T> = std::result::Result<T, WalletError>;
@@ -32,7 +38,10 @@ pub type WalletResult<T> = std::result::Result<T, WalletError>;
 impl WalletError {
     pub fn kind(&self) -> WalletErrorKind {
         match self {
-            Self::InvalidBip32Path(_) | Self::Signing(_) => WalletErrorKind::Validation,
+            Self::InvalidBip32Path(_)
+            | Self::Signing(_)
+            | Self::SolanaTxTooShort { .. }
+            | Self::UnsupportedSolanaTxVersion(_) => WalletErrorKind::Validation,
             Self::PeerRemovedPairingInfo => WalletErrorKind::Device,
             Self::Ble(error) => WalletErrorKind::of_ble(error),
             Self::Workflow(error) => WalletErrorKind::of_workflow(error),
