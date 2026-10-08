@@ -8,7 +8,7 @@ use trezor_connect::thp::{
     BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput, BtcSignTx, SignTxRequest,
 };
 
-use crate::bip32::parse_bip32_path;
+use crate::bip32::{HARDENED, parse_bip32_path};
 use crate::error::{WalletError, WalletResult};
 use crate::hex::decode;
 
@@ -52,8 +52,7 @@ pub struct TxInputOutput {
     pub address: Option<String>,
     pub path: Option<String>,
     pub amount: String,
-    #[serde(default = "default_output_script_type")]
-    pub script_type: String,
+    pub script_type: Option<String>,
     pub multisig: Option<TxInputMultisig>,
     pub op_return_data: Option<String>,
     pub orig_hash: Option<String>,
@@ -187,10 +186,6 @@ fn default_input_script_type() -> String {
     "spendwitness".to_string()
 }
 
-fn default_output_script_type() -> String {
-    "paytoaddress".to_string()
-}
-
 pub fn parse_tx_json(json: &str) -> WalletResult<TxInput> {
     serde_json::from_str(json)
         .map_err(|err| WalletError::Signing(format!("invalid bitcoin tx JSON: {err}")))
@@ -255,49 +250,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
 
     let outputs = raw_outputs
         .into_iter()
-        .map(|output| {
-            if output.address.is_none() && output.path.is_none() {
-                return Err(WalletError::Signing(
-                    "bitcoin output requires either address or path".into(),
-                ));
-            }
-            if output.address.is_some() && output.path.is_some() {
-                return Err(WalletError::Signing(
-                    "bitcoin output cannot specify both address and path".into(),
-                ));
-            }
-
-            let amount = parse_sats(&output.amount)?;
-            let script_type = parse_output_script_type(&output.script_type)?;
-            let path = output
-                .path
-                .as_deref()
-                .map(parse_bip32_path)
-                .transpose()?
-                .unwrap_or_default();
-            let op_return_data = output.op_return_data.as_deref().map(decode).transpose()?;
-            let multisig = output.multisig.map(parse_multisig).transpose()?;
-            if script_type == BtcOutputScriptType::PayToMultisig && multisig.is_none() {
-                return Err(WalletError::Signing(
-                    "bitcoin PayToMultisig output requires multisig metadata".into(),
-                ));
-            }
-            Ok(BtcSignOutput {
-                address: output.address,
-                path,
-                amount,
-                script_type,
-                multisig,
-                op_return_data,
-                orig_hash: output
-                    .orig_hash
-                    .as_deref()
-                    .map(|value| parse_hash32("outputs.orig_hash", value))
-                    .transpose()?,
-                orig_index: output.orig_index,
-                payment_req_index: output.payment_req_index,
-            })
-        })
+        .map(|output| build_sign_output(output, OutputOwner::Signing))
         .collect::<WalletResult<Vec<_>>>()?;
 
     let ref_txs = raw_ref_txs
@@ -383,51 +336,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
             let outputs = tx
                 .outputs
                 .into_iter()
-                .map(|output| {
-                    if output.address.is_none() && output.path.is_none() {
-                        return Err(WalletError::Signing(
-                            "bitcoin original tx output requires either address or path".into(),
-                        ));
-                    }
-                    if output.address.is_some() && output.path.is_some() {
-                        return Err(WalletError::Signing(
-                            "bitcoin original tx output cannot specify both address and path"
-                                .into(),
-                        ));
-                    }
-
-                    let amount = parse_sats(&output.amount)?;
-                    let script_type = parse_output_script_type(&output.script_type)?;
-                    let path = output
-                        .path
-                        .as_deref()
-                        .map(parse_bip32_path)
-                        .transpose()?
-                        .unwrap_or_default();
-                    let op_return_data =
-                        output.op_return_data.as_deref().map(decode).transpose()?;
-                    let multisig = output.multisig.map(parse_multisig).transpose()?;
-                    if script_type == BtcOutputScriptType::PayToMultisig && multisig.is_none() {
-                        return Err(WalletError::Signing(
-                            "bitcoin PayToMultisig output requires multisig metadata".into(),
-                        ));
-                    }
-                    Ok(BtcSignOutput {
-                        address: output.address,
-                        path,
-                        amount,
-                        script_type,
-                        multisig,
-                        op_return_data,
-                        orig_hash: output
-                            .orig_hash
-                            .as_deref()
-                            .map(|value| parse_hash32("orig_txs.outputs.orig_hash", value))
-                            .transpose()?,
-                        orig_index: output.orig_index,
-                        payment_req_index: output.payment_req_index,
-                    })
-                })
+                .map(|output| build_sign_output(output, OutputOwner::Original))
                 .collect::<WalletResult<Vec<_>>>()?;
             let extra_data = tx.extra_data.as_deref().map(decode).transpose()?;
             Ok(BtcOrigTx {
@@ -551,6 +460,156 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
         payment_reqs,
         chunkify,
     }))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum OutputOwner {
+    Signing,
+    Original,
+}
+
+impl OutputOwner {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Signing => "bitcoin output",
+            Self::Original => "bitcoin original tx output",
+        }
+    }
+
+    fn orig_hash_field(self) -> &'static str {
+        match self {
+            Self::Signing => "outputs.orig_hash",
+            Self::Original => "orig_txs.outputs.orig_hash",
+        }
+    }
+}
+
+fn build_sign_output(output: TxInputOutput, owner: OutputOwner) -> WalletResult<BtcSignOutput> {
+    let label = owner.label();
+    let explicit_script_type = output
+        .script_type
+        .as_deref()
+        .map(parse_output_script_type)
+        .transpose()?;
+    let path = output.path.as_deref().map(parse_bip32_path).transpose()?;
+    let script_type = match (output.address.as_deref(), path.as_deref()) {
+        (Some(_), Some(_)) => {
+            return Err(WalletError::Signing(format!(
+                "{label} cannot specify both address and path"
+            )));
+        }
+        (Some(_), None) => external_output_script_type(explicit_script_type, label)?,
+        (None, Some(path)) => change_output_script_type(explicit_script_type, path, label)?,
+        (None, None) => match explicit_script_type {
+            Some(BtcOutputScriptType::PayToOpReturn) => BtcOutputScriptType::PayToOpReturn,
+            Some(
+                BtcOutputScriptType::PayToAddress
+                | BtcOutputScriptType::PayToScriptHash
+                | BtcOutputScriptType::PayToMultisig
+                | BtcOutputScriptType::PayToWitness
+                | BtcOutputScriptType::PayToP2shWitness
+                | BtcOutputScriptType::PayToTaproot,
+            )
+            | None => {
+                return Err(WalletError::Signing(format!(
+                    "{label} requires either address or path"
+                )));
+            }
+        },
+    };
+
+    let amount = parse_sats(&output.amount)?;
+    let op_return_data = output.op_return_data.as_deref().map(decode).transpose()?;
+    if script_type == BtcOutputScriptType::PayToOpReturn && op_return_data.is_none() {
+        return Err(WalletError::Signing(format!(
+            "{label} with script_type PayToOpReturn requires op_return_data"
+        )));
+    }
+    if script_type == BtcOutputScriptType::PayToOpReturn && amount != 0 {
+        return Err(WalletError::Signing(format!(
+            "{label} with script_type PayToOpReturn must have zero amount, got {amount}"
+        )));
+    }
+    let multisig = output.multisig.map(parse_multisig).transpose()?;
+    if script_type == BtcOutputScriptType::PayToMultisig && multisig.is_none() {
+        return Err(WalletError::Signing(
+            "bitcoin PayToMultisig output requires multisig metadata".into(),
+        ));
+    }
+    Ok(BtcSignOutput {
+        address: output.address,
+        path: path.unwrap_or_default(),
+        amount,
+        script_type,
+        multisig,
+        op_return_data,
+        orig_hash: output
+            .orig_hash
+            .as_deref()
+            .map(|value| parse_hash32(owner.orig_hash_field(), value))
+            .transpose()?,
+        orig_index: output.orig_index,
+        payment_req_index: output.payment_req_index,
+    })
+}
+
+// Suite 344051e7e: outputs paying to an address default to PAYTOADDRESS and reject anything else.
+fn external_output_script_type(
+    explicit: Option<BtcOutputScriptType>,
+    label: &str,
+) -> WalletResult<BtcOutputScriptType> {
+    match explicit {
+        None | Some(BtcOutputScriptType::PayToAddress) => Ok(BtcOutputScriptType::PayToAddress),
+        Some(
+            other @ (BtcOutputScriptType::PayToScriptHash
+            | BtcOutputScriptType::PayToMultisig
+            | BtcOutputScriptType::PayToOpReturn
+            | BtcOutputScriptType::PayToWitness
+            | BtcOutputScriptType::PayToP2shWitness
+            | BtcOutputScriptType::PayToTaproot),
+        ) => Err(WalletError::Signing(format!(
+            "{label} with address must use script_type PayToAddress, got {other:?}"
+        ))),
+    }
+}
+
+fn change_output_script_type(
+    explicit: Option<BtcOutputScriptType>,
+    path: &[u32],
+    label: &str,
+) -> WalletResult<BtcOutputScriptType> {
+    match explicit {
+        None => Ok(change_output_script_type_for_path(path)),
+        Some(
+            script_type @ (BtcOutputScriptType::PayToAddress
+            | BtcOutputScriptType::PayToMultisig
+            | BtcOutputScriptType::PayToWitness
+            | BtcOutputScriptType::PayToP2shWitness
+            | BtcOutputScriptType::PayToTaproot),
+        ) => Ok(script_type),
+        Some(
+            other @ (BtcOutputScriptType::PayToScriptHash | BtcOutputScriptType::PayToOpReturn),
+        ) => Err(WalletError::Signing(format!(
+            "{label} with path cannot use script_type {other:?}"
+        ))),
+    }
+}
+
+// Mirrors Suite getOutputScriptType; unknown purposes fall back to the protobuf default PAYTOADDRESS.
+fn change_output_script_type_for_path(path: &[u32]) -> BtcOutputScriptType {
+    let unhardened = |index: usize| path.get(index).map(|part| part & !HARDENED);
+    match unhardened(0) {
+        Some(48) => match unhardened(3) {
+            Some(0) => BtcOutputScriptType::PayToMultisig,
+            Some(1) => BtcOutputScriptType::PayToP2shWitness,
+            Some(2) => BtcOutputScriptType::PayToWitness,
+            _ => BtcOutputScriptType::PayToAddress,
+        },
+        Some(49) => BtcOutputScriptType::PayToP2shWitness,
+        Some(84) => BtcOutputScriptType::PayToWitness,
+        Some(86 | 10025) => BtcOutputScriptType::PayToTaproot,
+        _ => BtcOutputScriptType::PayToAddress,
+    }
 }
 
 fn parse_hash32(field: &str, value: &str) -> WalletResult<Vec<u8>> {
@@ -902,7 +961,178 @@ mod tests {
         let btc = request.btc.unwrap();
         assert_eq!(btc.inputs[0].amount, 100);
         assert_eq!(btc.outputs[0].amount, 90);
+        assert_eq!(
+            btc.outputs[0].script_type,
+            BtcOutputScriptType::PayToWitness
+        );
         assert_eq!(btc.ref_txs.len(), 1);
+    }
+
+    fn output(
+        address: Option<&str>,
+        path: Option<&str>,
+        script_type: Option<&str>,
+    ) -> TxInputOutput {
+        TxInputOutput {
+            address: address.map(str::to_string),
+            path: path.map(str::to_string),
+            amount: "1000".to_string(),
+            script_type: script_type.map(str::to_string),
+            multisig: None,
+            op_return_data: None,
+            orig_hash: None,
+            orig_index: None,
+            payment_req_index: None,
+        }
+    }
+
+    const ADDRESS: &str = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
+
+    #[test]
+    fn external_output_defaults_to_pay_to_address() {
+        for script_type in [None, Some("paytoaddress"), Some("PAYTOADDRESS")] {
+            let built = build_sign_output(
+                output(Some(ADDRESS), None, script_type),
+                OutputOwner::Signing,
+            )
+            .unwrap();
+            assert_eq!(built.script_type, BtcOutputScriptType::PayToAddress);
+        }
+    }
+
+    #[test]
+    fn external_output_rejects_non_pay_to_address_script_types() {
+        for (owner, script_type) in [
+            (OutputOwner::Signing, "paytowitness"),
+            (OutputOwner::Signing, "paytop2shwitness"),
+            (OutputOwner::Signing, "paytotaproot"),
+            (OutputOwner::Signing, "paytoscripthash"),
+            (OutputOwner::Signing, "paytomultisig"),
+            (OutputOwner::Signing, "paytoopreturn"),
+            (OutputOwner::Original, "paytowitness"),
+        ] {
+            let err = build_sign_output(output(Some(ADDRESS), None, Some(script_type)), owner)
+                .unwrap_err();
+            assert!(
+                matches!(err, WalletError::Signing(_)),
+                "{script_type}: {err}"
+            );
+            assert!(
+                err.to_string().contains(&format!(
+                    "{} with address must use script_type PayToAddress",
+                    owner.label()
+                )),
+                "{script_type}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn change_output_derives_script_type_from_path_purpose() {
+        for (path, expected) in [
+            ("m/44'/0'/0'/1/0", BtcOutputScriptType::PayToAddress),
+            ("m/49'/0'/0'/1/0", BtcOutputScriptType::PayToP2shWitness),
+            ("m/84'/0'/0'/1/0", BtcOutputScriptType::PayToWitness),
+            ("m/86'/0'/0'/1/0", BtcOutputScriptType::PayToTaproot),
+            ("m/10025'/0'/0'/1'/1/0", BtcOutputScriptType::PayToTaproot),
+            ("m/48'/0'/0'/1'/1/0", BtcOutputScriptType::PayToP2shWitness),
+            ("m/48'/0'/0'/2'/1/0", BtcOutputScriptType::PayToWitness),
+            ("m/48'/0'/0'/3'/1/0", BtcOutputScriptType::PayToAddress),
+            ("m/0/1", BtcOutputScriptType::PayToAddress),
+        ] {
+            let built =
+                build_sign_output(output(None, Some(path), None), OutputOwner::Signing).unwrap();
+            assert_eq!(built.script_type, expected, "{path}");
+        }
+    }
+
+    #[test]
+    fn change_output_derives_multisig_script_type_for_bip48_legacy_path() {
+        let err = build_sign_output(
+            output(None, Some("m/48'/0'/0'/0'/1/0"), None),
+            OutputOwner::Signing,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("PayToMultisig output requires multisig metadata")
+        );
+    }
+
+    #[test]
+    fn change_output_keeps_explicit_change_script_type() {
+        for (script_type, expected) in [
+            ("paytoaddress", BtcOutputScriptType::PayToAddress),
+            ("paytop2shwitness", BtcOutputScriptType::PayToP2shWitness),
+            ("paytowitness", BtcOutputScriptType::PayToWitness),
+            ("paytotaproot", BtcOutputScriptType::PayToTaproot),
+        ] {
+            let built = build_sign_output(
+                output(None, Some("m/84'/0'/0'/1/0"), Some(script_type)),
+                OutputOwner::Signing,
+            )
+            .unwrap();
+            assert_eq!(built.script_type, expected, "{script_type}");
+        }
+    }
+
+    #[test]
+    fn change_output_rejects_non_change_script_types() {
+        for script_type in ["paytoopreturn", "paytoscripthash"] {
+            let err = build_sign_output(
+                output(None, Some("m/84'/0'/0'/1/0"), Some(script_type)),
+                OutputOwner::Signing,
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("bitcoin output with path cannot use script_type"),
+                "{script_type}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn op_return_output_requires_no_address_or_path_and_data() {
+        let mut op_return = output(None, None, Some("paytoopreturn"));
+        op_return.amount = "0".to_string();
+        op_return.op_return_data = Some("deadbeef".to_string());
+        let built = build_sign_output(op_return, OutputOwner::Signing).unwrap();
+        assert_eq!(built.script_type, BtcOutputScriptType::PayToOpReturn);
+        assert_eq!(built.op_return_data, Some(vec![0xde, 0xad, 0xbe, 0xef]));
+
+        let err = build_sign_output(
+            output(None, None, Some("paytoopreturn")),
+            OutputOwner::Signing,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("requires op_return_data"));
+
+        let err = build_sign_output(output(None, None, None), OutputOwner::Signing).unwrap_err();
+        assert!(err.to_string().contains("requires either address or path"));
+    }
+
+    #[test]
+    fn op_return_output_requires_zero_amount() {
+        for owner in [OutputOwner::Signing, OutputOwner::Original] {
+            let mut op_return = output(None, None, Some("paytoopreturn"));
+            op_return.op_return_data = Some("deadbeef".to_string());
+            let err = build_sign_output(op_return, owner).unwrap_err();
+            assert!(matches!(err, WalletError::Signing(_)), "{err}");
+            assert!(
+                err.to_string().contains(&format!(
+                    "{} with script_type PayToOpReturn must have zero amount, got 1000",
+                    owner.label()
+                )),
+                "{err}"
+            );
+
+            let mut op_return = output(None, None, Some("paytoopreturn"));
+            op_return.amount = "0".to_string();
+            op_return.op_return_data = Some("deadbeef".to_string());
+            let built = build_sign_output(op_return, owner).unwrap();
+            assert_eq!(built.amount, 0);
+        }
     }
 
     #[test]
