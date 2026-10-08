@@ -1,5 +1,5 @@
 use hw_wallet::eth::VerifiedSignature;
-use trezor_connect::thp::{SignMessageResponse, SignTxResponse};
+use trezor_connect::thp::{EthTxSignature, SignMessageResponse};
 
 pub fn print_requesting(label: &str) {
     println!("Requesting {label} from device...");
@@ -44,7 +44,7 @@ pub fn print_solana_message_signature_response(response: &SignMessageResponse) {
 }
 
 pub fn print_eth_sign_tx_response(
-    response: &SignTxResponse,
+    response: &EthTxSignature,
     verification: Option<&VerifiedSignature>,
 ) {
     print_labeled_value("v", response.v);

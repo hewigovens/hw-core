@@ -7,7 +7,8 @@ use hw_wallet::eip712::build_sign_typed_data_request;
 use hw_wallet::message::build_sign_message_request;
 use trezor_connect::thp::testing::MockBackend;
 use trezor_connect::thp::{
-    Chain, EthSignTx, HostConfig, PairingMethod, SignTxRequest, SolanaSignTx, ThpWorkflow,
+    Chain, EthSignTx, EthTxSignature, HostConfig, PairingMethod, SignTxRequest, SignTxResponse,
+    SolanaSignTx, ThpWorkflow,
 };
 
 const BTC_SIGN_WITH_REF_TXS: &str =
@@ -73,7 +74,10 @@ async fn sign_eth_tx_on_ready_session() {
         .with_value(vec![0]);
     let response = workflow.sign_tx(request.into()).await.unwrap();
 
-    assert_eq!(response.v, 0);
+    assert!(matches!(
+        response,
+        SignTxResponse::Ethereum(EthTxSignature { v: 0, .. })
+    ));
     let backend = workflow.backend_mut();
     assert_eq!(backend.counters.sign_tx_calls, 1);
     let Some(SignTxRequest::Ethereum(request)) = &backend.last_sign_tx_request else {
@@ -92,9 +96,7 @@ async fn sign_sol_tx_uses_solana_chain() {
     };
     let response = workflow.sign_tx(request.into()).await.unwrap();
 
-    assert_eq!(response.chain, Chain::Solana);
-    assert_eq!(response.r.len(), 64);
-    assert!(response.s.is_empty());
+    assert!(matches!(response, SignTxResponse::Solana { signature } if signature.len() == 64));
     let Some(SignTxRequest::Solana(request)) = workflow.backend_mut().last_sign_tx_request.clone()
     else {
         panic!("expected a Solana sign request");
@@ -112,8 +114,9 @@ async fn sign_btc_tx_uses_bitcoin_chain() {
         .await
         .unwrap();
 
-    assert_eq!(response.chain, Chain::Bitcoin);
-    assert_eq!(response.r.len(), 64);
+    assert!(
+        matches!(response, SignTxResponse::Bitcoin { last_signature, .. } if last_signature.len() == 64)
+    );
     assert!(matches!(
         workflow.backend_mut().last_sign_tx_request,
         Some(SignTxRequest::Bitcoin(_))

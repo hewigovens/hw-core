@@ -225,8 +225,11 @@ fn signature_index_accepts_last_input_and_rejects_out_of_range() {
     let mut signer = BitcoinTxSigner::new(&btc);
     signer.handle(&signed(1)).unwrap();
     assert_eq!(
-        signer.into_response().signatures,
-        vec![Vec::<u8>::new(), vec![0xaa, 0xbb]]
+        signer.into_response(),
+        SignTxResponse::Bitcoin {
+            signatures: vec![Vec::new(), vec![0xaa, 0xbb]],
+            last_signature: vec![0xaa, 0xbb],
+        }
     );
 
     for signature_index in [2, u32::MAX] {
@@ -239,7 +242,10 @@ fn signature_index_accepts_last_input_and_rejects_out_of_range() {
             message,
             format!("device returned Bitcoin signature index {signature_index} for input count 2")
         );
-        assert!(signer.into_response().signatures.is_empty());
+        let SignTxResponse::Bitcoin { signatures, .. } = signer.into_response() else {
+            panic!("expected a Bitcoin response");
+        };
+        assert!(signatures.is_empty());
     }
 }
 
@@ -770,7 +776,14 @@ fn rbf_fee_bump_fixture_full_request_sequence() {
 
     let (ack_count, response) = run_fixture_request_sequence(&btc, &fixture);
     assert_eq!(ack_count, 14, "expected 14 ack responses in the sequence");
-    assert!(response.r.is_empty(), "fixture does not emit signatures");
+    assert_eq!(
+        response,
+        SignTxResponse::Bitcoin {
+            signatures: Vec::new(),
+            last_signature: Vec::new(),
+        },
+        "fixture does not emit signatures"
+    );
 }
 
 #[test]
@@ -789,5 +802,8 @@ fn ref_tx_extra_data_fixture_sequence_yields_expected_chunks_and_signature() {
 
     let (ack_count, response) = run_fixture_request_sequence(&btc, &fixture);
     assert_eq!(ack_count, 5, "expected 5 ack responses in the sequence");
-    assert_eq!(response.r, hex_to_bytes("0x3045022100feedface"));
+    let SignTxResponse::Bitcoin { last_signature, .. } = response else {
+        panic!("expected a Bitcoin response");
+    };
+    assert_eq!(last_signature, hex_to_bytes("0x3045022100feedface"));
 }

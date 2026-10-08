@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use trezor_connect::thp::{Chain, EthAccessListEntry, EthSignTx, SignTxResponse};
+use trezor_connect::thp::{EthAccessListEntry, EthSignTx, EthTxSignature};
 
 use crate::error::{WalletError, WalletResult};
 use crate::hex::{decode, decode_quantity};
@@ -93,13 +93,8 @@ pub struct VerifiedSignature {
 
 pub fn verify_sign_tx_response(
     request: &EthSignTx,
-    response: &SignTxResponse,
+    response: &EthTxSignature,
 ) -> WalletResult<VerifiedSignature> {
-    if response.chain != Chain::Ethereum {
-        return Err(WalletError::Signing(
-            "signature verification currently supports Ethereum only".into(),
-        ));
-    }
     if response.r.len() != 32 || response.s.len() != 32 {
         return Err(WalletError::Signing(
             "invalid signature length (expected 32-byte r/s)".into(),
@@ -317,12 +312,10 @@ mod tests {
                 .unwrap();
         let signing_key = SigningKey::from_slice(&key_bytes).unwrap();
         let (signature, recovery_id) = signing_key.sign_prehash_recoverable(&tx_hash);
-        let response = SignTxResponse {
-            chain: Chain::Ethereum,
+        let response = EthTxSignature {
             v: u32::from(recovery_id.to_byte()),
             r: signature.r().to_bytes().to_vec(),
             s: signature.s().to_bytes().to_vec(),
-            signatures: Vec::new(),
         };
 
         let verified = verify_sign_tx_response(&request, &response).unwrap();

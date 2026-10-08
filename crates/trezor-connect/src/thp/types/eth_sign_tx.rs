@@ -4,6 +4,13 @@ pub struct EthAccessListEntry {
     pub storage_keys: Vec<Vec<u8>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EthTxSignature {
+    pub v: u32,
+    pub r: Vec<u8>,
+    pub s: Vec<u8>,
+}
+
 /// EIP-1559 Ethereum transaction to sign.
 #[derive(Debug, Clone)]
 pub struct EthSignTx {

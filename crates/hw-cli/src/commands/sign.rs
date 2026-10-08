@@ -1,6 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use hw_wallet::eth::verify_sign_tx_response;
 use tracing::info;
+use trezor_connect::thp::SignTxResponse;
 
 use self::request::{
     build_btc_sign_request_from_args, build_eth_sign_request_from_args,
@@ -38,8 +39,14 @@ async fn run_eth(args: SignEthArgs, skip_pairing: bool) -> Result<()> {
         .sign_tx(request.request.clone().into())
         .await
         .context("sign-tx failed")?;
-    let verification = verify_sign_tx_response(&request.request, &response).ok();
-    print_eth_sign_tx_response(&response, verification.as_ref());
+    let SignTxResponse::Ethereum(signature) = response else {
+        bail!(
+            "device returned a {:?} signature for an Ethereum transaction",
+            response.chain()
+        );
+    };
+    let verification = verify_sign_tx_response(&request.request, &signature).ok();
+    print_eth_sign_tx_response(&signature, verification.as_ref());
 
     Ok(())
 }
@@ -57,7 +64,13 @@ async fn run_sol(args: SignSolArgs, skip_pairing: bool) -> Result<()> {
         .sign_tx(request.request.into())
         .await
         .context("sign-tx failed")?;
-    print_hex_field("signature", &response.r);
+    let SignTxResponse::Solana { signature } = response else {
+        bail!(
+            "device returned a {:?} signature for a Solana transaction",
+            response.chain()
+        );
+    };
+    print_hex_field("signature", &signature);
     Ok(())
 }
 
@@ -75,6 +88,12 @@ async fn run_btc(args: SignBtcArgs, skip_pairing: bool) -> Result<()> {
         .sign_tx(request.into())
         .await
         .context("sign-tx failed")?;
-    print_hex_field("signature", &response.r);
+    let SignTxResponse::Bitcoin { last_signature, .. } = response else {
+        bail!(
+            "device returned a {:?} signature for a Bitcoin transaction",
+            response.chain()
+        );
+    };
+    print_hex_field("signature", &last_signature);
     Ok(())
 }

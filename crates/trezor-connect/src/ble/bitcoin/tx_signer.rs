@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use hw_chain::Chain;
-
 use crate::thp::backend::{BackendError, BackendResult};
 use crate::thp::proto::{BitcoinTxRequestType, DecodedBitcoinTxRequest, EncodedMessage, TxAck};
 use crate::thp::types::{BtcOrigTx, BtcRefTx, BtcSignTx, SignTxResponse};
@@ -56,19 +54,15 @@ impl<'a> BitcoinTxSigner<'a> {
     }
 
     pub(in crate::ble) fn into_response(self) -> SignTxResponse {
-        // Legacy fallback: prefer last indexed signature for 'r'.
-        let r = self
+        let last_signature = self
             .signatures
             .last()
             .cloned()
             .or(self.last_signature)
             .unwrap_or_default();
-        SignTxResponse {
-            chain: Chain::Bitcoin,
-            v: 0,
-            r,
-            s: Vec::new(),
+        SignTxResponse::Bitcoin {
             signatures: self.signatures,
+            last_signature,
         }
     }
 

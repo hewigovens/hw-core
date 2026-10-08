@@ -1,5 +1,3 @@
-use hw_chain::Chain;
-
 use super::backend::BleBackend;
 use super::bitcoin::{BitcoinTxRequestHandling, BitcoinTxSigner};
 use crate::thp::backend::{BackendError, BackendResult};
@@ -8,7 +6,7 @@ use crate::thp::proto::{
     EthereumTxAck, EthereumTxRequest, EthereumTypedDataValueAck, SolanaTxSignature, WireMessage,
 };
 use crate::thp::types::{
-    BtcSignTx, Eip712TypedData, EthSignTx, SignTxResponse, SignTypedDataResponse,
+    BtcSignTx, Eip712TypedData, EthSignTx, EthTxSignature, SignTxResponse, SignTypedDataResponse,
 };
 
 impl BleBackend {
@@ -55,13 +53,7 @@ impl BleBackend {
                 tx_request.signature_r,
                 tx_request.signature_s,
             ) {
-                return Ok(SignTxResponse {
-                    chain: Chain::Ethereum,
-                    v,
-                    r,
-                    s,
-                    signatures: Vec::new(),
-                });
+                return Ok(SignTxResponse::Ethereum(EthTxSignature { v, r, s }));
             }
             let Some(requested_len) = tx_request.data_length else {
                 return Err(BackendError::Transport(
@@ -92,12 +84,8 @@ impl BleBackend {
             ));
         }
         let signature = SolanaTxSignature::from_message(message_type, payload)?;
-        Ok(SignTxResponse {
-            chain: Chain::Solana,
-            v: 0,
-            r: signature.signature,
-            s: Vec::new(),
-            signatures: Vec::new(),
+        Ok(SignTxResponse::Solana {
+            signature: signature.signature,
         })
     }
 

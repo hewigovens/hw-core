@@ -7,11 +7,11 @@ use super::backend::{BackendError, BackendResult, ThpBackend};
 use super::types::{
     CodeEntryChallengeRequest, CodeEntryChallengeResponse, CreateChannelRequest,
     CreateChannelResponse, CreateSessionRequest, CreateSessionResponse, CredentialRequest,
-    CredentialResponse, GetAddressRequest, GetAddressResponse, HandshakeCompletionState,
-    HandshakeRequest, HandshakeResponse, KnownCredential, PairingMethod, PairingRequest,
-    PairingRequestApproved, PairingTagRequest, PairingTagResponse, SelectMethodRequest,
-    SelectMethodResponse, SignMessageRequest, SignMessageResponse, SignTxRequest, SignTxResponse,
-    SignTypedDataRequest, SignTypedDataResponse, ThpProperties,
+    CredentialResponse, EthTxSignature, GetAddressRequest, GetAddressResponse,
+    HandshakeCompletionState, HandshakeRequest, HandshakeResponse, KnownCredential, PairingMethod,
+    PairingRequest, PairingRequestApproved, PairingTagRequest, PairingTagResponse,
+    SelectMethodRequest, SelectMethodResponse, SignMessageRequest, SignMessageResponse,
+    SignTxRequest, SignTxResponse, SignTypedDataRequest, SignTypedDataResponse, ThpProperties,
 };
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
@@ -354,26 +354,17 @@ impl ThpBackend for MockBackend {
         let chain = request.chain();
         self.last_sign_tx_request = Some(request);
         let response = match chain {
-            Chain::Ethereum => SignTxResponse {
-                chain,
+            Chain::Ethereum => SignTxResponse::Ethereum(EthTxSignature {
                 v: 0,
                 r: vec![0xAA; 32],
                 s: vec![0xBB; 32],
-                signatures: Vec::new(),
+            }),
+            Chain::Solana => SignTxResponse::Solana {
+                signature: vec![0xCC; 64],
             },
-            Chain::Solana => SignTxResponse {
-                chain,
-                v: 0,
-                r: vec![0xCC; 64],
-                s: Vec::new(),
-                signatures: Vec::new(),
-            },
-            Chain::Bitcoin => SignTxResponse {
-                chain,
-                v: 0,
-                r: vec![0xDD; 64],
-                s: Vec::new(),
+            Chain::Bitcoin => SignTxResponse::Bitcoin {
                 signatures: vec![vec![0xDD; 64]],
+                last_signature: vec![0xDD; 64],
             },
         };
         Ok(response)
