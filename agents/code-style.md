@@ -45,4 +45,4 @@ Re-read the whole diff, not just the last edit, and run two rounds:
 
 ## FFI
 
-- UniFFI 0.32 with derive macros: `#[derive(uniffi::Object)]` on exported types and `#[uniffi::export(async_runtime = "tokio")]` on their impls (see `crates/hw-ffi/src/ble/workflow_api.rs`).
+- UniFFI 0.32 with derive macros: `#[derive(uniffi::Object)]` on exported types and `#[uniffi::export(async_runtime = "tokio")]` on their impls (see `crates/hw-ffi/src/ble/workflow/api.rs`).
