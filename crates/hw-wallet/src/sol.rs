@@ -1,4 +1,4 @@
-use trezor_connect::thp::SignTxRequest;
+use trezor_connect::thp::SolanaSignTx;
 
 use crate::error::{WalletError, WalletResult};
 
@@ -7,10 +7,7 @@ pub const MIN_SERIALIZED_TX_BYTES: usize = 16;
 const VERSION_PREFIX_MASK: u8 = 0x80;
 const UNSUPPORTED_TX_VERSION: u8 = 1;
 
-pub fn build_sign_tx_request(
-    path: Vec<u32>,
-    serialized_tx: Vec<u8>,
-) -> WalletResult<SignTxRequest> {
+pub fn build_sign_tx_request(path: Vec<u32>, serialized_tx: Vec<u8>) -> WalletResult<SolanaSignTx> {
     if serialized_tx.len() < MIN_SERIALIZED_TX_BYTES {
         return Err(WalletError::SolanaTxTooShort {
             len: serialized_tx.len(),
@@ -22,7 +19,10 @@ pub fn build_sign_tx_request(
             UNSUPPORTED_TX_VERSION,
         ));
     }
-    Ok(SignTxRequest::solana(path, serialized_tx))
+    Ok(SolanaSignTx {
+        path,
+        serialized_tx,
+    })
 }
 
 // Mirrors Suite's isV1Transaction: v1 (SIMD-0385) puts the message first, so byte 0 is decisive.
@@ -65,7 +65,7 @@ mod tests {
             let message = fixture(key);
             let request = build_sign_tx_request(sol_path(), message.clone())
                 .unwrap_or_else(|err| panic!("{key} should be accepted: {err}"));
-            assert_eq!(request.data, message, "{key}");
+            assert_eq!(request.serialized_tx, message, "{key}");
             assert_eq!(request.path, sol_path(), "{key}");
         }
     }

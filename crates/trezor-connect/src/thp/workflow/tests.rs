@@ -535,10 +535,10 @@ async fn sign_tx_requires_paired_phase() {
         },
     );
 
-    let request = SignTxRequest::ethereum(vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0], 1)
+    let request = EthSignTx::new(vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0], 1)
         .with_to("0xdead".into());
     let err = workflow
-        .sign_tx(request)
+        .sign_tx(request.into())
         .await
         .expect_err("should fail before pairing");
     assert!(matches!(err, ThpWorkflowError::InvalidPhase));

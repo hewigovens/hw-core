@@ -6,7 +6,9 @@ use hw_wallet::btc::{build_sign_tx_request, parse_tx_json};
 use hw_wallet::eip712::build_sign_typed_data_request;
 use hw_wallet::message::build_sign_message_request;
 use trezor_connect::thp::testing::MockBackend;
-use trezor_connect::thp::{Chain, HostConfig, PairingMethod, SignTxRequest, ThpWorkflow};
+use trezor_connect::thp::{
+    Chain, EthSignTx, HostConfig, PairingMethod, SignTxRequest, SolanaSignTx, ThpWorkflow,
+};
 
 const BTC_SIGN_WITH_REF_TXS: &str =
     include_str!("../../../tests/data/bitcoin/btc_sign_with_ref_txs.json");
@@ -62,20 +64,21 @@ async fn pair_target_stops_before_session_creation() {
 #[tokio::test]
 async fn sign_eth_tx_on_ready_session() {
     let mut workflow = ready_workflow().await;
-    let request = SignTxRequest::ethereum(ETH_PATH.to_vec(), 1)
+    let request = EthSignTx::new(ETH_PATH.to_vec(), 1)
         .with_nonce(vec![0])
         .with_gas_limit(vec![0x52, 0x08])
         .with_max_fee_per_gas(vec![1])
         .with_max_priority_fee(vec![1])
         .with_to("0x000000000000000000000000000000000000dead".into())
         .with_value(vec![0]);
-    let response = workflow.sign_tx(request).await.unwrap();
+    let response = workflow.sign_tx(request.into()).await.unwrap();
 
     assert_eq!(response.v, 0);
     let backend = workflow.backend_mut();
     assert_eq!(backend.counters.sign_tx_calls, 1);
-    let request = backend.last_sign_tx_request.as_ref().unwrap();
-    assert_eq!(request.chain, Chain::Ethereum);
+    let Some(SignTxRequest::Ethereum(request)) = &backend.last_sign_tx_request else {
+        panic!("expected an Ethereum sign request");
+    };
     assert_eq!(request.chain_id, 1);
 }
 
@@ -83,16 +86,21 @@ async fn sign_eth_tx_on_ready_session() {
 async fn sign_sol_tx_uses_solana_chain() {
     let mut workflow = ready_workflow().await;
     let path = vec![0x8000_002c, 0x8000_01f5, 0x8000_0000, 0x8000_0000];
-    let request = SignTxRequest::solana(path.clone(), vec![0x01, 0x02, 0x03]);
-    let response = workflow.sign_tx(request).await.unwrap();
+    let request = SolanaSignTx {
+        path: path.clone(),
+        serialized_tx: vec![0x01, 0x02, 0x03],
+    };
+    let response = workflow.sign_tx(request.into()).await.unwrap();
 
     assert_eq!(response.chain, Chain::Solana);
     assert_eq!(response.r.len(), 64);
     assert!(response.s.is_empty());
-    let request = workflow.backend_mut().last_sign_tx_request.clone().unwrap();
-    assert_eq!(request.chain, Chain::Solana);
+    let Some(SignTxRequest::Solana(request)) = workflow.backend_mut().last_sign_tx_request.clone()
+    else {
+        panic!("expected a Solana sign request");
+    };
     assert_eq!(request.path, path);
-    assert_eq!(request.data, vec![0x01, 0x02, 0x03]);
+    assert_eq!(request.serialized_tx, vec![0x01, 0x02, 0x03]);
 }
 
 #[tokio::test]
@@ -100,15 +108,16 @@ async fn sign_btc_tx_uses_bitcoin_chain() {
     let mut workflow = ready_workflow().await;
     let tx = parse_tx_json(BTC_SIGN_WITH_REF_TXS).unwrap();
     let response = workflow
-        .sign_tx(build_sign_tx_request(tx).unwrap())
+        .sign_tx(build_sign_tx_request(tx).unwrap().into())
         .await
         .unwrap();
 
     assert_eq!(response.chain, Chain::Bitcoin);
     assert_eq!(response.r.len(), 64);
-    let request = workflow.backend_mut().last_sign_tx_request.clone().unwrap();
-    assert_eq!(request.chain, Chain::Bitcoin);
-    assert!(request.btc.is_some());
+    assert!(matches!(
+        workflow.backend_mut().last_sign_tx_request,
+        Some(SignTxRequest::Bitcoin(_))
+    ));
 }
 
 #[tokio::test]

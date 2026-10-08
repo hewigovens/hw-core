@@ -55,18 +55,21 @@ pub(crate) fn map_sign_tx_request(
                     .collect(),
             };
 
-            let mut sign_request = build_sign_tx_request(path, tx).map_err(HWCoreError::from)?;
-            sign_request.chunkify = request.chunkify;
-            Ok(sign_request)
+            let tx = build_sign_tx_request(path, tx).map_err(HWCoreError::from)?;
+            Ok(tx.with_chunkify(request.chunkify).into())
         }
         crate::types::Chain::Solana => {
             let path = parse_request_path(&request.path)?;
             let serialized_tx = decode_hex(&request.data).map_err(HWCoreError::from)?;
-            build_sol_sign_tx_request(path, serialized_tx).map_err(HWCoreError::from)
+            Ok(build_sol_sign_tx_request(path, serialized_tx)
+                .map_err(HWCoreError::from)?
+                .into())
         }
         crate::types::Chain::Bitcoin => {
             let tx = parse_btc_tx_json(&request.data).map_err(HWCoreError::from)?;
-            build_btc_sign_tx_request(tx).map_err(HWCoreError::from)
+            Ok(build_btc_sign_tx_request(tx)
+                .map_err(HWCoreError::from)?
+                .into())
         }
     }
 }

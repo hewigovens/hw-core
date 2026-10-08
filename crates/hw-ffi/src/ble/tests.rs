@@ -172,8 +172,11 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
     assert!(get_address_request.include_public_key);
     assert!(get_address_request.chunkify);
 
-    let sign_request = backend.last_sign_tx_request.as_ref().unwrap();
-    assert_eq!(sign_request.chain, Chain::Ethereum);
+    let Some(trezor_connect::thp::SignTxRequest::Ethereum(sign_request)) =
+        &backend.last_sign_tx_request
+    else {
+        panic!("expected an Ethereum sign request");
+    };
     assert_eq!(sign_request.chain_id, 1);
     assert_eq!(
         sign_request.path,
@@ -261,9 +264,11 @@ fn sign_tx_request_maps_solana_chain() {
         chunkify: false,
     })
     .expect("solana request should map");
-    assert_eq!(mapped.chain, Chain::Solana);
+    let trezor_connect::thp::SignTxRequest::Solana(mapped) = mapped else {
+        panic!("expected a Solana sign request");
+    };
     assert_eq!(
-        mapped.data,
+        mapped.serialized_tx,
         vec![
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
             0x0f, 0x10,
@@ -308,8 +313,10 @@ fn sign_tx_request_maps_bitcoin_chain() {
         chunkify: false,
     })
     .expect("bitcoin request should map");
-    assert_eq!(mapped.chain, Chain::Bitcoin);
-    assert!(mapped.btc.is_some());
+    assert!(matches!(
+        mapped,
+        trezor_connect::thp::SignTxRequest::Bitcoin(_)
+    ));
 }
 
 #[test]

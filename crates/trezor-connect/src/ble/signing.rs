@@ -8,31 +8,10 @@ use crate::thp::proto::{
     EthereumTxAck, EthereumTxRequest, EthereumTypedDataValueAck, SolanaTxSignature, WireMessage,
 };
 use crate::thp::types::{
-    BtcSignTx, Eip712TypedData, SignTxRequest, SignTxResponse, SignTypedDataResponse,
+    BtcSignTx, Eip712TypedData, EthSignTx, SignTxResponse, SignTypedDataResponse,
 };
 
 impl BleBackend {
-    pub(super) async fn sign_transaction(
-        &mut self,
-        request: SignTxRequest,
-    ) -> BackendResult<SignTxResponse> {
-        let (encoded, initial_chunk_len) = request.encode()?;
-        let (message_type, payload) = self.request(encoded).await?;
-        match request.chain {
-            Chain::Ethereum => {
-                self.sign_ethereum_tx(&request.data, initial_chunk_len, message_type, payload)
-                    .await
-            }
-            Chain::Solana => Self::solana_signature(message_type, &payload),
-            Chain::Bitcoin => {
-                let btc = request.btc.as_ref().ok_or_else(|| {
-                    BackendError::Transport("missing Bitcoin signing payload".into())
-                })?;
-                self.sign_bitcoin_tx(btc, message_type, payload).await
-            }
-        }
-    }
-
     /// Answers the device's EIP-712 struct and value requests until it returns the signature.
     pub(super) async fn sign_eip712(
         &mut self,
@@ -55,13 +34,14 @@ impl BleBackend {
         }
     }
 
-    async fn sign_ethereum_tx(
+    pub(super) async fn sign_ethereum_tx(
         &mut self,
-        data: &[u8],
-        mut data_offset: usize,
+        tx: &EthSignTx,
         mut message_type: u16,
         mut payload: Vec<u8>,
     ) -> BackendResult<SignTxResponse> {
+        let data = tx.data.as_slice();
+        let mut data_offset = tx.initial_chunk_len();
         loop {
             if message_type != EthereumTxRequest::MESSAGE_TYPE {
                 return Err(BackendError::unexpected_signing_message(
@@ -101,7 +81,10 @@ impl BleBackend {
         }
     }
 
-    fn solana_signature(message_type: u16, payload: &[u8]) -> BackendResult<SignTxResponse> {
+    pub(super) fn solana_signature(
+        message_type: u16,
+        payload: &[u8],
+    ) -> BackendResult<SignTxResponse> {
         if message_type != SolanaTxSignature::MESSAGE_TYPE {
             return Err(BackendError::unexpected_signing_message(
                 message_type,
@@ -118,7 +101,7 @@ impl BleBackend {
         })
     }
 
-    async fn sign_bitcoin_tx(
+    pub(super) async fn sign_bitcoin_tx(
         &mut self,
         btc: &BtcSignTx,
         mut message_type: u16,

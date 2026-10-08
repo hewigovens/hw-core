@@ -351,7 +351,7 @@ impl ThpBackend for MockBackend {
 
     async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse> {
         self.counters.sign_tx_calls += 1;
-        let chain = request.chain;
+        let chain = request.chain();
         self.last_sign_tx_request = Some(request);
         let response = match chain {
             Chain::Ethereum => SignTxResponse {

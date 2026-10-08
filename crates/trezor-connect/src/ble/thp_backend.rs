@@ -201,7 +201,12 @@ impl ThpBackend for BleBackend {
     }
 
     async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse> {
-        self.sign_transaction(request).await
+        let (message_type, payload) = self.request(request.encode()).await?;
+        match &request {
+            SignTxRequest::Ethereum(tx) => self.sign_ethereum_tx(tx, message_type, payload).await,
+            SignTxRequest::Bitcoin(tx) => self.sign_bitcoin_tx(tx, message_type, payload).await,
+            SignTxRequest::Solana(_) => Self::solana_signature(message_type, &payload),
+        }
     }
 
     async fn abort(&mut self) -> BackendResult<()> {

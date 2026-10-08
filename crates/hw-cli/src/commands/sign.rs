@@ -35,7 +35,7 @@ async fn run_eth(args: SignEthArgs, skip_pairing: bool) -> Result<()> {
 
     print_requesting("ETH transaction signature");
     let response = workflow
-        .sign_tx(request.request.clone())
+        .sign_tx(request.request.clone().into())
         .await
         .context("sign-tx failed")?;
     let verification = verify_sign_tx_response(&request.request, &response).ok();
@@ -54,7 +54,7 @@ async fn run_sol(args: SignSolArgs, skip_pairing: bool) -> Result<()> {
 
     print_requesting("SOL transaction signature");
     let response = workflow
-        .sign_tx(request.request)
+        .sign_tx(request.request.into())
         .await
         .context("sign-tx failed")?;
     print_hex_field("signature", &response.r);
@@ -71,7 +71,10 @@ async fn run_btc(args: SignBtcArgs, skip_pairing: bool) -> Result<()> {
     let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "sign").await?;
 
     print_requesting("BTC transaction signature");
-    let response = workflow.sign_tx(request).await.context("sign-tx failed")?;
+    let response = workflow
+        .sign_tx(request.into())
+        .await
+        .context("sign-tx failed")?;
     print_hex_field("signature", &response.r);
     Ok(())
 }

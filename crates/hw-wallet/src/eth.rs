@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use trezor_connect::thp::{Chain, EthAccessListEntry, SignTxRequest, SignTxResponse};
+use trezor_connect::thp::{Chain, EthAccessListEntry, EthSignTx, SignTxResponse};
 
 use crate::error::{WalletError, WalletResult};
 use crate::hex::{decode, decode_quantity};
@@ -50,7 +50,7 @@ pub fn parse_tx_json(json: &str) -> WalletResult<TxInput> {
         .map_err(|err| WalletError::Signing(format!("invalid tx JSON: {err}")))
 }
 
-pub fn build_sign_tx_request(path: Vec<u32>, tx: TxInput) -> WalletResult<SignTxRequest> {
+pub fn build_sign_tx_request(path: Vec<u32>, tx: TxInput) -> WalletResult<EthSignTx> {
     let nonce = decode_quantity(&tx.nonce)?;
     let max_fee_per_gas = decode_quantity(&tx.max_fee_per_gas)?;
     let max_priority_fee = decode_quantity(&tx.max_priority_fee)?;
@@ -74,7 +74,7 @@ pub fn build_sign_tx_request(path: Vec<u32>, tx: TxInput) -> WalletResult<SignTx
         })
         .collect::<WalletResult<Vec<_>>>()?;
 
-    Ok(SignTxRequest::ethereum(path, tx.chain_id)
+    Ok(EthSignTx::new(path, tx.chain_id)
         .with_nonce(nonce)
         .with_max_fee_per_gas(max_fee_per_gas)
         .with_max_priority_fee(max_priority_fee)
@@ -92,10 +92,10 @@ pub struct VerifiedSignature {
 }
 
 pub fn verify_sign_tx_response(
-    request: &SignTxRequest,
+    request: &EthSignTx,
     response: &SignTxResponse,
 ) -> WalletResult<VerifiedSignature> {
-    if request.chain != Chain::Ethereum || response.chain != Chain::Ethereum {
+    if response.chain != Chain::Ethereum {
         return Err(WalletError::Signing(
             "signature verification currently supports Ethereum only".into(),
         ));
@@ -123,7 +123,7 @@ pub fn verify_sign_tx_response(
     })
 }
 
-fn eip1559_sighash(request: &SignTxRequest) -> WalletResult<[u8; 32]> {
+fn eip1559_sighash(request: &EthSignTx) -> WalletResult<[u8; 32]> {
     let mut rlp = RlpStream::new_list(9);
     append_quantity_u64(&mut rlp, request.chain_id);
     append_quantity_bytes(&mut rlp, &request.nonce);
@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn verify_sign_tx_response_recovers_expected_address() {
-        let request = SignTxRequest::ethereum(vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0], 1)
+        let request = EthSignTx::new(vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0], 1)
             .with_nonce(vec![0x01])
             .with_max_fee_per_gas(vec![0x3b, 0x9a, 0xca, 0x00])
             .with_max_priority_fee(vec![0x59, 0x68, 0x2f, 0x00])

@@ -3,8 +3,7 @@ use prost::Message;
 use super::address::COIN_NAME;
 use crate::thp::proto::wire::wire_messages;
 use crate::thp::proto::{ProtoMappingError, WireMessage};
-use crate::thp::types::SignTxRequest;
-use hw_chain::Chain;
+use crate::thp::types::BtcSignTx;
 
 #[derive(Clone, PartialEq, Message)]
 pub(crate) struct BitcoinSignTx {
@@ -74,15 +73,9 @@ wire_messages! {
     BitcoinTxRequest = 21,
 }
 
-impl TryFrom<&SignTxRequest> for BitcoinSignTx {
-    type Error = ProtoMappingError;
-
-    fn try_from(request: &SignTxRequest) -> Result<Self, Self::Error> {
-        let btc = request
-            .btc
-            .as_ref()
-            .ok_or(ProtoMappingError::UnsupportedChain(Chain::Bitcoin))?;
-        Ok(Self {
+impl From<&BtcSignTx> for BitcoinSignTx {
+    fn from(btc: &BtcSignTx) -> Self {
+        Self {
             outputs_count: btc.outputs.len() as u32,
             inputs_count: btc.inputs.len() as u32,
             coin_name: Some(COIN_NAME.to_string()),
@@ -90,7 +83,7 @@ impl TryFrom<&SignTxRequest> for BitcoinSignTx {
             lock_time: Some(btc.lock_time),
             serialize: Some(true),
             chunkify: Some(btc.chunkify),
-        })
+        }
     }
 }
 
@@ -163,6 +156,7 @@ mod tests {
     use super::*;
     use crate::thp::types::{
         BtcInputScriptType, BtcOutputScriptType, BtcSignInput, BtcSignOutput, BtcSignTx,
+        SignTxRequest,
     };
 
     #[test]
@@ -191,7 +185,7 @@ mod tests {
             orig_index: None,
             payment_req_index: Some(0),
         };
-        let mut request = SignTxRequest::bitcoin(BtcSignTx {
+        let request = SignTxRequest::from(BtcSignTx {
             version: 2,
             lock_time: 7,
             inputs: vec![input],
@@ -201,8 +195,7 @@ mod tests {
             payment_reqs: Vec::new(),
             chunkify: true,
         });
-        let (encoded, offset) = request.encode().unwrap();
-        assert_eq!(offset, 0);
+        let encoded = request.encode();
         assert_eq!(encoded.message_type, BitcoinSignTx::MESSAGE_TYPE);
 
         let decoded = BitcoinSignTx::decode(encoded.payload.as_slice()).unwrap();
@@ -212,12 +205,6 @@ mod tests {
         assert_eq!(decoded.lock_time, Some(7));
         assert_eq!(decoded.serialize, Some(true));
         assert_eq!(decoded.chunkify, Some(true));
-
-        request.btc = None;
-        assert!(matches!(
-            request.encode(),
-            Err(ProtoMappingError::UnsupportedChain(Chain::Bitcoin))
-        ));
     }
 
     #[test]
