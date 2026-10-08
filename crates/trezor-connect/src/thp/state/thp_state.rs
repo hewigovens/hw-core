@@ -70,12 +70,20 @@ impl ThpState {
         self.pairing_method
     }
 
+    /// Pairing methods both sides support, as negotiated by the handshake.
+    pub fn pairing_methods(&self) -> &[PairingMethod] {
+        self.handshake_credentials
+            .as_ref()
+            .map(|credentials| credentials.pairing_methods.as_slice())
+            .unwrap_or_default()
+    }
+
     /// The chosen pairing method, or else the device's preferred one from the handshake.
     pub fn selected_pairing_method(&self) -> Option<PairingMethod> {
         self.pairing_method.or_else(|| {
             self.handshake_credentials
                 .as_ref()
-                .and_then(|credentials| credentials.pairing_methods.first().copied())
+                .and_then(HandshakeCredentials::preferred_pairing_method)
         })
     }
 

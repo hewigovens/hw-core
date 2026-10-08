@@ -56,15 +56,7 @@ pub(crate) fn pairing_start_for_state(
         ));
     }
 
-    let methods = state
-        .handshake_credentials()
-        .map(|credentials| credentials.pairing_methods.clone())
-        .or_else(|| {
-            state
-                .handshake_cache()
-                .map(|cache| cache.pairing_methods.clone())
-        })
-        .unwrap_or_default();
+    let methods = state.pairing_methods().to_vec();
     let message = if state.is_paired() {
         "Connection confirmation is required for this already-paired device".to_string()
     } else if methods.contains(&ThpPairingMethod::CodeEntry) {

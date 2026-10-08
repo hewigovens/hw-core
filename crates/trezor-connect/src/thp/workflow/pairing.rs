@@ -38,9 +38,7 @@ where
 
         if self.state.is_paired()
             && handshake
-                .pairing_methods
-                .first()
-                .copied()
+                .preferred_pairing_method()
                 .unwrap_or(PairingMethod::SkipPairing)
                 != PairingMethod::SkipPairing
         {
@@ -60,8 +58,8 @@ where
 
         let mut method = self
             .state
-            .pairing_method()
-            .unwrap_or_else(|| handshake.pairing_methods[0]);
+            .selected_pairing_method()
+            .ok_or(ThpWorkflowError::NoCommonPairingMethod)?;
         let mut response = self.select_pairing_method(method).await?;
         loop {
             let step = match &response {
