@@ -18,17 +18,13 @@ pub async fn connect_trezor_device(
     device: DiscoveredDevice,
     profile: BleProfile,
 ) -> WalletResult<BleSession> {
-    let (info, peripheral) = device.into_parts();
-    let session = BleSession::new(peripheral, profile, info)
-        .await
-        .map_err(|err| {
-            if is_peer_removed_pairing_info(&err) {
-                WalletError::PeerRemovedPairingInfo
-            } else {
-                WalletError::Ble(err)
-            }
-        })?;
-    Ok(session)
+    device.connect(profile).await.map_err(|err| {
+        if is_peer_removed_pairing_info(&err) {
+            WalletError::PeerRemovedPairingInfo
+        } else {
+            WalletError::Ble(err)
+        }
+    })
 }
 
 const CREATE_CHANNEL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
