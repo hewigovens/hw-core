@@ -20,10 +20,6 @@ pub enum HWCoreError {
 }
 
 impl HWCoreError {
-    pub fn message(msg: impl Into<String>) -> Self {
-        Self::Unknown(msg.into())
-    }
-
     pub fn code(&self) -> &'static str {
         match self {
             Self::Ble(_) => "BLE",
@@ -45,21 +41,7 @@ impl HWCoreError {
             | Self::Unknown(msg) => msg,
         }
     }
-}
 
-impl From<&str> for HWCoreError {
-    fn from(value: &str) -> Self {
-        HWCoreError::message(value)
-    }
-}
-
-impl From<String> for HWCoreError {
-    fn from(value: String) -> Self {
-        HWCoreError::message(value)
-    }
-}
-
-impl HWCoreError {
     fn from_kind(kind: WalletErrorKind, message: String) -> Self {
         match kind {
             WalletErrorKind::Ble => Self::Ble(message),
