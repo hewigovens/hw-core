@@ -15,6 +15,7 @@ is not listed here, it is not part of the required smoke gate.
 | ETH address | `cargo run -p hw-cli -- -vv address --chain eth --include-public-key` | Paired device | Address and public key returned |
 | ETH sign-tx | `cargo run -p hw-cli -- -vv sign eth --path "m/44'/60'/0'/0/0" --tx '{"to":"0x000000000000000000000000000000000000dead","nonce":"0x0","gas_limit":"0x5208","chain_id":1,"max_fee_per_gas":"0x3b9aca00","max_priority_fee":"0x59682f00","value":"0x0"}'` | Paired device | Signature returned |
 | ETH sign-message | `cargo run -p hw-cli -- -vv sign-message eth --message "hello"` | Paired device | Signature returned |
+| SOL sign-message | `cargo run -p hw-cli -- -vv sign-message sol --message "hello"` | Paired device, firmware core >= 2.12.4 | Signer address, signature, and signed OCMS v1 data returned |
 
 ## Apple
 

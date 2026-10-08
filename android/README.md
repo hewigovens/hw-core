@@ -70,7 +70,7 @@ ANDROID_SERIAL=<device-id> just run-android
 3. **Select Chain** — switch between ETH/BTC/SOL in the ready screen
 4. **Get Address** — fetch chain-specific default-path address
 5. **Sign Tx** — sign sample transactions for ETH/BTC/SOL
-6. **Sign Message** — sign ETH/BTC messages (SOL message signing is not enabled)
+6. **Sign Message** — sign ETH/BTC messages and SOL off-chain messages (OCMS v1, signing key as sole signer)
 
 ## API Surface
 
