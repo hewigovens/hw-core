@@ -2,13 +2,13 @@ use hw_wallet::ble::{
     BootstrapTarget, SessionBootstrapOptions, SessionPhase, SessionRetryPolicy,
     advance_session_bootstrap,
 };
-use hw_wallet::btc::{build_sign_tx_request, parse_tx_json};
+use hw_wallet::btc::TxInput as BtcTxInput;
 use hw_wallet::eip712::build_sign_typed_data_request;
 use hw_wallet::message::build_sign_message_request;
 use trezor_connect::thp::testing::MockBackend;
 use trezor_connect::thp::{
-    Chain, EthSignTx, EthTxSignature, HostConfig, PairingMethod, SignTxRequest, SignTxResponse,
-    SolanaSignTx, ThpWorkflow,
+    BtcSignTx, Chain, EthSignTx, EthTxSignature, HostConfig, PairingMethod, SignTxRequest,
+    SignTxResponse, SolanaSignTx, ThpWorkflow,
 };
 
 const BTC_SIGN_WITH_REF_TXS: &str =
@@ -108,9 +108,9 @@ async fn sign_sol_tx_uses_solana_chain() {
 #[tokio::test]
 async fn sign_btc_tx_uses_bitcoin_chain() {
     let mut workflow = ready_workflow().await;
-    let tx = parse_tx_json(BTC_SIGN_WITH_REF_TXS).unwrap();
+    let tx = BtcTxInput::from_json(BTC_SIGN_WITH_REF_TXS).unwrap();
     let response = workflow
-        .sign_tx(build_sign_tx_request(tx).unwrap().into())
+        .sign_tx(BtcSignTx::try_from(tx).unwrap().into())
         .await
         .unwrap();
 
