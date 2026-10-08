@@ -1,4 +1,3 @@
-use prost::Message;
 use sha2::{Digest, Sha256};
 use tracing::debug;
 use trezor_thp::ChannelIO;
@@ -7,8 +6,7 @@ use super::bitcoin::{
     BitcoinTxRequestHandling, build_orig_txs_index, build_ref_txs_index, handle_bitcoin_tx_request,
 };
 use super::{
-    BleBackend, MESSAGE_TYPE_CREATE_SESSION, MESSAGE_TYPE_FAILURE, MESSAGE_TYPE_SUCCESS,
-    ThpChannel, decode_failure_as_backend_error, mapping_error,
+    BleBackend, MESSAGE_TYPE_FAILURE, ThpChannel, decode_failure_as_backend_error, mapping_error,
 };
 use crate::thp::Chain;
 use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
@@ -19,19 +17,9 @@ use crate::thp::crypto::{
 use crate::thp::eip712::{build_struct_ack, resolve_value_for_member_path};
 use crate::thp::messages;
 use crate::thp::proto::{
-    DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE, EncodedMessage, MESSAGE_TYPE_BITCOIN_TX_REQUEST,
-    MESSAGE_TYPE_ETHEREUM_TX_REQUEST, MESSAGE_TYPE_SOLANA_TX_SIGNATURE, ParsedTagResponse,
-    ProtoMappingError, decode_bitcoin_tx_request, decode_code_entry_cpace_response,
-    decode_credential_response, decode_device_properties, decode_get_address_response,
-    decode_get_nonce_response, decode_get_public_key_response, decode_pairing_request_approved,
-    decode_select_method_response, decode_sign_message_response, decode_sign_typed_data_message,
-    decode_sign_typed_data_response, decode_solana_tx_signature, decode_tag_response,
-    decode_tx_request, encode_code_entry_challenge, encode_code_entry_tag,
-    encode_credential_request, encode_end_request, encode_get_address_request,
-    encode_get_nonce_request, encode_get_public_key_request, encode_nfc_tag,
-    encode_pairing_request, encode_qr_tag, encode_select_method, encode_sign_message_request,
-    encode_sign_tx_request, encode_sign_typed_data_request, encode_tx_ack,
-    encode_typed_data_struct_ack, encode_typed_data_value_ack, to_pairing_tag_response,
+    BitcoinTxRequest, DecodedBitcoinTxRequest, DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE,
+    EncodedMessage, EthereumTxAck, EthereumTxRequest, EthereumTypedDataValueAck, GetNonce, Nonce,
+    ParsedTagResponse, SolanaTxSignature, WireMessage,
 };
 use crate::thp::types::*;
 
@@ -115,8 +103,7 @@ impl ThpBackend for BleBackend {
                 "THP channel allocation failed".into(),
             ));
         };
-        let properties =
-            decode_device_properties(open.device_properties()).map_err(mapping_error)?;
+        let properties = ThpProperties::decode(open.device_properties()).map_err(mapping_error)?;
         if let (Ok(major), Ok(minor)) = (
             u8::try_from(properties.protocol_version_major),
             u8::try_from(properties.protocol_version_minor),
@@ -156,13 +143,8 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: PairingRequest,
     ) -> BackendResult<PairingRequestApproved> {
-        self.call(encode_pairing_request(&request), |message_type, payload| {
-            if message_type != messages::ThpMessageType::ThpPairingRequestApproved as i32 as u16 {
-                return Err(ProtoMappingError::UnexpectedMessage(message_type));
-            }
-            decode_pairing_request_approved(payload)
-        })
-        .await
+        self.call(request.encode(), PairingRequestApproved::decode)
+            .await
     }
 
     async fn select_pairing_method(
@@ -170,11 +152,7 @@ impl ThpBackend for BleBackend {
         request: SelectMethodRequest,
     ) -> BackendResult<SelectMethodResponse> {
         let mut response = self
-            .call(encode_select_method(&request), |message_type, payload| {
-                let message_type = messages::ThpMessageType::try_from(message_type as i32)
-                    .map_err(|_| ProtoMappingError::UnexpectedMessage(message_type))?;
-                decode_select_method_response(message_type, payload)
-            })
+            .call(request.encode(), SelectMethodResponse::decode)
             .await?;
 
         if request.method == PairingMethod::Nfc
@@ -195,16 +173,8 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: CodeEntryChallengeRequest,
     ) -> BackendResult<CodeEntryChallengeResponse> {
-        self.call(
-            encode_code_entry_challenge(&request.challenge),
-            |message_type, payload| {
-                if message_type != messages::ThpMessageType::ThpCodeEntryCpaceTrezor as i32 as u16 {
-                    return Err(ProtoMappingError::UnexpectedMessage(message_type));
-                }
-                decode_code_entry_cpace_response(payload)
-            },
-        )
-        .await
+        self.call(request.encode(), CodeEntryChallengeResponse::decode)
+            .await
     }
 
     async fn send_pairing_tag(
@@ -221,8 +191,10 @@ impl ThpBackend for BleBackend {
                 let mut hasher = Sha256::new();
                 hasher.update(&handshake_hash);
                 hasher.update(tag_bytes);
-                let encoded =
-                    encode_qr_tag(&hex::encode(hasher.finalize())).map_err(mapping_error)?;
+                let encoded = messages::ThpQrCodeTag {
+                    tag: hasher.finalize().to_vec(),
+                }
+                .to_message();
                 let response = match self.exchange_tag(encoded).await? {
                     Err(err) => return Ok(PairingTagResponse::Retry(err.to_string())),
                     Ok(response) => response,
@@ -233,7 +205,7 @@ impl ThpBackend for BleBackend {
                     debug!("QR tag validation failed: {err}");
                     return Ok(PairingTagResponse::Retry("pairing tag mismatch".into()));
                 }
-                Ok(to_pairing_tag_response(response))
+                Ok(response.into())
             }
             PairingTagRequest::Nfc {
                 handshake_hash,
@@ -245,8 +217,10 @@ impl ThpBackend for BleBackend {
                 hasher.update([messages::ThpPairingMethod::Nfc as u8]);
                 hasher.update(&handshake_hash);
                 hasher.update(&tag_bytes);
-                let encoded =
-                    encode_nfc_tag(&hex::encode(hasher.finalize())).map_err(mapping_error)?;
+                let encoded = messages::ThpNfcTagHost {
+                    tag: hasher.finalize().to_vec(),
+                }
+                .to_message();
                 let response = match self.exchange_tag(encoded).await? {
                     Err(err) => return Ok(PairingTagResponse::Retry(err.to_string())),
                     Ok(response) => response,
@@ -281,8 +255,11 @@ impl ThpBackend for BleBackend {
                         BackendError::Transport("missing trezor cpace public key".into())
                     })?;
                 let shared_secret = get_shared_secret(&trezor_key, &keys.private_key);
-                let encoded = encode_code_entry_tag(&keys.public_key, &shared_secret)
-                    .map_err(mapping_error)?;
+                let encoded = messages::ThpCodeEntryCpaceHostTag {
+                    cpace_host_public_key: keys.public_key.to_vec(),
+                    tag: shared_secret.to_vec(),
+                }
+                .to_message();
                 let response = match self.exchange_tag(encoded).await? {
                     Err(err) => return Ok(PairingTagResponse::Retry(err.to_string())),
                     Ok(response) => response,
@@ -303,7 +280,7 @@ impl ThpBackend for BleBackend {
                     debug!("code-entry validation failed: {err}");
                     return Ok(PairingTagResponse::Retry("pairing code mismatch".into()));
                 }
-                Ok(to_pairing_tag_response(response))
+                Ok(response.into())
             }
         }
     }
@@ -312,26 +289,17 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: CredentialRequest,
     ) -> BackendResult<CredentialResponse> {
-        self.call(
-            encode_credential_request(&request),
-            |message_type, payload| {
-                if message_type != messages::ThpMessageType::ThpCredentialResponse as i32 as u16 {
-                    return Err(ProtoMappingError::UnexpectedMessage(message_type));
-                }
-                decode_credential_response(payload)
-            },
-        )
-        .await
+        let message = request.encode().map_err(mapping_error)?;
+        self.call(message, CredentialResponse::decode).await
     }
 
     async fn end_request(&mut self) -> BackendResult<()> {
-        self.call(encode_end_request(), |message_type, payload| {
-            if message_type != messages::ThpMessageType::ThpEndResponse as i32 as u16 {
-                return Err(ProtoMappingError::UnexpectedMessage(message_type));
-            }
-            messages::ThpEndResponse::decode(payload).map_err(ProtoMappingError::from)?;
-            Ok(())
-        })
+        self.call(
+            messages::ThpEndRequest {}.to_message(),
+            |message_type, payload| {
+                messages::ThpEndResponse::from_message(message_type, payload).map(drop)
+            },
+        )
         .await?;
         self.end_pairing()
     }
@@ -340,21 +308,8 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: CreateSessionRequest,
     ) -> BackendResult<CreateSessionResponse> {
-        let payload = messages::ThpCreateNewSession {
-            passphrase: request.passphrase,
-            on_device: request.on_device.then_some(true),
-            derive_cardano: request.derive_cardano.then_some(true),
-        }
-        .encode_to_vec();
-        let message = EncodedMessage {
-            message_type: MESSAGE_TYPE_CREATE_SESSION,
-            payload,
-        };
-        self.call(Ok(message), |message_type, _| {
-            if message_type != MESSAGE_TYPE_SUCCESS {
-                return Err(ProtoMappingError::UnexpectedMessage(message_type));
-            }
-            Ok(CreateSessionResponse)
+        self.call(request.encode(), |message_type, _| {
+            CreateSessionResponse::decode(message_type)
         })
         .await
     }
@@ -365,10 +320,9 @@ impl ThpBackend for BleBackend {
     ) -> BackendResult<GetAddressResponse> {
         let chain = request.chain;
         let mut response = self
-            .call(
-                encode_get_address_request(&request),
-                |message_type, payload| decode_get_address_response(chain, message_type, payload),
-            )
+            .call(request.encode(), |message_type, payload| {
+                GetAddressResponse::decode(chain, message_type, payload)
+            })
             .await?;
         if request.include_public_key {
             // Mirror Suite: keep GetPublicKey silent to avoid extra prompts.
@@ -379,27 +333,28 @@ impl ThpBackend for BleBackend {
     }
 
     async fn get_public_key(&mut self, chain: Chain, path: Vec<u32>) -> BackendResult<String> {
-        self.call(
-            encode_get_public_key_request(chain, &path, false),
-            |message_type, payload| decode_get_public_key_response(chain, message_type, payload),
-        )
+        let request = GetPublicKeyRequest::new(chain, path);
+        self.call(request.encode(), |message_type, payload| {
+            request.decode_response(message_type, payload)
+        })
         .await
     }
 
     async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {
-        self.call(encode_get_nonce_request(), decode_get_nonce_response)
-            .await
+        self.call(GetNonce {}.to_message(), |message_type, payload| {
+            Ok(Nonce::from_message(message_type, payload)?.nonce)
+        })
+        .await
     }
 
     async fn sign_message(
         &mut self,
         request: SignMessageRequest,
     ) -> BackendResult<SignMessageResponse> {
-        let chain = request.chain;
-        self.call(
-            encode_sign_message_request(&request),
-            |message_type, payload| decode_sign_message_response(chain, message_type, payload),
-        )
+        let message = request.encode().map_err(mapping_error)?;
+        self.call(message, |message_type, payload| {
+            SignMessageResponse::decode(request.chain, message_type, payload)
+        })
         .await
     }
 
@@ -407,38 +362,31 @@ impl ThpBackend for BleBackend {
         &mut self,
         request: SignTypedDataRequest,
     ) -> BackendResult<SignTypedDataResponse> {
-        let chain = request.chain;
-        let encoded = encode_sign_typed_data_request(&request).map_err(mapping_error)?;
+        let encoded = request.encode().map_err(mapping_error)?;
         let SignTypedDataPayload::TypedData(typed_data) = request.payload else {
-            return self
-                .call(Ok(encoded), |message_type, payload| {
-                    decode_sign_typed_data_response(chain, message_type, payload)
-                })
-                .await;
+            return self.call(encoded, SignTypedDataResponse::decode).await;
         };
         let (mut message_type, mut payload) = self.request(encoded).await?;
         loop {
-            let ack = match decode_sign_typed_data_message(chain, message_type, &payload)
+            let ack = match DecodedTypedDataResponse::decode(message_type, &payload)
                 .map_err(mapping_error)?
             {
                 DecodedTypedDataResponse::Signature(response) => return Ok(response),
                 DecodedTypedDataResponse::StructRequest(struct_request) => {
-                    let ack = build_struct_ack(&typed_data, &struct_request.name)?;
-                    encode_typed_data_struct_ack(&ack)
+                    build_struct_ack(&typed_data, &struct_request.name)?.to_message()
                 }
                 DecodedTypedDataResponse::ValueRequest(value_request) => {
                     let value =
                         resolve_value_for_member_path(&typed_data, &value_request.member_path)?;
-                    encode_typed_data_value_ack(value)
+                    EthereumTypedDataValueAck { value }.to_message()
                 }
             };
-            (message_type, payload) = self.request(ack.map_err(mapping_error)?).await?;
+            (message_type, payload) = self.request(ack).await?;
         }
     }
 
     async fn sign_tx(&mut self, request: SignTxRequest) -> BackendResult<SignTxResponse> {
-        let (encoded, initial_chunk_len) =
-            encode_sign_tx_request(&request).map_err(mapping_error)?;
+        let (encoded, initial_chunk_len) = request.encode().map_err(mapping_error)?;
         let (message_type, payload) = self.request(encoded).await?;
         match request.chain {
             Chain::Ethereum => {
@@ -446,15 +394,15 @@ impl ThpBackend for BleBackend {
                     .await
             }
             Chain::Solana => {
-                if message_type != MESSAGE_TYPE_SOLANA_TX_SIGNATURE {
+                if message_type != SolanaTxSignature::MESSAGE_TYPE {
                     return Err(unexpected_signing_message(message_type, "Solana"));
                 }
-                let signature =
-                    decode_solana_tx_signature(message_type, &payload).map_err(mapping_error)?;
+                let signature = SolanaTxSignature::from_message(message_type, &payload)
+                    .map_err(mapping_error)?;
                 Ok(SignTxResponse {
                     chain: Chain::Solana,
                     v: 0,
-                    r: signature,
+                    r: signature.signature,
                     s: Vec::new(),
                     signatures: Vec::new(),
                 })
@@ -494,9 +442,7 @@ impl BleBackend {
         if message_type == MESSAGE_TYPE_FAILURE {
             return Ok(Err(decode_failure_as_backend_error(&payload)));
         }
-        let message_type = messages::ThpMessageType::try_from(message_type as i32)
-            .map_err(|_| mapping_error(ProtoMappingError::UnexpectedMessage(message_type)))?;
-        decode_tag_response(message_type, &payload)
+        ParsedTagResponse::decode(message_type, &payload)
             .map(Ok)
             .map_err(mapping_error)
     }
@@ -509,10 +455,11 @@ impl BleBackend {
         mut payload: Vec<u8>,
     ) -> BackendResult<SignTxResponse> {
         loop {
-            if message_type != MESSAGE_TYPE_ETHEREUM_TX_REQUEST {
+            if message_type != EthereumTxRequest::MESSAGE_TYPE {
                 return Err(unexpected_signing_message(message_type, "Ethereum"));
             }
-            let tx_request = decode_tx_request(message_type, &payload).map_err(mapping_error)?;
+            let tx_request =
+                EthereumTxRequest::from_message(message_type, &payload).map_err(mapping_error)?;
             if let (Some(v), Some(r), Some(s)) = (
                 tx_request.signature_v,
                 tx_request.signature_r,
@@ -538,7 +485,7 @@ impl BleBackend {
                 ));
             }
             let end = (data_offset + requested_len.min(ETH_DATA_CHUNK_SIZE)).min(data.len());
-            let ack = encode_tx_ack(&data[data_offset..end]).map_err(mapping_error)?;
+            let ack = EthereumTxAck::new(&data[data_offset..end]).to_message();
             data_offset = end;
             (message_type, payload) = self.request(ack).await?;
         }
@@ -556,11 +503,11 @@ impl BleBackend {
         let mut last_signature: Option<Vec<u8>> = None;
 
         loop {
-            if message_type != MESSAGE_TYPE_BITCOIN_TX_REQUEST {
+            if message_type != BitcoinTxRequest::MESSAGE_TYPE {
                 return Err(unexpected_signing_message(message_type, "Bitcoin"));
             }
             let tx_request =
-                decode_bitcoin_tx_request(message_type, &payload).map_err(mapping_error)?;
+                DecodedBitcoinTxRequest::decode(message_type, &payload).map_err(mapping_error)?;
             if let Some(signature) = tx_request.signature.as_ref() {
                 last_signature = Some(signature.clone());
                 if let Some(index) = tx_request.signature_index {

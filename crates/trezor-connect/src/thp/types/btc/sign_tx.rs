@@ -10,6 +10,26 @@ pub enum BtcInputScriptType {
     SpendTaproot,
 }
 
+impl BtcInputScriptType {
+    /// Mirrors Suite getScriptType: the script type implied by a BIP-44/48/49/84/86 purpose.
+    pub fn from_path(path: &[u32]) -> Option<Self> {
+        let unharden = |index: usize| path.get(index).map(|part| part & !0x8000_0000);
+        match unharden(0)? {
+            44 => Some(Self::SpendAddress),
+            48 => match unharden(3)? {
+                0 => Some(Self::SpendMultisig),
+                1 => Some(Self::SpendP2shWitness),
+                2 => Some(Self::SpendWitness),
+                _ => None,
+            },
+            49 => Some(Self::SpendP2shWitness),
+            84 => Some(Self::SpendWitness),
+            86 | 10025 => Some(Self::SpendTaproot),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BtcOutputScriptType {
     PayToAddress,

@@ -11,7 +11,7 @@ mod sign_message;
 mod sign_tx;
 mod typed_data;
 
-pub use address::{GetAddressRequest, GetAddressResponse};
+pub use address::{GetAddressRequest, GetAddressResponse, GetPublicKeyRequest};
 pub use btc::{
     BtcHDNode, BtcHDNodePath, BtcInputScriptType, BtcMultisig, BtcMultisigPubkeysOrder, BtcOrigTx,
     BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestAmount, BtcPaymentRequestMemo,

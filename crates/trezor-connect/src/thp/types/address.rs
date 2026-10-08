@@ -57,3 +57,16 @@ pub struct GetAddressResponse {
     pub mac: Option<Vec<u8>>,
     pub public_key: Option<String>,
 }
+
+/// Asks for the chain-formatted public key without on-device confirmation, like Suite does.
+#[derive(Debug, Clone)]
+pub struct GetPublicKeyRequest {
+    pub chain: Chain,
+    pub path: Vec<u32>,
+}
+
+impl GetPublicKeyRequest {
+    pub fn new(chain: Chain, path: Vec<u32>) -> Self {
+        Self { chain, path }
+    }
+}

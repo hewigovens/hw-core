@@ -21,8 +21,6 @@ use crate::thp::proto::{EncodedMessage, ProtoMappingError};
 use crate::thp::types::{HandshakeCompletionState, KnownCredential};
 
 const SESSION_ID: u8 = 0;
-const MESSAGE_TYPE_SUCCESS: u16 = 2;
-const MESSAGE_TYPE_CREATE_SESSION: u16 = 1000;
 const MESSAGE_TYPE_FAILURE: u16 = 3;
 const MESSAGE_TYPE_BUTTON_REQUEST: u16 = messages::ThpMessageType::ButtonRequest as i32 as u16;
 const MESSAGE_TYPE_BUTTON_ACK: u16 = messages::ThpMessageType::ButtonAck as i32 as u16;
@@ -364,10 +362,10 @@ impl BleBackend {
 
     async fn call<T>(
         &mut self,
-        message: Result<EncodedMessage, ProtoMappingError>,
+        message: EncodedMessage,
         decode: impl FnOnce(u16, &[u8]) -> Result<T, ProtoMappingError>,
     ) -> BackendResult<T> {
-        let (message_type, payload) = self.request(message.map_err(mapping_error)?).await?;
+        let (message_type, payload) = self.request(message).await?;
         decode(message_type, &payload).map_err(mapping_error)
     }
 

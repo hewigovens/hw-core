@@ -1,13 +1,7 @@
 use std::collections::HashMap;
 
 use crate::thp::backend::{BackendError, BackendResult};
-use crate::thp::proto::{
-    BitcoinTxRequestType, DecodedBitcoinTxRequest, EncodedMessage, encode_bitcoin_tx_ack_input,
-    encode_bitcoin_tx_ack_meta, encode_bitcoin_tx_ack_orig_meta, encode_bitcoin_tx_ack_output,
-    encode_bitcoin_tx_ack_payment_request, encode_bitcoin_tx_ack_prev_extra_data,
-    encode_bitcoin_tx_ack_prev_input, encode_bitcoin_tx_ack_prev_meta,
-    encode_bitcoin_tx_ack_prev_output,
-};
+use crate::thp::proto::{BitcoinTxRequestType, DecodedBitcoinTxRequest, EncodedMessage, TxAck};
 
 #[derive(Debug)]
 pub(super) enum BitcoinTxRequestHandling {
@@ -88,7 +82,7 @@ pub(super) fn handle_bitcoin_tx_request(
                         ref_tx.inputs.len()
                     ))
                 })?;
-                encode_bitcoin_tx_ack_prev_input(input)
+                input.tx_ack()
             } else {
                 let input = btc.inputs.get(index).ok_or_else(|| {
                     BackendError::Transport(format!(
@@ -97,9 +91,8 @@ pub(super) fn handle_bitcoin_tx_request(
                         btc.inputs.len()
                     ))
                 })?;
-                encode_bitcoin_tx_ack_input(input)
-            }
-            .map_err(super::mapping_error)?;
+                input.tx_ack()
+            };
             Ok(BitcoinTxRequestHandling::Ack(ack))
         }
         Some(BitcoinTxRequestType::TxOutput) => {
@@ -114,7 +107,7 @@ pub(super) fn handle_bitcoin_tx_request(
                         ref_tx.bin_outputs.len()
                     ))
                 })?;
-                encode_bitcoin_tx_ack_prev_output(output)
+                output.tx_ack()
             } else {
                 let output = btc.outputs.get(index).ok_or_else(|| {
                     BackendError::Transport(format!(
@@ -123,28 +116,21 @@ pub(super) fn handle_bitcoin_tx_request(
                         btc.outputs.len()
                     ))
                 })?;
-                encode_bitcoin_tx_ack_output(output)
-            }
-            .map_err(super::mapping_error)?;
+                output.tx_ack()
+            };
             Ok(BitcoinTxRequestHandling::Ack(ack))
         }
         Some(BitcoinTxRequestType::TxMeta) => {
             let ack = if let Some(ref_tx_hash) = tx_request.tx_hash.as_ref() {
                 if let Some(orig_tx) = orig_txs_by_hash.get(ref_tx_hash.as_slice()).copied() {
-                    encode_bitcoin_tx_ack_orig_meta(orig_tx)
+                    orig_tx.tx_ack()
                 } else {
                     let ref_tx = find_ref_tx(ref_txs_by_hash, ref_tx_hash, "TxMeta")?;
-                    encode_bitcoin_tx_ack_prev_meta(ref_tx)
+                    ref_tx.tx_ack()
                 }
             } else {
-                encode_bitcoin_tx_ack_meta(
-                    btc.version,
-                    btc.lock_time,
-                    btc.inputs.len(),
-                    btc.outputs.len(),
-                )
-            }
-            .map_err(super::mapping_error)?;
+                btc.tx_ack()
+            };
             Ok(BitcoinTxRequestHandling::Ack(ack))
         }
         Some(BitcoinTxRequestType::TxExtraData) => {
@@ -186,8 +172,7 @@ pub(super) fn handle_bitcoin_tx_request(
                     extra_data.len()
                 )));
             }
-            let ack = encode_bitcoin_tx_ack_prev_extra_data(&extra_data[extra_data_offset..end])
-                .map_err(super::mapping_error)?;
+            let ack = extra_data[extra_data_offset..end].tx_ack();
             Ok(BitcoinTxRequestHandling::Ack(ack))
         }
         Some(BitcoinTxRequestType::TxFinished) => Ok(BitcoinTxRequestHandling::Finished),
@@ -205,7 +190,7 @@ pub(super) fn handle_bitcoin_tx_request(
                     orig_tx.inputs.len()
                 ))
             })?;
-            let ack = encode_bitcoin_tx_ack_input(input).map_err(super::mapping_error)?;
+            let ack = input.tx_ack();
             Ok(BitcoinTxRequestHandling::Ack(ack))
         }
         Some(BitcoinTxRequestType::TxOrigOutput) => {
@@ -222,7 +207,7 @@ pub(super) fn handle_bitcoin_tx_request(
                     orig_tx.outputs.len()
                 ))
             })?;
-            let ack = encode_bitcoin_tx_ack_output(output).map_err(super::mapping_error)?;
+            let ack = output.tx_ack();
             Ok(BitcoinTxRequestHandling::Ack(ack))
         }
         Some(BitcoinTxRequestType::TxPaymentReq) => {
@@ -234,7 +219,7 @@ pub(super) fn handle_bitcoin_tx_request(
                     btc.payment_reqs.len()
                 ))
             })?;
-            let ack = encode_bitcoin_tx_ack_payment_request(pr).map_err(super::mapping_error)?;
+            let ack = pr.tx_ack();
             Ok(BitcoinTxRequestHandling::Ack(ack))
         }
         None => Ok(BitcoinTxRequestHandling::Continue),
