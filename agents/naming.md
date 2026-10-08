@@ -2,7 +2,7 @@
 
 ## Rust Conventions
 
-- Types `PascalCase` (`BleBackend`, `ThpWorkflow`), functions and modules `snake_case` (`create_channel`, `backend_impl`), constants `SCREAMING_SNAKE_CASE` (`DEFAULT_ETHEREUM_BIP32_PATH`, `THP_ERROR_DEVICE_LOCKED`), crates `kebab-case` (`thp-proto`, `ble-transport`, `hw-wallet`).
+- Types `PascalCase` (`BleBackend`, `ThpWorkflow`), functions and modules `snake_case` (`create_channel`, `thp_backend`), constants `SCREAMING_SNAKE_CASE` (`DEFAULT_ETHEREUM_BIP32_PATH`, `THP_ERROR_DEVICE_LOCKED`), crates `kebab-case` (`thp-proto`, `ble-transport`, `hw-wallet`).
 
 ## Project Conventions
 
