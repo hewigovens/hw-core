@@ -274,8 +274,8 @@ where
 
         self.backend
             .pairing_request(super::types::PairingRequest {
-                host_name: self.config.host_name.clone(),
-                app_name: self.config.app_name.clone(),
+                host_name: sanitize_pairing_name(&self.config.host_name),
+                app_name: sanitize_pairing_name(&self.config.app_name),
             })
             .await?;
 
@@ -643,6 +643,11 @@ where
         self.state.reset();
         Ok(())
     }
+}
+
+// Matches Suite (af8e018fa): the device font cannot render typographic single quotes.
+fn sanitize_pairing_name(name: &str) -> String {
+    name.replace(['\u{2018}', '\u{2019}'], "'")
 }
 
 #[cfg(test)]

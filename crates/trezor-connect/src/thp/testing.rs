@@ -39,7 +39,7 @@ pub struct MockBackend {
 
     pub counters: MockCounters,
     pub channel_requests: Vec<bool>,
-    pub pairing_requested: bool,
+    pub pairing_request: Option<PairingRequest>,
     pub end_called: bool,
     pub code_entry_challenge_requests: Vec<CodeEntryChallengeRequest>,
     pub tag_requests: Vec<PairingTagRequest>,
@@ -79,7 +79,7 @@ impl MockBackend {
             session_responses: VecDeque::new(),
             counters: MockCounters::default(),
             channel_requests: Vec::new(),
-            pairing_requested: false,
+            pairing_request: None,
             end_called: false,
             code_entry_challenge_requests: Vec::new(),
             tag_requests: Vec::new(),
@@ -216,9 +216,9 @@ impl ThpBackend for MockBackend {
 
     async fn pairing_request(
         &mut self,
-        _request: PairingRequest,
+        request: PairingRequest,
     ) -> BackendResult<PairingRequestApproved> {
-        self.pairing_requested = true;
+        self.pairing_request = Some(request);
         Ok(PairingRequestApproved)
     }
 
