@@ -21,6 +21,13 @@ Read this file first, then load the focused guides needed for the task. Reposito
 | JJ history, workspaces, or PRs | [Commit Guidelines](agents/commit-guidelines.md) |
 | Build, BLE, or platform troubleshooting | [Common Issues](agents/common-issues.md) |
 
+## Principles
+
+- **Behavior belongs to types**: prefer methods over free functions; see [Code Style](agents/code-style.md#behavior-belongs-to-types).
+- **Reuse first**: extend the helper or pattern nearby code already uses instead of adding another.
+- **Folder modules, thin `mod.rs`**: one primary type per file, split by responsibility.
+- **Two cleanup rounds before done**: see [Code Style](agents/code-style.md#cleanup-before-done).
+
 ## Task Scope
 
 - Investigation and code review are read-only unless implementation is requested. Report concrete findings and the smallest viable fix.
