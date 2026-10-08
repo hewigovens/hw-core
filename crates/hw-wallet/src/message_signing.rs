@@ -36,9 +36,14 @@ pub(crate) fn validate_signing_path_for_chain(
     path: &[u32],
     operation: &str,
 ) -> WalletResult<()> {
-    if path.len() < 3 {
+    // Firmware accepts the Ledger-compatible m/44'/501' root for Solana.
+    let min_segments = match chain {
+        Chain::Solana => 2,
+        Chain::Ethereum | Chain::Bitcoin => 3,
+    };
+    if path.len() < min_segments {
         return Err(WalletError::InvalidBip32Path(format!(
-            "{operation} path must contain at least 3 segments for {chain:?}"
+            "{operation} path must contain at least {min_segments} segments for {chain:?}"
         )));
     }
 
@@ -83,6 +88,15 @@ mod tests {
         message_hash: Option<String>,
         #[serde(default = "default_metamask_v4_compat")]
         metamask_v4_compat: bool,
+    }
+
+    #[test]
+    fn minimum_path_length_is_chain_aware() {
+        let solana_root = [44 | 0x8000_0000, 501 | 0x8000_0000];
+        assert!(validate_signing_path_for_chain(Chain::Solana, &solana_root, "sign").is_ok());
+        assert!(validate_signing_path_for_chain(Chain::Solana, &solana_root[..1], "sign").is_err());
+        let eth_short = [44 | 0x8000_0000, 60 | 0x8000_0000];
+        assert!(validate_signing_path_for_chain(Chain::Ethereum, &eth_short, "sign").is_err());
     }
 
     #[test]
