@@ -24,7 +24,6 @@ pub struct HandshakeCredentials {
     pub trezor_cpace_public_key: Option<Vec<u8>>,
     pub code_entry_challenge: Option<Vec<u8>>,
     pub pairing_credentials: Vec<KnownCredential>,
-    pub selected_credential: Option<KnownCredential>,
 }
 
 #[derive(Debug, Default)]
@@ -33,9 +32,7 @@ pub struct ThpState {
     handshake_cache: Option<HandshakeCache>,
     handshake_credentials: Option<HandshakeCredentials>,
     pairing_method: Option<PairingMethod>,
-    pairing_credentials: Vec<KnownCredential>,
     is_paired: bool,
-    autoconnect_paired: bool,
 }
 
 impl ThpState {
@@ -88,13 +85,8 @@ impl ThpState {
 
     pub fn set_pairing_credentials(&mut self, credentials: Vec<KnownCredential>) {
         if let Some(creds) = self.handshake_credentials.as_mut() {
-            creds.pairing_credentials = credentials.clone();
+            creds.pairing_credentials = credentials;
         }
-        self.pairing_credentials = credentials;
-    }
-
-    pub fn pairing_credentials(&self) -> &[KnownCredential] {
-        &self.pairing_credentials
     }
 
     pub fn set_is_paired(&mut self, paired: bool) {
@@ -103,14 +95,6 @@ impl ThpState {
 
     pub fn is_paired(&self) -> bool {
         self.is_paired
-    }
-
-    pub fn set_autoconnect_paired(&mut self, value: bool) {
-        self.autoconnect_paired = value;
-    }
-
-    pub fn is_autoconnect_paired(&self) -> bool {
-        self.autoconnect_paired
     }
 
     pub fn reset(&mut self) {

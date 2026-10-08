@@ -15,7 +15,6 @@ use trezor_thp::credential::{CredentialStore, FoundCredential};
 use trezor_thp::error::TransportError;
 
 use crate::thp::backend::{BackendError, BackendResult};
-use crate::thp::crypto::find_known_pairing_credentials;
 use crate::thp::messages;
 use crate::thp::proto::{EncodedMessage, ProtoMappingError};
 use crate::thp::types::{HandshakeCompletionState, KnownCredential};
@@ -126,9 +125,11 @@ impl CredentialStore for SharedCredentials {
         let mut credentials = self.lock();
         let ephemeral: &[u8; 32] = ephemeral_pubkey.try_into().ok()?;
         let masked: &[u8; 32] = masked_static_pubkey.try_into().ok()?;
-        let selected = find_known_pairing_credentials(&credentials.known, masked, ephemeral)
-            .into_iter()
-            .next();
+        let selected = credentials
+            .known
+            .iter()
+            .find(|credential| credential.matches_masked_key(masked, ephemeral))
+            .cloned();
         let payload = messages::ThpHandshakeCompletionReqNoisePayload {
             host_pairing_credential: selected
                 .as_ref()

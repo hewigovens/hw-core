@@ -11,10 +11,8 @@ use super::{
 use crate::thp::Chain;
 use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
 use crate::thp::crypto::{
-    get_cpace_host_keys, get_shared_secret, validate_code_entry_tag, validate_nfc_tag,
-    validate_qr_code_tag,
+    CpaceHostKeys, validate_code_entry_tag, validate_nfc_tag, validate_qr_code_tag,
 };
-use crate::thp::eip712::{build_struct_ack, resolve_value_for_member_path};
 use crate::thp::messages;
 use crate::thp::proto::{
     BitcoinTxRequest, DecodedBitcoinTxRequest, DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE,
@@ -58,7 +56,7 @@ fn validated_nfc_pairing_response(
     secret: &[u8; NFC_SECRET_LENGTH],
     response_tag: Vec<u8>,
 ) -> PairingTagResponse {
-    if let Err(err) = validate_nfc_tag(handshake_hash, &hex::encode(&response_tag), secret) {
+    if let Err(err) = validate_nfc_tag(handshake_hash, &response_tag, secret) {
         debug!("NFC tag validation failed: {err}");
         return PairingTagResponse::Retry("pairing tag mismatch".into());
     }
@@ -190,7 +188,7 @@ impl ThpBackend for BleBackend {
                     .map_err(|_| BackendError::Transport("invalid QR tag hex".into()))?;
                 let mut hasher = Sha256::new();
                 hasher.update(&handshake_hash);
-                hasher.update(tag_bytes);
+                hasher.update(&tag_bytes);
                 let encoded = messages::ThpQrCodeTag {
                     tag: hasher.finalize().to_vec(),
                 }
@@ -200,7 +198,7 @@ impl ThpBackend for BleBackend {
                     Ok(response) => response,
                 };
                 if let Err(err) =
-                    validate_qr_code_tag(&handshake_hash, &tag, &hex::encode(&response.secret))
+                    validate_qr_code_tag(&handshake_hash, &tag_bytes, &response.secret)
                 {
                     debug!("QR tag validation failed: {err}");
                     return Ok(PairingTagResponse::Retry("pairing tag mismatch".into()));
@@ -247,14 +245,15 @@ impl ThpBackend for BleBackend {
                         "code entry must be 6 digits".into(),
                     ));
                 }
-                let keys = get_cpace_host_keys(code.as_bytes(), &handshake_hash, &mut rand::rng());
+                let keys =
+                    CpaceHostKeys::generate(code.as_bytes(), &handshake_hash, &mut rand::rng());
                 let trezor_key: [u8; 32] = trezor_cpace_public_key
                     .as_deref()
                     .and_then(|key| key.try_into().ok())
                     .ok_or_else(|| {
                         BackendError::Transport("missing trezor cpace public key".into())
                     })?;
-                let shared_secret = get_shared_secret(&trezor_key, &keys.private_key);
+                let shared_secret = keys.shared_secret(&trezor_key);
                 let encoded = messages::ThpCodeEntryCpaceHostTag {
                     cpace_host_public_key: keys.public_key.to_vec(),
                     tag: shared_secret.to_vec(),
@@ -275,7 +274,7 @@ impl ThpBackend for BleBackend {
                     &commitment,
                     &challenge,
                     &code,
-                    &hex::encode(&response.secret),
+                    &response.secret,
                 ) {
                     debug!("code-entry validation failed: {err}");
                     return Ok(PairingTagResponse::Retry("pairing code mismatch".into()));
@@ -373,11 +372,10 @@ impl ThpBackend for BleBackend {
             {
                 DecodedTypedDataResponse::Signature(response) => return Ok(response),
                 DecodedTypedDataResponse::StructRequest(struct_request) => {
-                    build_struct_ack(&typed_data, &struct_request.name)?.to_message()
+                    typed_data.struct_ack(&struct_request.name)?.to_message()
                 }
                 DecodedTypedDataResponse::ValueRequest(value_request) => {
-                    let value =
-                        resolve_value_for_member_path(&typed_data, &value_request.member_path)?;
+                    let value = typed_data.member_value(&value_request.member_path)?;
                     EthereumTypedDataValueAck { value }.to_message()
                 }
             };

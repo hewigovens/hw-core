@@ -949,12 +949,13 @@ fn ref_tx_extra_data_fixture_sequence_yields_expected_chunks_and_signature() {
 
 #[test]
 fn credential_lookup_always_uses_host_key_and_sends_matching_credential() {
-    use crate::thp::crypto::curve25519::{curve25519, get_curve25519_key_pair};
+    use crate::thp::crypto::Curve25519KeyPair;
+    use crate::thp::crypto::curve25519::curve25519;
     use sha2::{Digest, Sha256};
 
     let mut rng = rand::rng();
-    let trezor_static = get_curve25519_key_pair(&mut rng);
-    let ephemeral = get_curve25519_key_pair(&mut rng).public_key;
+    let trezor_static = Curve25519KeyPair::generate(&mut rng);
+    let ephemeral = Curve25519KeyPair::generate(&mut rng).public_key;
     let mask: [u8; 32] = Sha256::new()
         .chain_update(trezor_static.public_key)
         .chain_update(ephemeral)
