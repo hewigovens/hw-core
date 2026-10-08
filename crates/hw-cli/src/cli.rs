@@ -94,6 +94,7 @@ pub enum SignCommand {
 pub enum SignMessageCommand {
     Eth(SignMessageEthArgs),
     Btc(SignMessageBtcArgs),
+    Sol(SignMessageSolArgs),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -160,6 +161,23 @@ pub struct SignMessageBtcArgs {
     pub hex: bool,
     #[arg(long, default_value_t = false)]
     pub chunkify: bool,
+    #[command(flatten)]
+    pub connect: ConnectArgs,
+}
+
+#[derive(Args, Debug)]
+pub struct SignMessageSolArgs {
+    #[arg(long)]
+    pub path: Option<String>,
+    #[arg(long)]
+    pub message: String,
+    #[arg(long, default_value_t = false)]
+    pub hex: bool,
+    #[arg(long, default_value_t = false)]
+    pub chunkify: bool,
+    /// Base58 OCMS v1 signer; repeat for multi-signer messages (defaults to the signing key).
+    #[arg(long = "signer", value_name = "BASE58")]
+    pub signers: Vec<String>,
     #[command(flatten)]
     pub connect: ConnectArgs,
 }
@@ -370,6 +388,40 @@ mod tests {
         assert_eq!(args.connect.timeout_secs, 60);
         assert_eq!(args.connect.thp_timeout_secs, 60);
         assert_eq!(args.connect.app_name, "hw-core/cli");
+    }
+
+    #[test]
+    fn sign_message_sol_collects_repeated_signers() {
+        let cli = Cli::parse_from([
+            "hw-cli",
+            "sign-message",
+            "sol",
+            "--path",
+            "m/44'/501'/1'/0'",
+            "--message",
+            "hello",
+            "--signer",
+            "14CCvQzQzHCVgZM3j9soPnXuJXh1RmCfwLVUcdfbZVBS",
+            "--signer",
+            "7v91N7iZ9mNicL8WfG6cgSCKyRXydQjLh6UYBWwm6y1Q",
+            "--chunkify",
+        ]);
+        let Command::SignMessage(args) = cli.command else {
+            panic!("expected sign-message command");
+        };
+        let SignMessageCommand::Sol(args) = args.command else {
+            panic!("expected sign-message sol command");
+        };
+
+        assert_eq!(args.path.as_deref(), Some("m/44'/501'/1'/0'"));
+        assert_eq!(
+            args.signers,
+            vec![
+                "14CCvQzQzHCVgZM3j9soPnXuJXh1RmCfwLVUcdfbZVBS",
+                "7v91N7iZ9mNicL8WfG6cgSCKyRXydQjLh6UYBWwm6y1Q",
+            ]
+        );
+        assert!(args.chunkify);
     }
 
     #[test]

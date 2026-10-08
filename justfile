@@ -171,3 +171,6 @@ cli-sign-eth:
 
 cli-sign-message-eth:
     cargo run -p hw-cli -- -vv sign-message eth --message "hello"
+
+cli-sign-message-sol:
+    cargo run -p hw-cli -- -vv sign-message sol --message "hello"
