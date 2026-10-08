@@ -3,8 +3,6 @@ use hw_wallet::ble::{BootstrapTarget, SessionBootstrap, SessionBootstrapOptions,
 use tracing::info;
 
 use crate::cli::PairArgs;
-use crate::commands::common::connect_workflow;
-use crate::config::default_storage_path;
 use crate::pairing::CliPairingController;
 
 pub async fn run(args: PairArgs, skip_pairing: bool) -> Result<()> {
@@ -13,11 +11,7 @@ pub async fn run(args: PairArgs, skip_pairing: bool) -> Result<()> {
         args.connect.timeout_secs, args.connect.thp_timeout_secs, args.force
     );
 
-    let mut connect = args.connect;
-    let storage_path = connect
-        .storage_path
-        .get_or_insert_with(default_storage_path)
-        .clone();
+    let storage_path = args.connect.storage_path();
     if args.force && storage_path.exists() {
         std::fs::remove_file(&storage_path).with_context(|| {
             format!(
@@ -28,13 +22,14 @@ pub async fn run(args: PairArgs, skip_pairing: bool) -> Result<()> {
         println!("Cleared saved pairing state: {}", storage_path.display());
     }
 
-    let (mut workflow, storage_path) = connect_workflow(
-        &connect,
-        skip_pairing,
-        "pair",
-        "Remove this Trezor from macOS Bluetooth settings, then re-run `hw-cli pair --force`.",
-    )
-    .await?;
+    let mut workflow = args
+        .connect
+        .open_workflow(
+            skip_pairing,
+            "pair",
+            "Remove this Trezor from macOS Bluetooth settings, then re-run `hw-cli pair --force`.",
+        )
+        .await?;
     info!(
         "pair identity: host_name='{}', app_name='{}'",
         workflow.host_config().host_name,
@@ -56,9 +51,8 @@ pub async fn run(args: PairArgs, skip_pairing: bool) -> Result<()> {
             workflow.host_config().host_name,
             workflow.host_config().app_name
         );
-        let controller = CliPairingController;
         workflow
-            .pairing(Some(&controller))
+            .pairing(Some(&CliPairingController))
             .await
             .context("pairing failed")?;
         println!("Pairing complete.");

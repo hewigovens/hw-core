@@ -6,7 +6,7 @@ use ble_transport::BleProfile;
 use tracing::debug;
 
 use crate::cli::ScanArgs;
-use crate::commands::common::print_discovered_devices;
+use crate::device::DeviceList;
 
 pub async fn run(args: ScanArgs) -> Result<()> {
     debug!("scan command: duration_secs={}", args.duration_secs);
@@ -32,6 +32,6 @@ pub async fn run(args: ScanArgs) -> Result<()> {
         return Ok(());
     }
 
-    print_discovered_devices(&devices);
+    DeviceList(devices).print();
     Ok(())
 }

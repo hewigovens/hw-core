@@ -1,7 +1,9 @@
 mod cli;
 mod commands;
-mod config;
+mod device;
+mod input;
 mod logging;
+mod output;
 mod pairing;
 mod ui;
 

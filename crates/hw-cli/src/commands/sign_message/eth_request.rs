@@ -2,7 +2,7 @@ use anyhow::Result;
 use trezor_connect::thp::{SignMessageRequest, SignTypedDataRequest};
 
 use crate::cli::{EthSignMessageType, SignMessageEthArgs};
-use crate::commands::common::read_text_file;
+use crate::input::read_text_file;
 
 use hw_wallet::chain::Chain;
 use hw_wallet::message::{SignMessageRequestExt, SignTypedDataRequestExt};
@@ -66,7 +66,7 @@ mod tests {
 
     use std::path::PathBuf;
 
-    use crate::cli::ConnectArgs;
+    use crate::device::ConnectArgs;
 
     fn test_connect_args() -> ConnectArgs {
         ConnectArgs {

@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use hw_wallet::chain::Chain;
 
+use crate::device::ConnectArgs;
+
 #[derive(Parser, Debug)]
 #[command(name = "hw-cli")]
 #[command(about = "Trezor Safe 7 CLI over BLE")]
@@ -29,22 +31,6 @@ pub enum Command {
 pub struct ScanArgs {
     #[arg(long, default_value_t = 60)]
     pub duration_secs: u64,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct ConnectArgs {
-    #[arg(long, alias = "duration-secs", default_value_t = 60)]
-    pub timeout_secs: u64,
-    #[arg(long, default_value_t = 60)]
-    pub thp_timeout_secs: u64,
-    #[arg(long)]
-    pub device_id: Option<String>,
-    #[arg(long)]
-    pub storage_path: Option<PathBuf>,
-    #[arg(long)]
-    pub host_name: Option<String>,
-    #[arg(long, default_value = "hw-core/cli")]
-    pub app_name: String,
 }
 
 #[derive(Args, Debug)]

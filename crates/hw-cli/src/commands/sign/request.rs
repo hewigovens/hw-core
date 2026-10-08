@@ -7,7 +7,7 @@ use hw_wallet::sol::SolanaSignTxExt;
 use trezor_connect::thp::{BtcSignTx, EthSignTx, SolanaSignTx};
 
 use crate::cli::{SignBtcArgs, SignEthArgs, SignSolArgs};
-use crate::commands::common::read_inline_or_file_argument;
+use crate::input::read_inline_or_file_argument;
 
 pub(super) struct EthSignRequest {
     pub(super) request: EthSignTx,

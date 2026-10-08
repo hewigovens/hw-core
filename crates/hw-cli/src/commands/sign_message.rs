@@ -3,9 +3,7 @@ use hw_wallet::bip32::parse_bip32_path;
 use hw_wallet::chain::{
     Chain, DEFAULT_BITCOIN_BIP32_PATH, DEFAULT_ETHEREUM_BIP32_PATH, DEFAULT_SOLANA_BIP32_PATH,
 };
-use hw_wallet::message::{
-    NormalizedMessageSignature, SignMessageRequestExt, SignTypedDataResponseExt,
-};
+use hw_wallet::message::SignMessageRequestExt;
 use tracing::info;
 use trezor_connect::thp::SignMessageRequest;
 
@@ -13,10 +11,7 @@ use self::eth_request::{EthSignRequest, build_eth_sign_request_from_args};
 use crate::cli::{
     SignMessageArgs, SignMessageBtcArgs, SignMessageCommand, SignMessageEthArgs, SignMessageSolArgs,
 };
-use crate::commands::common::{
-    connect_ready_workflow, print_message_signature_response, print_requesting,
-    print_solana_message_signature_response,
-};
+use crate::output::{PrintResponse, print_requesting};
 
 mod eth_request;
 
@@ -38,7 +33,10 @@ async fn run_eth(args: SignMessageEthArgs, skip_pairing: bool) -> Result<()> {
     let request = build_eth_sign_request_from_args(&args, path_indices)
         .context("failed to build ETH sign-message request")?;
 
-    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "sign-message").await?;
+    let mut workflow = args
+        .connect
+        .open_ready_workflow(skip_pairing, "sign-message")
+        .await?;
 
     match request {
         EthSignRequest::Message(request) => {
@@ -55,12 +53,7 @@ async fn run_eth(args: SignMessageEthArgs, skip_pairing: bool) -> Result<()> {
                 .sign_message(request)
                 .await
                 .context("sign-message failed")?;
-            let normalized = NormalizedMessageSignature::from(&response);
-            print_message_signature_response(
-                &response.address,
-                &normalized.value,
-                &response.signature,
-            );
+            response.print()?;
         }
         EthSignRequest::TypedData(request) => {
             info!(
@@ -72,8 +65,7 @@ async fn run_eth(args: SignMessageEthArgs, skip_pairing: bool) -> Result<()> {
                 .sign_typed_data(request)
                 .await
                 .context("sign-message failed for --type eip712")?;
-            let normalized = response.formatted_signature()?;
-            print_message_signature_response(&response.address, &normalized, &response.signature);
+            response.print()?;
         }
     }
 
@@ -102,16 +94,17 @@ async fn run_btc(args: SignMessageBtcArgs, skip_pairing: bool) -> Result<()> {
         path, args.hex, args.chunkify, args.connect.timeout_secs, args.connect.thp_timeout_secs
     );
 
-    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "sign-message").await?;
+    let mut workflow = args
+        .connect
+        .open_ready_workflow(skip_pairing, "sign-message")
+        .await?;
 
     print_requesting("BTC message signature");
     let response = workflow
         .sign_message(request)
         .await
         .context("sign-message failed")?;
-    let normalized = NormalizedMessageSignature::from(&response);
-    print_message_signature_response(&response.address, &normalized.value, &response.signature);
-    Ok(())
+    response.print()
 }
 
 async fn run_sol(args: SignMessageSolArgs, skip_pairing: bool) -> Result<()> {
@@ -141,13 +134,15 @@ async fn run_sol(args: SignMessageSolArgs, skip_pairing: bool) -> Result<()> {
         args.connect.thp_timeout_secs
     );
 
-    let mut workflow = connect_ready_workflow(&args.connect, skip_pairing, "sign-message").await?;
+    let mut workflow = args
+        .connect
+        .open_ready_workflow(skip_pairing, "sign-message")
+        .await?;
 
     print_requesting("SOL message signature");
     let response = workflow
         .sign_message(request)
         .await
         .context("sign-message failed")?;
-    print_solana_message_signature_response(&response);
-    Ok(())
+    response.print()
 }
