@@ -1,6 +1,6 @@
 use crate::error::{WalletError, WalletResult};
 
-const HARDENED: u32 = 0x8000_0000;
+pub(crate) const HARDENED: u32 = 0x8000_0000;
 
 pub fn parse_bip32_path(path: &str) -> WalletResult<Vec<u32>> {
     let trimmed = path.trim();

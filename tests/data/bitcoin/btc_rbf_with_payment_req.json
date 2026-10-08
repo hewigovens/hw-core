@@ -28,7 +28,7 @@
     {
       "address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
       "amount": "60000",
-      "script_type": "paytowitness",
+      "script_type": "paytoaddress",
       "orig_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
       "orig_index": 0,
       "payment_req_index": 0
@@ -126,7 +126,7 @@
         {
           "address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
           "amount": "60000",
-          "script_type": "paytowitness",
+          "script_type": "paytoaddress",
           "payment_req_index": 0
         },
         {
