@@ -6,11 +6,11 @@ use hw_wallet::eth::{TxAccessListInput, TxInput, build_sign_tx_request};
 use hw_wallet::hex::decode as decode_hex;
 use hw_wallet::message::build_sign_message_request;
 use hw_wallet::message_signing::build_eth_eip712_request;
+use hw_wallet::sol::build_sign_tx_request as build_sol_sign_tx_request;
 use trezor_connect::thp::{
     GetAddressRequest as ThpGetAddressRequest, SignMessageRequest as ThpSignMessageRequest,
 };
 
-use crate::ble::MIN_SOLANA_SERIALIZED_TX_BYTES;
 use crate::errors::HWCoreError;
 use crate::types::{
     AccessListEntry, GetAddressRequest, SignMessageRequest, SignTxRequest, SignTypedDataRequest,
@@ -62,16 +62,7 @@ pub(crate) fn map_sign_tx_request(
         crate::types::Chain::Solana => {
             let path = parse_request_path(&request.path)?;
             let serialized_tx = decode_hex(&request.data).map_err(HWCoreError::from)?;
-            if serialized_tx.len() < MIN_SOLANA_SERIALIZED_TX_BYTES {
-                return Err(HWCoreError::Validation(format!(
-                    "solana serialized tx is too short ({} bytes); provide full serialized transaction bytes",
-                    serialized_tx.len()
-                )));
-            }
-            Ok(trezor_connect::thp::SignTxRequest::solana(
-                path,
-                serialized_tx,
-            ))
+            build_sol_sign_tx_request(path, serialized_tx).map_err(HWCoreError::from)
         }
         crate::types::Chain::Bitcoin => {
             let tx = parse_btc_tx_json(&request.data).map_err(HWCoreError::from)?;

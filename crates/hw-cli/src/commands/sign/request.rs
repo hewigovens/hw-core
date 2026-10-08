@@ -5,6 +5,7 @@ use hw_wallet::btc::{
 };
 use hw_wallet::eth::{build_sign_tx_request, parse_tx_json};
 use hw_wallet::hex::decode as decode_hex;
+use hw_wallet::sol::build_sign_tx_request as build_sol_sign_tx_request;
 use trezor_connect::thp::SignTxRequest;
 
 use crate::cli::{SignBtcArgs, SignEthArgs, SignSolArgs};
@@ -43,10 +44,10 @@ pub(super) fn build_sol_sign_request_from_args(args: &SignSolArgs) -> Result<Sol
     let serialized_tx = decode_hex(&tx).context("failed to decode Solana tx bytes")?;
     let tx_bytes = serialized_tx.len();
 
-    Ok(SolSignRequest {
-        request: SignTxRequest::solana(path, serialized_tx),
-        tx_bytes,
-    })
+    let request = build_sol_sign_tx_request(path, serialized_tx)
+        .context("failed to build Solana sign request")?;
+
+    Ok(SolSignRequest { request, tx_bytes })
 }
 
 pub(super) fn build_btc_sign_request_from_args(args: &SignBtcArgs) -> Result<SignTxRequest> {

@@ -20,8 +20,6 @@ use crate::types::{
     WorkflowEventKind,
 };
 
-pub(crate) const MIN_SOLANA_SERIALIZED_TX_BYTES: usize = 16;
-
 mod pairing;
 mod request_mapping;
 mod session;
