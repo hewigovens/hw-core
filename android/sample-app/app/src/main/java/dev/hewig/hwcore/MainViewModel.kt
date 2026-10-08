@@ -429,7 +429,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
         val hostName = defaultHostName(context)
         hostConfig = hostConfigNew(hostName, DEFAULT_APP_NAME)
-        storagePath = context.filesDir.resolve("thp-host.json").absolutePath
+        storagePath = context.filesDir.resolve("hwcore/thp-host.json").absolutePath
         log("Host configured: $hostName / $DEFAULT_APP_NAME")
     }
 
