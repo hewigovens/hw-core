@@ -83,8 +83,8 @@ mod tests {
     use super::*;
 
     use hw_wallet::ble::{
-        BootstrapTarget, SessionBootstrapOptions, SessionPhase, SessionRetryPolicy,
-        advance_session_bootstrap,
+        BootstrapTarget, SessionBootstrap, SessionBootstrapOptions, SessionPhase,
+        SessionRetryPolicy,
     };
     use trezor_connect::thp::HostConfig;
     use trezor_connect::thp::testing::MockBackend;
@@ -101,10 +101,10 @@ mod tests {
             },
             ..SessionBootstrapOptions::default()
         };
-        let phase =
-            advance_session_bootstrap(&mut workflow, false, BootstrapTarget::Session, &options)
-                .await
-                .unwrap();
+        let phase = workflow
+            .advance_session_bootstrap(false, BootstrapTarget::Session, &options)
+            .await
+            .unwrap();
         assert_eq!(phase, SessionPhase::Ready);
 
         let path = vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0];

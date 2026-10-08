@@ -5,7 +5,6 @@ use std::time::Duration;
 use ble_transport::{BleManager, BleProfile, BleSession, DeviceInfo, DiscoveredDevice};
 use hw_wallet::ble::{
     SessionPhase as WalletSessionPhase, connect_and_bootstrap_session, connect_trezor_device,
-    session_phase, session_state as build_session_state,
 };
 use parking_lot::Mutex;
 use tokio::sync::{Mutex as AsyncMutex, Notify};

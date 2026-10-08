@@ -40,6 +40,10 @@ impl ThpState {
         self.handshake_cache.as_ref()
     }
 
+    pub fn has_channel(&self) -> bool {
+        self.handshake_cache.is_some()
+    }
+
     pub fn set_handshake_credentials(&mut self, creds: HandshakeCredentials) {
         self.handshake_credentials = Some(creds);
         self.phase = Phase::Pairing;
@@ -66,6 +70,22 @@ impl ThpState {
         self.pairing_method
     }
 
+    /// The chosen pairing method, or else the device's preferred one from the handshake.
+    pub fn selected_pairing_method(&self) -> Option<PairingMethod> {
+        self.pairing_method.or_else(|| {
+            self.handshake_credentials
+                .as_ref()
+                .and_then(|credentials| credentials.pairing_methods.first().copied())
+        })
+    }
+
+    /// Pairing can finish without user input because the selected method is SkipPairing.
+    pub fn skip_pairing_pending(&self) -> bool {
+        self.phase == Phase::Pairing
+            && !self.is_paired
+            && self.selected_pairing_method() == Some(PairingMethod::SkipPairing)
+    }
+
     pub fn set_pairing_credentials(&mut self, credentials: Vec<KnownCredential>) {
         if let Some(creds) = self.handshake_credentials.as_mut() {
             creds.pairing_credentials = credentials;
@@ -82,5 +102,51 @@ impl ThpState {
 
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skip_pairing_is_pending_only_for_unpaired_skip_pairing_selection() {
+        for (methods, selected, is_paired, expected) in [
+            (
+                vec![PairingMethod::SkipPairing],
+                Some(PairingMethod::SkipPairing),
+                false,
+                true,
+            ),
+            (vec![PairingMethod::SkipPairing], None, false, true),
+            (vec![PairingMethod::SkipPairing], None, true, false),
+            (
+                vec![PairingMethod::CodeEntry],
+                Some(PairingMethod::CodeEntry),
+                false,
+                false,
+            ),
+            (
+                vec![PairingMethod::CodeEntry],
+                Some(PairingMethod::SkipPairing),
+                false,
+                true,
+            ),
+        ] {
+            let mut state = ThpState::new();
+            state.set_handshake_credentials(HandshakeCredentials {
+                pairing_methods: methods.clone(),
+                ..HandshakeCredentials::default()
+            });
+            if let Some(method) = selected {
+                state.set_pairing_method(method);
+            }
+            state.set_is_paired(is_paired);
+            assert_eq!(
+                state.skip_pairing_pending(),
+                expected,
+                "{methods:?} {selected:?} paired={is_paired}"
+            );
+        }
     }
 }

@@ -1,6 +1,5 @@
 use hw_wallet::ble::{
-    BootstrapTarget, SessionBootstrapOptions, SessionPhase, SessionRetryPolicy,
-    advance_session_bootstrap,
+    BootstrapTarget, SessionBootstrap, SessionBootstrapOptions, SessionPhase, SessionRetryPolicy,
 };
 use hw_wallet::btc::TxInput as BtcTxInput;
 use hw_wallet::eip712::build_sign_typed_data_request;
@@ -28,7 +27,8 @@ async fn ready_workflow() -> ThpWorkflow<MockBackend> {
         },
         ..SessionBootstrapOptions::default()
     };
-    let phase = advance_session_bootstrap(&mut workflow, false, BootstrapTarget::Session, &options)
+    let phase = workflow
+        .advance_session_bootstrap(false, BootstrapTarget::Session, &options)
         .await
         .unwrap();
     assert_eq!(phase, SessionPhase::Ready);
@@ -50,14 +50,14 @@ async fn pair_target_stops_before_session_creation() {
         MockBackend::paired_connection_flow(),
         HostConfig::new("test-host", "hw-core/cli"),
     );
-    let phase = advance_session_bootstrap(
-        &mut workflow,
-        false,
-        BootstrapTarget::Paired,
-        &SessionBootstrapOptions::default(),
-    )
-    .await
-    .unwrap();
+    let phase = workflow
+        .advance_session_bootstrap(
+            false,
+            BootstrapTarget::Paired,
+            &SessionBootstrapOptions::default(),
+        )
+        .await
+        .unwrap();
     assert_eq!(phase, SessionPhase::NeedsSession);
     assert_eq!(workflow.backend_mut().counters.create_session_calls, 0);
 }
