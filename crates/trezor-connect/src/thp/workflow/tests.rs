@@ -160,8 +160,32 @@ async fn pairing_flow_with_controller() {
 
     let (backend, _, state) = workflow.into_parts();
     assert!(state.is_paired());
-    assert!(backend.pairing_requested);
+    assert!(backend.pairing_request.is_some());
     assert!(backend.end_called);
+}
+
+#[tokio::test]
+async fn pairing_request_replaces_curly_single_quotes_in_names() {
+    let mut workflow = ThpWorkflow::new(
+        MockBackend::pairing_flow(),
+        HostConfig {
+            pairing_methods: vec![PairingMethod::QrCode],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "H\u{2019}s iPhone".into(),
+            app_name: "\u{2018}hw\u{2019} app's \"core\"".into(),
+        },
+    );
+
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    workflow.pairing(Some(&TestController)).await.unwrap();
+
+    let (backend, config, _) = workflow.into_parts();
+    let request = backend.pairing_request.expect("pairing request sent");
+    assert_eq!(request.host_name, "H's iPhone");
+    assert_eq!(request.app_name, "'hw' app's \"core\"");
+    assert_eq!(config.host_name, "H\u{2019}s iPhone");
 }
 
 #[tokio::test]
@@ -289,7 +313,7 @@ async fn code_entry_pairing_without_controller_primes_device_prompt() {
     assert!(creds.trezor_cpace_public_key.is_some());
 
     let (backend, _, _) = workflow.into_parts();
-    assert!(backend.pairing_requested);
+    assert!(backend.pairing_request.is_some());
     assert_eq!(backend.code_entry_challenge_requests.len(), 1);
 }
 
