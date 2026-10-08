@@ -1032,6 +1032,7 @@ dependencies = [
  "hex",
  "hw-wallet",
  "jni",
+ "log",
  "parking_lot",
  "thiserror",
  "tokio",

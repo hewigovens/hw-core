@@ -16,7 +16,7 @@ hw-wallet = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 trezor-connect = { workspace = true, features = ["ble"] }
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+tracing-subscriber = { workspace = true }
 whoami = "2.1.1"
 
 [dev-dependencies]
