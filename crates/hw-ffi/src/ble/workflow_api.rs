@@ -1,5 +1,5 @@
 use super::*;
-use hw_wallet::ble::{BootstrapTarget, advance_session_bootstrap};
+use hw_wallet::ble::{BootstrapTarget, SessionBootstrap};
 use std::time::Duration;
 use tokio::time::timeout;
 use trezor_connect::thp::ThpWorkflowError;
@@ -10,7 +10,10 @@ impl BleWorkflowHandle {
     pub async fn session_state(&self) -> Result<SessionState, HWCoreError> {
         let ready = *self.session_ready.lock().await;
         let workflow = self.workflow.lock().await;
-        session_state_for(&workflow, session_phase(workflow.state(), ready))
+        session_state_for(
+            &workflow,
+            WalletSessionPhase::from_state(workflow.state(), ready),
+        )
     }
 
     #[uniffi::method]
@@ -29,9 +32,9 @@ impl BleWorkflowHandle {
         let options = bootstrap_options(try_to_unlock, retry_policy);
         let result = self
             .with_workflow(async |workflow| {
-                let phase =
-                    advance_session_bootstrap(workflow, false, BootstrapTarget::Paired, &options)
-                        .await?;
+                let phase = workflow
+                    .advance_session_bootstrap(false, BootstrapTarget::Paired, &options)
+                    .await?;
                 session_state_for(workflow, phase)
             })
             .await;
@@ -61,9 +64,9 @@ impl BleWorkflowHandle {
         let options = bootstrap_options(try_to_unlock, retry_policy);
         let state = self
             .with_workflow(async |workflow| {
-                let phase =
-                    advance_session_bootstrap(workflow, ready, BootstrapTarget::Session, &options)
-                        .await?;
+                let phase = workflow
+                    .advance_session_bootstrap(ready, BootstrapTarget::Session, &options)
+                    .await?;
                 session_state_for(workflow, phase)
             })
             .await?;
@@ -308,7 +311,7 @@ fn session_state_for(
     } else {
         None
     };
-    Ok(build_session_state(phase, prompt_message))
+    Ok(SessionState::new(phase, prompt_message))
 }
 
 impl BleWorkflowHandle {

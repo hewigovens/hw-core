@@ -22,7 +22,7 @@ pub use btc::{
 pub use channel::{CreateChannelRequest, CreateChannelResponse, ThpProperties};
 pub use credential::{CredentialRequest, CredentialResponse, KnownCredential};
 pub use eip712::{Eip712StructMember, Eip712TypedData};
-pub use eth_sign_tx::{EthAccessListEntry, EthSignTx};
+pub use eth_sign_tx::{EthAccessListEntry, EthSignTx, EthTxSignature};
 pub use handshake::{HandshakeCompletionState, HandshakeRequest, HandshakeResponse};
 pub use host_config::HostConfig;
 pub use pairing::{

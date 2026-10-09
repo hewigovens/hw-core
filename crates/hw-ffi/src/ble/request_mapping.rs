@@ -1,14 +1,12 @@
 use hw_wallet::bip32::parse_bip32_path;
-use hw_wallet::btc::{
-    build_sign_tx_request as build_btc_sign_tx_request, parse_tx_json as parse_btc_tx_json,
-};
-use hw_wallet::eth::{TxAccessListInput, TxInput, build_sign_tx_request};
+use hw_wallet::btc::TxInput as BtcTxInput;
+use hw_wallet::eth::{TxAccessListInput, TxInput};
 use hw_wallet::hex::decode as decode_hex;
-use hw_wallet::message::build_sign_message_request;
-use hw_wallet::message_signing::build_eth_eip712_request;
-use hw_wallet::sol::build_sign_tx_request as build_sol_sign_tx_request;
+use hw_wallet::message::{SignMessageRequestExt, SignTypedDataRequestExt};
+use hw_wallet::sol::SolanaSignTxExt;
 use trezor_connect::thp::{
-    GetAddressRequest as ThpGetAddressRequest, SignMessageRequest as ThpSignMessageRequest,
+    BtcSignTx, GetAddressRequest as ThpGetAddressRequest,
+    SignMessageRequest as ThpSignMessageRequest, SolanaSignTx,
 };
 
 use crate::errors::HWCoreError;
@@ -55,21 +53,19 @@ pub(crate) fn map_sign_tx_request(
                     .collect(),
             };
 
-            let tx = build_sign_tx_request(path, tx).map_err(HWCoreError::from)?;
+            let tx = tx.into_sign_tx(path).map_err(HWCoreError::from)?;
             Ok(tx.with_chunkify(request.chunkify).into())
         }
         crate::types::Chain::Solana => {
             let path = parse_request_path(&request.path)?;
             let serialized_tx = decode_hex(&request.data).map_err(HWCoreError::from)?;
-            Ok(build_sol_sign_tx_request(path, serialized_tx)
+            Ok(SolanaSignTx::from_serialized_tx(path, serialized_tx)
                 .map_err(HWCoreError::from)?
                 .into())
         }
         crate::types::Chain::Bitcoin => {
-            let tx = parse_btc_tx_json(&request.data).map_err(HWCoreError::from)?;
-            Ok(build_btc_sign_tx_request(tx)
-                .map_err(HWCoreError::from)?
-                .into())
+            let tx = BtcTxInput::from_json(&request.data).map_err(HWCoreError::from)?;
+            Ok(BtcSignTx::try_from(tx).map_err(HWCoreError::from)?.into())
         }
     }
 }
@@ -78,7 +74,7 @@ pub(crate) fn map_sign_message_request(
     request: SignMessageRequest,
 ) -> Result<ThpSignMessageRequest, HWCoreError> {
     let path = parse_request_path(&request.path)?;
-    build_sign_message_request(
+    ThpSignMessageRequest::from_message(
         request.chain,
         path,
         &request.message,
@@ -102,7 +98,7 @@ pub(crate) fn map_sign_typed_data_request(
     let domain_separator_hash = non_empty_string(request.domain_separator_hash);
     let message_hash = optional_non_empty_string(request.message_hash);
 
-    build_eth_eip712_request(
+    trezor_connect::thp::SignTypedDataRequest::from_eip712(
         path,
         request.data_json.as_deref(),
         domain_separator_hash.as_deref(),

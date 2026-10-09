@@ -5,8 +5,7 @@ use crate::cli::{EthSignMessageType, SignMessageEthArgs};
 use crate::commands::common::read_text_file;
 
 use hw_wallet::chain::Chain;
-use hw_wallet::eip712::build_sign_typed_data_request;
-use hw_wallet::message::build_sign_message_request;
+use hw_wallet::message::{SignMessageRequestExt, SignTypedDataRequestExt};
 
 #[derive(Debug)]
 pub(super) enum EthSignRequest {
@@ -29,9 +28,16 @@ pub(super) fn build_eth_sign_request_from_args(
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("ETH EIP-191 signing requires `message`"))?;
 
-            build_sign_message_request(Chain::Ethereum, path, message, args.hex, args.chunkify, &[])
-                .map(EthSignRequest::Message)
-                .map_err(Into::into)
+            SignMessageRequest::from_message(
+                Chain::Ethereum,
+                path,
+                message,
+                args.hex,
+                args.chunkify,
+                &[],
+            )
+            .map(EthSignRequest::Message)
+            .map_err(Into::into)
         }
         EthSignMessageType::Eip712 => {
             if args.message.is_some() {
@@ -47,7 +53,7 @@ pub(super) fn build_eth_sign_request_from_args(
                 .ok_or_else(|| anyhow::anyhow!("--data-file is required for --type eip712"))?;
             let data_json = read_text_file(data_file, "typed-data file")?;
 
-            build_sign_typed_data_request(path, &data_json, args.metamask_v4_compat)
+            SignTypedDataRequest::from_eip712_json(path, &data_json, args.metamask_v4_compat)
                 .map(EthSignRequest::TypedData)
                 .map_err(Into::into)
         }

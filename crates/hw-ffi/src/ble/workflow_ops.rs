@@ -1,9 +1,11 @@
-use hw_wallet::eip712::normalize_typed_data_signature;
-use hw_wallet::eth::verify_sign_tx_response;
+use hw_wallet::eth::VerifiedSignature;
 use hw_wallet::message::{
-    SignatureEncoding as WalletSignatureEncoding, normalize_message_signature,
+    NormalizedMessageSignature, SignTypedDataResponseExt,
+    SignatureEncoding as WalletSignatureEncoding,
 };
-use trezor_connect::thp::{SignTxRequest as ThpSignTxRequest, ThpWorkflow};
+use trezor_connect::thp::{
+    EthTxSignature, SignTxRequest as ThpSignTxRequest, SignTxResponse, ThpWorkflow,
+};
 
 use super::request_mapping::{
     map_get_address_request, map_sign_message_request, map_sign_tx_request,
@@ -58,16 +60,31 @@ where
         .sign_tx(sign_request.clone())
         .await
         .map_err(HWCoreError::from)?;
-    let verification = match &sign_request {
-        ThpSignTxRequest::Ethereum(tx) => verify_sign_tx_response(tx, &response).ok(),
-        ThpSignTxRequest::Bitcoin(_) | ThpSignTxRequest::Solana(_) => None,
+    let verification = match (&sign_request, &response) {
+        (ThpSignTxRequest::Ethereum(tx), SignTxResponse::Ethereum(signature)) => {
+            VerifiedSignature::recover(tx, signature).ok()
+        }
+        (
+            ThpSignTxRequest::Ethereum(_)
+            | ThpSignTxRequest::Bitcoin(_)
+            | ThpSignTxRequest::Solana(_),
+            _,
+        ) => None,
+    };
+    let (v, r, s, signatures) = match response {
+        SignTxResponse::Ethereum(EthTxSignature { v, r, s }) => (v, r, s, Vec::new()),
+        SignTxResponse::Bitcoin {
+            signatures,
+            last_signature,
+        } => (0, last_signature, Vec::new(), signatures),
+        SignTxResponse::Solana { signature } => (0, signature, Vec::new(), Vec::new()),
     };
     Ok(SignTxResult {
         chain,
-        v: response.v,
-        r: response.r,
-        s: response.s,
-        signatures: response.signatures,
+        v,
+        r,
+        s,
+        signatures,
         tx_hash: verification.as_ref().map(|sig| sig.tx_hash.to_vec()),
         recovered_address: verification.map(|sig| sig.recovered_address),
     })
@@ -92,7 +109,7 @@ where
         .sign_message(sign_request)
         .await
         .map_err(HWCoreError::from)?;
-    let normalized = normalize_message_signature(&response).map_err(HWCoreError::from)?;
+    let normalized = NormalizedMessageSignature::from(&response);
     Ok(SignMessageResult {
         chain: response.chain,
         address: response.address,
@@ -115,7 +132,7 @@ where
         .sign_typed_data(sign_request)
         .await
         .map_err(HWCoreError::from)?;
-    let normalized = normalize_typed_data_signature(&response).map_err(HWCoreError::from)?;
+    let normalized = response.formatted_signature().map_err(HWCoreError::from)?;
     Ok(SignTypedDataResult {
         chain: response.chain,
         address: response.address,

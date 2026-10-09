@@ -43,14 +43,14 @@ impl WalletError {
             | Self::SolanaTxTooShort { .. }
             | Self::UnsupportedSolanaTxVersion(_) => WalletErrorKind::Validation,
             Self::PeerRemovedPairingInfo => WalletErrorKind::Device,
-            Self::Ble(error) => WalletErrorKind::of_ble(error),
-            Self::Workflow(error) => WalletErrorKind::of_workflow(error),
+            Self::Ble(error) => error.into(),
+            Self::Workflow(error) => error.into(),
         }
     }
 }
 
-impl WalletErrorKind {
-    pub fn of_ble(error: &BleError) -> Self {
+impl From<&BleError> for WalletErrorKind {
+    fn from(error: &BleError) -> Self {
         match error {
             BleError::Timeout(_) => Self::Timeout,
             BleError::Btleplug(_)
@@ -59,10 +59,12 @@ impl WalletErrorKind {
             | BleError::MissingCharacteristic { .. } => Self::Ble,
         }
     }
+}
 
-    pub fn of_workflow(error: &ThpWorkflowError) -> Self {
+impl From<&ThpWorkflowError> for WalletErrorKind {
+    fn from(error: &ThpWorkflowError) -> Self {
         match error {
-            ThpWorkflowError::Backend(error) => Self::of_backend(error),
+            ThpWorkflowError::Backend(error) => error.into(),
             ThpWorkflowError::InvalidPhase
             | ThpWorkflowError::MissingHandshake
             | ThpWorkflowError::MissingHandshakeCredentials
@@ -74,8 +76,10 @@ impl WalletErrorKind {
             | ThpWorkflowError::Storage(_) => Self::Workflow,
         }
     }
+}
 
-    pub fn of_backend(error: &BackendError) -> Self {
+impl From<&BackendError> for WalletErrorKind {
+    fn from(error: &BackendError) -> Self {
         match error {
             BackendError::TransportTimeout => Self::Timeout,
             BackendError::Device(_)

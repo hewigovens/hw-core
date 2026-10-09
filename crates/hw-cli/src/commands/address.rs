@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use hw_wallet::chain::{Chain, resolve_derivation_path};
+use hw_wallet::chain::{Chain, ResolvedDerivationPath};
 use tracing::info;
 use trezor_connect::thp::{GetAddressRequest, ThpBackend, ThpWorkflow};
 
@@ -7,7 +7,7 @@ use crate::cli::AddressArgs;
 use crate::commands::common::{connect_ready_workflow, print_address_response, print_requesting};
 
 pub async fn run(args: AddressArgs, skip_pairing: bool) -> Result<()> {
-    let resolved = resolve_derivation_path(args.chain, args.path.as_deref())?;
+    let resolved = ResolvedDerivationPath::resolve(args.chain, args.path.as_deref())?;
     info!(
         "address command started: chain={:?} path='{}' scan_timeout_secs={} thp_timeout_secs={} show_on_device={} include_public_key={} chunkify={}",
         resolved.chain,
@@ -83,8 +83,8 @@ mod tests {
     use super::*;
 
     use hw_wallet::ble::{
-        BootstrapTarget, SessionBootstrapOptions, SessionPhase, SessionRetryPolicy,
-        advance_session_bootstrap,
+        BootstrapTarget, SessionBootstrap, SessionBootstrapOptions, SessionPhase,
+        SessionRetryPolicy,
     };
     use trezor_connect::thp::HostConfig;
     use trezor_connect::thp::testing::MockBackend;
@@ -101,10 +101,10 @@ mod tests {
             },
             ..SessionBootstrapOptions::default()
         };
-        let phase =
-            advance_session_bootstrap(&mut workflow, false, BootstrapTarget::Session, &options)
-                .await
-                .unwrap();
+        let phase = workflow
+            .advance_session_bootstrap(false, BootstrapTarget::Session, &options)
+            .await
+            .unwrap();
         assert_eq!(phase, SessionPhase::Ready);
 
         let path = vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0];

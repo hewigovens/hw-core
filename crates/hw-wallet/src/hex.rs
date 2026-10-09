@@ -29,6 +29,17 @@ pub fn decode_quantity(value: &str) -> WalletResult<Vec<u8>> {
     Ok(bytes[start..].to_vec())
 }
 
+pub(crate) fn decode_hash32(field: &str, value: &str) -> WalletResult<Vec<u8>> {
+    let decoded = decode(value)?;
+    if decoded.len() != 32 {
+        return Err(WalletError::Signing(format!(
+            "{field} must be 32 bytes, got {} bytes",
+            decoded.len()
+        )));
+    }
+    Ok(decoded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

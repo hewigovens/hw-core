@@ -1,6 +1,6 @@
 use hw_chain::Chain;
 
-use super::{BtcSignTx, EthSignTx, SolanaSignTx};
+use super::{BtcSignTx, EthSignTx, EthTxSignature, SolanaSignTx};
 
 #[derive(Debug, Clone)]
 pub enum SignTxRequest {
@@ -37,12 +37,26 @@ impl From<SolanaSignTx> for SignTxRequest {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SignTxResponse {
-    pub chain: Chain,
-    pub v: u32,
-    pub r: Vec<u8>,
-    pub s: Vec<u8>,
-    /// Per-input Bitcoin signatures, indexed by the device's `signature_index`.
-    pub signatures: Vec<Vec<u8>>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SignTxResponse {
+    Ethereum(EthTxSignature),
+    Bitcoin {
+        /// Per-input signatures, indexed by the device's `signature_index`.
+        signatures: Vec<Vec<u8>>,
+        /// Last indexed signature, or the last unindexed one for legacy firmware.
+        last_signature: Vec<u8>,
+    },
+    Solana {
+        signature: Vec<u8>,
+    },
+}
+
+impl SignTxResponse {
+    pub fn chain(&self) -> Chain {
+        match self {
+            Self::Ethereum(_) => Chain::Ethereum,
+            Self::Bitcoin { .. } => Chain::Bitcoin,
+            Self::Solana { .. } => Chain::Solana,
+        }
+    }
 }
