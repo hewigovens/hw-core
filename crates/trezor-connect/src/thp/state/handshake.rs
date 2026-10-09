@@ -19,6 +19,10 @@ pub struct HandshakeCredentials {
 }
 
 impl HandshakeCredentials {
+    pub fn preferred_pairing_method(&self) -> Option<PairingMethod> {
+        self.pairing_methods.first().copied()
+    }
+
     /// Requests a credential, refreshing the one the handshake selected if any.
     pub fn credential_request(&self) -> CredentialRequest {
         CredentialRequest {
