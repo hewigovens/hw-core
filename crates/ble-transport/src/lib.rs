@@ -1,9 +1,14 @@
-pub mod manager;
-pub mod profile;
-pub mod session;
+mod device;
+mod error;
+mod link;
+mod manager;
+mod notifications;
+mod profile;
+mod session;
 
-pub use manager::{BleManager, DiscoveredDevice};
-pub use profile::{BleError, BleProfile, DeviceInfo};
-pub use session::{BleLink, BleSession};
-
-pub type BleResult<T> = Result<T, BleError>;
+pub use device::{DeviceInfo, DiscoveredDevice};
+pub use error::{BleError, BleResult};
+pub use link::BleLink;
+pub use manager::BleManager;
+pub use profile::BleProfile;
+pub use session::BleSession;
