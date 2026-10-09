@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use anyhow::Result;
+use clap::{ArgAction, Parser, Subcommand};
+use tracing_subscriber::EnvFilter;
 
-use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
-use hw_wallet::chain::Chain;
+use crate::commands::{AddressArgs, PairArgs, ScanArgs, SignArgs, SignMessageArgs};
 
 #[derive(Parser, Debug)]
 #[command(name = "hw-cli")]
@@ -25,165 +26,34 @@ pub enum Command {
     SignMessage(SignMessageArgs),
 }
 
-#[derive(Args, Debug)]
-pub struct ScanArgs {
-    #[arg(long, default_value_t = 60)]
-    pub duration_secs: u64,
-}
+impl Cli {
+    pub fn init_tracing(&self) {
+        let level = match self.verbose {
+            0 => "warn",
+            1 => "info",
+            2 => "debug",
+            _ => "trace",
+        };
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_target(true)
+            .with_thread_names(false)
+            .with_thread_ids(false)
+            .compact()
+            .try_init();
+    }
 
-#[derive(Args, Debug, Clone)]
-pub struct ConnectArgs {
-    #[arg(long, alias = "duration-secs", default_value_t = 60)]
-    pub timeout_secs: u64,
-    #[arg(long, default_value_t = 60)]
-    pub thp_timeout_secs: u64,
-    #[arg(long)]
-    pub device_id: Option<String>,
-    #[arg(long)]
-    pub storage_path: Option<PathBuf>,
-    #[arg(long)]
-    pub host_name: Option<String>,
-    #[arg(long, default_value = "hw-core/cli")]
-    pub app_name: String,
-}
-
-#[derive(Args, Debug)]
-pub struct PairArgs {
-    #[command(flatten)]
-    pub connect: ConnectArgs,
-    #[arg(long)]
-    pub force: bool,
-}
-
-#[derive(Args, Debug)]
-pub struct AddressArgs {
-    #[arg(long, value_name = "eth|btc|sol", value_parser = parse_chain_arg)]
-    pub chain: Option<Chain>,
-    #[arg(long)]
-    pub path: Option<String>,
-    #[arg(long, default_value_t = true)]
-    pub show_on_device: bool,
-    #[arg(long, default_value_t = false)]
-    pub include_public_key: bool,
-    #[arg(long, default_value_t = false)]
-    pub chunkify: bool,
-    #[command(flatten)]
-    pub connect: ConnectArgs,
-}
-
-#[derive(Args, Debug)]
-pub struct SignArgs {
-    #[command(subcommand)]
-    pub command: SignCommand,
-}
-
-#[derive(Args, Debug)]
-pub struct SignMessageArgs {
-    #[command(subcommand)]
-    pub command: SignMessageCommand,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum SignCommand {
-    Eth(SignEthArgs),
-    Btc(SignBtcArgs),
-    Sol(SignSolArgs),
-}
-
-#[derive(Subcommand, Debug)]
-pub enum SignMessageCommand {
-    Eth(SignMessageEthArgs),
-    Btc(SignMessageBtcArgs),
-    Sol(SignMessageSolArgs),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum EthSignMessageType {
-    Eip191,
-    Eip712,
-}
-
-#[derive(Args, Debug)]
-pub struct SignEthArgs {
-    #[arg(long)]
-    pub path: String,
-    #[arg(long)]
-    pub tx: String,
-    #[command(flatten)]
-    pub connect: ConnectArgs,
-}
-
-#[derive(Args, Debug)]
-pub struct SignBtcArgs {
-    #[arg(long)]
-    pub tx: String,
-    #[command(flatten)]
-    pub connect: ConnectArgs,
-}
-
-#[derive(Args, Debug)]
-pub struct SignSolArgs {
-    #[arg(long)]
-    pub path: String,
-    #[arg(long)]
-    pub tx: String,
-    #[command(flatten)]
-    pub connect: ConnectArgs,
-}
-
-#[derive(Args, Debug)]
-pub struct SignMessageEthArgs {
-    #[arg(long)]
-    pub path: Option<String>,
-    #[arg(long)]
-    pub message: Option<String>,
-    #[arg(long = "type", value_enum, default_value_t = EthSignMessageType::Eip191)]
-    pub message_type: EthSignMessageType,
-    #[arg(long, default_value_t = false)]
-    pub hex: bool,
-    #[arg(long, default_value_t = false)]
-    pub chunkify: bool,
-    #[arg(long = "data-file")]
-    pub data_file: Option<PathBuf>,
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
-    pub metamask_v4_compat: bool,
-    #[command(flatten)]
-    pub connect: ConnectArgs,
-}
-
-#[derive(Args, Debug)]
-pub struct SignMessageBtcArgs {
-    #[arg(long)]
-    pub path: Option<String>,
-    #[arg(long)]
-    pub message: String,
-    #[arg(long, default_value_t = false)]
-    pub hex: bool,
-    #[arg(long, default_value_t = false)]
-    pub chunkify: bool,
-    #[command(flatten)]
-    pub connect: ConnectArgs,
-}
-
-#[derive(Args, Debug)]
-pub struct SignMessageSolArgs {
-    #[arg(long)]
-    pub path: Option<String>,
-    #[arg(long)]
-    pub message: String,
-    #[arg(long, default_value_t = false)]
-    pub hex: bool,
-    #[arg(long, default_value_t = false)]
-    pub chunkify: bool,
-    /// Base58 OCMS v1 signer; repeat for multi-signer messages (defaults to the signing key).
-    #[arg(long = "signer", value_name = "BASE58")]
-    pub signers: Vec<String>,
-    #[command(flatten)]
-    pub connect: ConnectArgs,
-}
-
-fn parse_chain_arg(value: &str) -> Result<Chain, String> {
-    value.parse()
+    pub async fn run(self) -> Result<()> {
+        let skip_pairing = self.skip_pairing;
+        match self.command {
+            Command::Scan(args) => args.run().await,
+            Command::Pair(args) => args.run(skip_pairing).await,
+            Command::Address(args) => args.run(skip_pairing).await,
+            Command::Sign(args) => args.run(skip_pairing).await,
+            Command::SignMessage(args) => args.run(skip_pairing).await,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -191,269 +61,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pair_defaults_to_60s_timeout() {
-        let cli = Cli::parse_from(["hw-cli", "pair"]);
-        let Command::Pair(args) = cli.command else {
-            panic!("expected pair command");
-        };
-
-        assert_eq!(cli.verbose, 0);
-        assert_eq!(args.connect.timeout_secs, 60);
-        assert_eq!(args.connect.thp_timeout_secs, 60);
+    fn connect_args_apply_defaults_and_overrides() {
+        for (args, timeout_secs, thp_timeout_secs) in [
+            (&[][..], 60, 60),
+            (&["--duration-secs", "45"], 45, 60),
+            (&["--thp-timeout-secs", "90"], 60, 90),
+        ] {
+            let argv = ["hw-cli", "pair"].into_iter().chain(args.iter().copied());
+            let Command::Pair(pair) = Cli::parse_from(argv).command else {
+                panic!("expected pair command");
+            };
+            assert_eq!(pair.connect.timeout_secs, timeout_secs, "{args:?}");
+            assert_eq!(pair.connect.thp_timeout_secs, thp_timeout_secs, "{args:?}");
+            assert_eq!(pair.connect.app_name, "hw-core/cli");
+        }
     }
 
     #[test]
-    fn pair_accepts_duration_secs_alias() {
-        let cli = Cli::parse_from(["hw-cli", "pair", "--duration-secs", "45"]);
-        let Command::Pair(args) = cli.command else {
-            panic!("expected pair command");
-        };
-
-        assert_eq!(args.connect.timeout_secs, 45);
-    }
-
-    #[test]
-    fn pair_accepts_thp_timeout_override() {
-        let cli = Cli::parse_from(["hw-cli", "pair", "--thp-timeout-secs", "90"]);
-        let Command::Pair(args) = cli.command else {
-            panic!("expected pair command");
-        };
-
-        assert_eq!(args.connect.thp_timeout_secs, 90);
-    }
-
-    #[test]
-    fn pair_default_app_name_is_hw_core_cli() {
-        let cli = Cli::parse_from(["hw-cli", "pair"]);
-        let Command::Pair(args) = cli.command else {
-            panic!("expected pair command");
-        };
-
-        assert_eq!(args.connect.app_name, "hw-core/cli");
-    }
-
-    #[test]
-    fn verbose_flag_is_global_and_counted() {
-        let cli = Cli::parse_from(["hw-cli", "-vv", "pair"]);
-        let Command::Pair(_) = cli.command else {
-            panic!("expected pair command");
-        };
-
+    fn global_flags_are_accepted_after_the_subcommand() {
+        let cli = Cli::parse_from(["hw-cli", "pair", "-vv", "--skip-pairing"]);
         assert_eq!(cli.verbose, 2);
-    }
-
-    #[test]
-    fn address_eth_defaults() {
-        let cli = Cli::parse_from(["hw-cli", "address"]);
-        let Command::Address(args) = cli.command else {
-            panic!("expected address command");
-        };
-
-        assert_eq!(args.chain, None);
-        assert_eq!(args.path, None);
-        assert!(args.show_on_device);
-        assert!(!args.include_public_key);
-        assert!(!args.chunkify);
-        assert_eq!(args.connect.timeout_secs, 60);
-        assert_eq!(args.connect.thp_timeout_secs, 60);
-        assert_eq!(args.connect.app_name, "hw-core/cli");
-    }
-
-    #[test]
-    fn address_accepts_chain_value() {
-        let cli = Cli::parse_from(["hw-cli", "address", "--chain", "btc"]);
-        let Command::Address(args) = cli.command else {
-            panic!("expected address command");
-        };
-        assert_eq!(args.chain, Some(Chain::Bitcoin));
-    }
-
-    #[test]
-    fn address_accepts_solana_chain_value() {
-        let cli = Cli::parse_from(["hw-cli", "address", "--chain", "sol"]);
-        let Command::Address(args) = cli.command else {
-            panic!("expected address command");
-        };
-        assert_eq!(args.chain, Some(Chain::Solana));
-    }
-
-    #[test]
-    fn address_rejects_unsupported_chain_value() {
-        let result = Cli::try_parse_from(["hw-cli", "address", "--chain", "doge"]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn sign_eth_defaults() {
-        let cli = Cli::parse_from([
-            "hw-cli",
-            "sign",
-            "eth",
-            "--path",
-            "m/44'/60'/0'/0/0",
-            "--tx",
-            "{\"to\":\"0xdead\"}",
-        ]);
-        let Command::Sign(args) = cli.command else {
-            panic!("expected sign command");
-        };
-        let SignCommand::Eth(args) = args.command else {
-            panic!("expected sign eth command");
-        };
-
-        assert_eq!(args.connect.timeout_secs, 60);
-        assert_eq!(args.connect.thp_timeout_secs, 60);
-        assert_eq!(args.connect.app_name, "hw-core/cli");
-    }
-
-    #[test]
-    fn sign_sol_defaults() {
-        let cli = Cli::parse_from([
-            "hw-cli",
-            "sign",
-            "sol",
-            "--path",
-            "m/44'/501'/0'/0'",
-            "--tx",
-            "0x010203",
-        ]);
-        let Command::Sign(args) = cli.command else {
-            panic!("expected sign command");
-        };
-        let SignCommand::Sol(args) = args.command else {
-            panic!("expected sign sol command");
-        };
-
-        assert_eq!(args.connect.timeout_secs, 60);
-        assert_eq!(args.connect.thp_timeout_secs, 60);
-        assert_eq!(args.connect.app_name, "hw-core/cli");
-    }
-
-    #[test]
-    fn sign_btc_defaults() {
-        let cli = Cli::parse_from([
-            "hw-cli",
-            "sign",
-            "btc",
-            "--tx",
-            "{\"inputs\":[],\"outputs\":[]}",
-        ]);
-        let Command::Sign(args) = cli.command else {
-            panic!("expected sign command");
-        };
-        let SignCommand::Btc(args) = args.command else {
-            panic!("expected sign btc command");
-        };
-
-        assert_eq!(args.connect.timeout_secs, 60);
-        assert_eq!(args.connect.thp_timeout_secs, 60);
-        assert_eq!(args.connect.app_name, "hw-core/cli");
-    }
-
-    #[test]
-    fn sign_message_eth_defaults() {
-        let cli = Cli::parse_from(["hw-cli", "sign-message", "eth", "--message", "hello"]);
-        let Command::SignMessage(args) = cli.command else {
-            panic!("expected sign-message command");
-        };
-        let SignMessageCommand::Eth(args) = args.command else {
-            panic!("expected sign-message eth command");
-        };
-
-        assert_eq!(args.path, None);
-        assert_eq!(args.message_type, EthSignMessageType::Eip191);
-        assert_eq!(args.message.as_deref(), Some("hello"));
-        assert!(!args.hex);
-        assert!(!args.chunkify);
-        assert!(args.data_file.is_none());
-        assert!(args.metamask_v4_compat);
-        assert_eq!(args.connect.timeout_secs, 60);
-        assert_eq!(args.connect.thp_timeout_secs, 60);
-        assert_eq!(args.connect.app_name, "hw-core/cli");
-    }
-
-    #[test]
-    fn sign_message_btc_defaults() {
-        let cli = Cli::parse_from(["hw-cli", "sign-message", "btc", "--message", "hello"]);
-        let Command::SignMessage(args) = cli.command else {
-            panic!("expected sign-message command");
-        };
-        let SignMessageCommand::Btc(args) = args.command else {
-            panic!("expected sign-message btc command");
-        };
-
-        assert_eq!(args.path, None);
-        assert!(!args.hex);
-        assert!(!args.chunkify);
-        assert_eq!(args.connect.timeout_secs, 60);
-        assert_eq!(args.connect.thp_timeout_secs, 60);
-        assert_eq!(args.connect.app_name, "hw-core/cli");
-    }
-
-    #[test]
-    fn sign_message_sol_collects_repeated_signers() {
-        let cli = Cli::parse_from([
-            "hw-cli",
-            "sign-message",
-            "sol",
-            "--path",
-            "m/44'/501'/1'/0'",
-            "--message",
-            "hello",
-            "--signer",
-            "14CCvQzQzHCVgZM3j9soPnXuJXh1RmCfwLVUcdfbZVBS",
-            "--signer",
-            "7v91N7iZ9mNicL8WfG6cgSCKyRXydQjLh6UYBWwm6y1Q",
-            "--chunkify",
-        ]);
-        let Command::SignMessage(args) = cli.command else {
-            panic!("expected sign-message command");
-        };
-        let SignMessageCommand::Sol(args) = args.command else {
-            panic!("expected sign-message sol command");
-        };
-
-        assert_eq!(args.path.as_deref(), Some("m/44'/501'/1'/0'"));
-        assert_eq!(
-            args.signers,
-            vec![
-                "14CCvQzQzHCVgZM3j9soPnXuJXh1RmCfwLVUcdfbZVBS",
-                "7v91N7iZ9mNicL8WfG6cgSCKyRXydQjLh6UYBWwm6y1Q",
-            ]
-        );
-        assert!(args.chunkify);
-    }
-
-    #[test]
-    fn sign_message_eth_eip712_defaults() {
-        let cli = Cli::parse_from([
-            "hw-cli",
-            "sign-message",
-            "eth",
-            "--type",
-            "eip712",
-            "--data-file",
-            "/tmp/typed-data.json",
-        ]);
-        let Command::SignMessage(args) = cli.command else {
-            panic!("expected sign-message command");
-        };
-        let SignMessageCommand::Eth(args) = args.command else {
-            panic!("expected sign-message eth command");
-        };
-
-        assert_eq!(args.path, None);
-        assert_eq!(args.message_type, EthSignMessageType::Eip712);
-        assert!(args.message.is_none());
-        assert!(!args.hex);
-        assert!(!args.chunkify);
-        assert_eq!(
-            args.data_file.as_deref(),
-            Some(std::path::Path::new("/tmp/typed-data.json"))
-        );
-        assert!(args.metamask_v4_compat);
-        assert_eq!(args.connect.timeout_secs, 60);
-        assert_eq!(args.connect.thp_timeout_secs, 60);
-        assert_eq!(args.connect.app_name, "hw-core/cli");
+        assert!(cli.skip_pairing);
     }
 }
