@@ -1012,6 +1012,7 @@ dependencies = [
  "clap",
  "hex",
  "hw-wallet",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

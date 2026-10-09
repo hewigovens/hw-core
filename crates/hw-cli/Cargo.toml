@@ -20,4 +20,4 @@ tracing-subscriber = { workspace = true }
 whoami = "2.1.1"
 
 [dev-dependencies]
-trezor-connect = { workspace = true, features = ["ble", "test-support"] }
+tempfile = "3"
