@@ -5,6 +5,7 @@
 - Choose the smallest layer that proves the changed contract. Use `cargo test -p <crate-name> <test_name>` during implementation; select `--lib` or `--test <target>` when needed and inspect the test count. Zero matching tests or ignored tests are not passing coverage.
 - Bug fixes include a regression test that fails on the pre-fix code for the intended reason and passes after the fix.
 - Before adding a test, identify its observable behavior, a credible regression, and why existing coverage does not catch it. Extend an existing fixture or table when it covers the same contract.
+- Keep tests essential: combine input variants that exercise the same behavior into one table-driven test, keep separate cases for distinct failure modes, and delete tests that only mirror constants, static config, or field-by-field wiring.
 - Assert requests, state transitions, errors, or persisted outcomes at the owning layer. Avoid expectations produced by the code under test and mocks that implement the behavior being asserted.
 - Add CLI, FFI, Swift, or Kotlin coverage for independent argument conversion, marshalling, interaction, or lifecycle risks rather than duplicating core assertions.
 - Cover distinct failure modes where relevant: disconnect during an operation, cancellation, stale completion after reconnect, bounded retries, malformed input, and storage failure.

@@ -4,10 +4,30 @@
 
 - Use Tokio: `#[tokio::main]` (multi-thread) in the CLI, `#[tokio::test]` in tests.
 
+## Behavior Belongs to Types
+
+- Prefer methods over free functions when behavior naturally belongs to a type: add inherent methods when the type is in the crate (`GetAddressRequest::encode`, `DecodedTxRequest::decode`), and a focused trait when it is not.
+- Keep free functions for genuinely type-less utilities (pure math, small parsers shared by several types) and for entry points such as `main` and test helpers.
+- Constructors and conversions use `new`/`from_*`/`TryFrom`/`From` rather than `build_*`/`make_*` free functions.
+
+## Reuse
+
+- Before adding a helper, type, or pattern, look for the one nearby code already uses and reuse it; extend a shared helper instead of copying it.
+- Shared behavior across crates lives in the lowest crate that owns the concept (e.g. request validation in `hw-wallet`, not in both `hw-cli` and `hw-ffi`).
+
 ## Module Organization
 
-- Split files when they acquire a second responsibility, not at a line-count threshold; keep cohesive types and their small private helpers together.
-- Keep a struct and a large trait impl in separate files, e.g. `trezor-connect/src/ble.rs` (`BleBackend`) and `ble/backend_impl.rs` (its `ThpBackend` impl), with tests in `ble/tests.rs`.
+- Prefer folder modules over long single-file modules, and never mix `foo.rs` with a `foo/` directory: use `foo/mod.rs`.
+- Keep `mod.rs` and `lib.rs` thin: module declarations and `pub use` re-exports only. Put implementation in sibling files named for the responsibility they own, e.g. `ble/mod.rs` (declarations), `ble/backend.rs` (`BleBackend`), `ble/pump.rs` (packet I/O), `ble/tests.rs`.
+- One primary type per file, named after the type; its small private helpers stay with it, and a type plus its request/result vocabulary may share a file.
+- Split by responsibility, not line count: when a type or module grows a second job, extract a type or a sibling module. Group related files into responsibility folders, but don't create folders for singletons.
+
+## Cleanup Before Done
+
+Re-read the whole diff, not just the last edit, and run two rounds:
+
+1. **Dedupe and simplify:** delete what the change left dead (unused imports, parameters, fields, branches for impossible states, tests that only mirror constants or wiring); reuse nearby helpers instead of new ones; merge copy-pasted blocks; inline once-used helpers that add no boundary; drop wrappers that only forward; cut comments that restate code.
+2. **Do round 1 again on the result.** Stop when a round changes nothing.
 
 ## Trait Design
 
