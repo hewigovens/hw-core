@@ -56,7 +56,3 @@ pub(super) fn mod_reduce(value: BigInt, modulus: &BigInt) -> BigInt {
     }
     v
 }
-
-pub(super) fn pow_mod(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
-    base.modpow(exp, modulus)
-}

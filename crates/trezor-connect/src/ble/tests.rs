@@ -1,7 +1,8 @@
 use super::bitcoin::*;
 use super::*;
 use crate::thp::proto::{
-    BitcoinTxRequestType, DecodedBitcoinTxRequest, encode_bitcoin_tx_ack_prev_extra_data,
+    BitcoinTxAck, BitcoinTxAckPaymentRequest, BitcoinTxRequestType, DecodedBitcoinTxRequest,
+    MESSAGE_TYPE_SUCCESS, TxAck, WireMessage,
 };
 use serde::Deserialize;
 
@@ -113,10 +114,7 @@ fn handles_prev_meta_request() {
     let BitcoinTxRequestHandling::Ack(ack) = result else {
         panic!("expected ack");
     };
-    assert_eq!(
-        ack.message_type,
-        crate::thp::proto::MESSAGE_TYPE_BITCOIN_TX_ACK
-    );
+    assert_eq!(ack.message_type, BitcoinTxAck::MESSAGE_TYPE);
 }
 
 #[test]
@@ -194,10 +192,7 @@ fn handles_tx_orig_input_request() {
     let BitcoinTxRequestHandling::Ack(ack) = result else {
         panic!("expected ack");
     };
-    assert_eq!(
-        ack.message_type,
-        crate::thp::proto::MESSAGE_TYPE_BITCOIN_TX_ACK
-    );
+    assert_eq!(ack.message_type, BitcoinTxAck::MESSAGE_TYPE);
 }
 
 #[test]
@@ -221,10 +216,7 @@ fn handles_tx_orig_output_request() {
     let BitcoinTxRequestHandling::Ack(ack) = result else {
         panic!("expected ack");
     };
-    assert_eq!(
-        ack.message_type,
-        crate::thp::proto::MESSAGE_TYPE_BITCOIN_TX_ACK
-    );
+    assert_eq!(ack.message_type, BitcoinTxAck::MESSAGE_TYPE);
 }
 
 #[test]
@@ -328,10 +320,7 @@ fn handles_tx_payment_req_request() {
     let BitcoinTxRequestHandling::Ack(ack) = result else {
         panic!("expected ack");
     };
-    assert_eq!(
-        ack.message_type,
-        crate::thp::proto::MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST
-    );
+    assert_eq!(ack.message_type, BitcoinTxAckPaymentRequest::MESSAGE_TYPE);
 }
 
 #[test]
@@ -883,13 +872,13 @@ fn run_fixture_request_sequence(
                 if req_type_str == "TXPAYMENTREQ" {
                     assert_eq!(
                         ack.message_type,
-                        crate::thp::proto::MESSAGE_TYPE_BITCOIN_TX_ACK_PAYMENT_REQUEST,
+                        BitcoinTxAckPaymentRequest::MESSAGE_TYPE,
                         "step {step}: TXPAYMENTREQ should produce payment-request ack"
                     );
                 } else {
                     assert_eq!(
                         ack.message_type,
-                        crate::thp::proto::MESSAGE_TYPE_BITCOIN_TX_ACK,
+                        BitcoinTxAck::MESSAGE_TYPE,
                         "step {step} ({req_type_str}): expected standard tx ack"
                     );
                 }
@@ -900,7 +889,7 @@ fn run_fixture_request_sequence(
                             .as_deref()
                             .expect("TXEXTRADATA fixture must include expected_extra_data"),
                     );
-                    let expected = encode_bitcoin_tx_ack_prev_extra_data(&expected_chunk).unwrap();
+                    let expected = expected_chunk.tx_ack();
                     assert_eq!(
                         ack.payload, expected.payload,
                         "step {step}: TXEXTRADATA ack payload should match requested chunk"
@@ -960,12 +949,13 @@ fn ref_tx_extra_data_fixture_sequence_yields_expected_chunks_and_signature() {
 
 #[test]
 fn credential_lookup_always_uses_host_key_and_sends_matching_credential() {
-    use crate::thp::crypto::curve25519::{curve25519, get_curve25519_key_pair};
+    use crate::thp::crypto::Curve25519KeyPair;
+    use crate::thp::crypto::curve25519::curve25519;
     use sha2::{Digest, Sha256};
 
     let mut rng = rand::rng();
-    let trezor_static = get_curve25519_key_pair(&mut rng);
-    let ephemeral = get_curve25519_key_pair(&mut rng).public_key;
+    let trezor_static = Curve25519KeyPair::generate(&mut rng);
+    let ephemeral = Curve25519KeyPair::generate(&mut rng).public_key;
     let mask: [u8; 32] = Sha256::new()
         .chain_update(trezor_static.public_key)
         .chain_update(ephemeral)
@@ -1025,6 +1015,7 @@ mod fake_device {
     use trezor_thp::credential::CredentialVerifier;
 
     use super::super::*;
+    use crate::thp::proto::MESSAGE_TYPE_SUCCESS;
 
     const DEVICE_KEY: [u8; 32] = [0x11; 32];
     // ThpDeviceProperties: protocol 2.0, pairing methods SkipPairing + CodeEntry.
@@ -1172,7 +1163,7 @@ async fn final_response_is_acknowledged_before_returning() {
     let mut channel = fake_device::open_channel(&mut device).await;
 
     channel
-        .message_in(SESSION_ID, MESSAGE_TYPE_CREATE_SESSION, &[])
+        .message_in(SESSION_ID, messages::ThpCreateNewSession::MESSAGE_TYPE, &[])
         .unwrap();
     let (message_type, _) = receive_message(&mut device, &mut channel, Duration::from_secs(5))
         .await
@@ -1193,7 +1184,7 @@ async fn repeated_transport_busy_stops_at_retry_limit() {
     device.busy = true;
 
     channel
-        .message_in(SESSION_ID, MESSAGE_TYPE_CREATE_SESSION, &[])
+        .message_in(SESSION_ID, messages::ThpCreateNewSession::MESSAGE_TYPE, &[])
         .unwrap();
     let result = tokio::time::timeout(
         Duration::from_secs(3600),

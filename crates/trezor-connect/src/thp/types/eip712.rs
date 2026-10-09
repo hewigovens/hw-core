@@ -2,13 +2,31 @@ use std::{collections::BTreeMap, str::FromStr};
 
 use num_bigint::BigInt;
 use num_traits::{One, Signed};
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::thp::backend::{BackendError, BackendResult};
 use crate::thp::proto::{
     EthereumDataTypeProto, EthereumFieldType, EthereumStructMember, EthereumTypedDataStructAck,
 };
-use crate::thp::types::{Eip712StructMember, Eip712TypedData};
+
+type Eip712Types = BTreeMap<String, Vec<Eip712StructMember>>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Eip712TypedData {
+    pub types: Eip712Types,
+    pub primary_type: String,
+    pub domain: JsonValue,
+    pub message: JsonValue,
+    pub metamask_v4_compat: bool,
+    pub show_message_hash: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Eip712StructMember {
+    pub name: String,
+    pub type_name: String,
+}
 
 fn parse_array_type(type_name: &str) -> Option<(&str, Option<u32>)> {
     let stripped = type_name.strip_suffix(']')?;
@@ -23,23 +41,22 @@ fn parse_array_type(type_name: &str) -> Option<(&str, Option<u32>)> {
 }
 
 fn parse_number_type(type_name: &str) -> Option<(bool, u32)> {
-    if let Some(bits) = type_name.strip_prefix("uint") {
-        let bits = if bits.is_empty() {
-            256
-        } else {
-            bits.parse::<u32>().ok()?
-        };
-        return Some((false, bits));
-    }
-    if let Some(bits) = type_name.strip_prefix("int") {
-        let bits = if bits.is_empty() {
-            256
-        } else {
-            bits.parse::<u32>().ok()?
-        };
-        return Some((true, bits));
-    }
-    None
+    let (signed, bits) = match type_name.strip_prefix("uint") {
+        Some(bits) => (false, bits),
+        None => (true, type_name.strip_prefix("int")?),
+    };
+    let bits = if bits.is_empty() {
+        256
+    } else {
+        bits.parse::<u32>().ok()?
+    };
+    Some((signed, bits))
+}
+
+fn strip_hex_prefix(value: &str) -> Option<&str> {
+    value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
 }
 
 fn parse_bytes_type(type_name: &str) -> Option<Option<u32>> {
@@ -64,7 +81,7 @@ fn parse_bigint_from_json(value: &JsonValue) -> BackendResult<BigInt> {
             )))
         }
         JsonValue::String(s) => {
-            if let Some(clean) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+            if let Some(clean) = strip_hex_prefix(s) {
                 BigInt::parse_bytes(clean.as_bytes(), 16).ok_or_else(|| {
                     BackendError::Transport(format!(
                         "invalid hexadecimal integer for EIP-712 value: {s}"
@@ -139,10 +156,7 @@ fn bigint_to_fixed_bytes(value: BigInt, bytes: usize, signed: bool) -> BackendRe
 }
 
 fn message_to_hex_bytes(message: &str) -> BackendResult<Vec<u8>> {
-    let clean = if let Some(clean) = message
-        .strip_prefix("0x")
-        .or_else(|| message.strip_prefix("0X"))
-    {
+    let clean = if let Some(clean) = strip_hex_prefix(message) {
         clean
     } else if message.chars().all(|c| c.is_ascii_hexdigit()) {
         message
@@ -159,10 +173,7 @@ fn message_to_hex_bytes(message: &str) -> BackendResult<Vec<u8>> {
 }
 
 fn parse_eip712_address_bytes(value: &str) -> BackendResult<Vec<u8>> {
-    let clean = value
-        .strip_prefix("0x")
-        .or_else(|| value.strip_prefix("0X"))
-        .unwrap_or(value);
+    let clean = strip_hex_prefix(value).unwrap_or(value);
     if clean.len() != 40 {
         return Err(BackendError::Transport(format!(
             "invalid EIP-712 address length: expected 40 hex chars, got {}",
@@ -179,230 +190,221 @@ fn parse_eip712_address_bytes(value: &str) -> BackendResult<Vec<u8>> {
     })
 }
 
-fn json_member<'a>(value: &'a JsonValue, key: &str) -> Option<&'a JsonValue> {
-    value.as_object().and_then(|obj| obj.get(key))
-}
-
-fn encode_typed_data_value(
-    type_name: &str,
-    value: &JsonValue,
-    types: &BTreeMap<String, Vec<Eip712StructMember>>,
-) -> BackendResult<Vec<u8>> {
-    if parse_array_type(type_name).is_some() {
-        let array = value.as_array().ok_or_else(|| {
-            BackendError::Transport(format!(
-                "expected array value for EIP-712 type '{type_name}', got {value}"
-            ))
-        })?;
-        return bigint_to_fixed_bytes(BigInt::from(array.len() as u64), 2, false);
-    }
-
-    if let Some(size) = parse_bytes_type(type_name) {
-        let str_value = value.as_str().ok_or_else(|| {
-            BackendError::Transport(format!(
-                "expected string for EIP-712 bytes value '{type_name}', got {value}"
-            ))
-        })?;
-        let bytes = message_to_hex_bytes(str_value)?;
-        if let Some(size) = size
-            && bytes.len() != size as usize
-        {
-            return Err(BackendError::Transport(format!(
-                "invalid byte length for {type_name}: expected {size}, got {}",
-                bytes.len()
-            )));
+impl EthereumFieldType {
+    fn from_type_name(type_name: &str, types: &Eip712Types) -> BackendResult<Self> {
+        if let Some((entry_type_name, array_size)) = parse_array_type(type_name) {
+            let entry_type = Self::from_type_name(entry_type_name, types)?;
+            return Ok(Self {
+                data_type: EthereumDataTypeProto::Array as i32,
+                size: array_size,
+                entry_type: Some(Box::new(entry_type)),
+                struct_name: None,
+            });
         }
-        return Ok(bytes);
-    }
 
-    if type_name == "address" {
-        let str_value = value.as_str().ok_or_else(|| {
-            BackendError::Transport(format!("expected string for EIP-712 address, got {value}"))
-        })?;
-        return parse_eip712_address_bytes(str_value);
+        if let Some((signed, bits)) = parse_number_type(type_name) {
+            let bytes = bits / 8;
+            return Ok(Self {
+                data_type: if signed {
+                    EthereumDataTypeProto::Int as i32
+                } else {
+                    EthereumDataTypeProto::Uint as i32
+                },
+                size: Some(bytes),
+                entry_type: None,
+                struct_name: None,
+            });
+        }
+
+        if let Some(size) = parse_bytes_type(type_name) {
+            return Ok(Self {
+                data_type: EthereumDataTypeProto::Bytes as i32,
+                size,
+                entry_type: None,
+                struct_name: None,
+            });
+        }
+
+        let data_type = match type_name {
+            "string" => Some(EthereumDataTypeProto::String),
+            "bool" => Some(EthereumDataTypeProto::Bool),
+            "address" => Some(EthereumDataTypeProto::Address),
+            _ => None,
+        };
+        if let Some(data_type) = data_type {
+            return Ok(Self {
+                data_type: data_type as i32,
+                size: None,
+                entry_type: None,
+                struct_name: None,
+            });
+        }
+
+        if let Some(members) = types.get(type_name) {
+            return Ok(Self {
+                data_type: EthereumDataTypeProto::Struct as i32,
+                size: Some(members.len() as u32),
+                entry_type: None,
+                struct_name: Some(type_name.to_string()),
+            });
+        }
+
+        Err(BackendError::Transport(format!(
+            "missing EIP-712 type definition for '{type_name}'"
+        )))
     }
-    if type_name == "string" {
-        let str_value = value.as_str().ok_or_else(|| {
+}
+
+impl Eip712TypedData {
+    /// Describes `struct_name`'s members for an `EthereumTypedDataStructRequest`.
+    pub fn struct_ack(&self, struct_name: &str) -> BackendResult<EthereumTypedDataStructAck> {
+        let members = self.types.get(struct_name).ok_or_else(|| {
             BackendError::Transport(format!(
-                "expected string for EIP-712 string value, got {value}"
+                "device requested undefined EIP-712 struct '{struct_name}'"
             ))
         })?;
-        return Ok(str_value.as_bytes().to_vec());
-    }
-    if type_name == "bool" {
-        let bool_value = value.as_bool().ok_or_else(|| {
-            BackendError::Transport(format!("expected bool for EIP-712 bool value, got {value}"))
-        })?;
-        return Ok(vec![if bool_value { 1 } else { 0 }]);
-    }
-
-    if let Some((signed, bits)) = parse_number_type(type_name) {
-        let bytes = (bits as usize).div_ceil(8);
-        let number = parse_bigint_from_json(value)?;
-        return bigint_to_fixed_bytes(number, bytes, signed);
-    }
-
-    if types.contains_key(type_name) {
-        return Err(BackendError::Transport(format!(
-            "device requested struct value for '{type_name}', expected nested member path"
-        )));
-    }
-
-    Err(BackendError::Transport(format!(
-        "unsupported EIP-712 field type '{type_name}'"
-    )))
-}
-
-fn field_type_from_type_name(
-    type_name: &str,
-    types: &BTreeMap<String, Vec<Eip712StructMember>>,
-) -> BackendResult<EthereumFieldType> {
-    if let Some((entry_type_name, array_size)) = parse_array_type(type_name) {
-        let entry_type = field_type_from_type_name(entry_type_name, types)?;
-        return Ok(EthereumFieldType {
-            data_type: EthereumDataTypeProto::Array as i32,
-            size: array_size,
-            entry_type: Some(Box::new(entry_type)),
-            struct_name: None,
-        });
-    }
-
-    if let Some((signed, bits)) = parse_number_type(type_name) {
-        let bytes = bits / 8;
-        return Ok(EthereumFieldType {
-            data_type: if signed {
-                EthereumDataTypeProto::Int as i32
-            } else {
-                EthereumDataTypeProto::Uint as i32
-            },
-            size: Some(bytes),
-            entry_type: None,
-            struct_name: None,
-        });
-    }
-
-    if let Some(size) = parse_bytes_type(type_name) {
-        return Ok(EthereumFieldType {
-            data_type: EthereumDataTypeProto::Bytes as i32,
-            size,
-            entry_type: None,
-            struct_name: None,
-        });
-    }
-
-    let data_type = match type_name {
-        "string" => Some(EthereumDataTypeProto::String),
-        "bool" => Some(EthereumDataTypeProto::Bool),
-        "address" => Some(EthereumDataTypeProto::Address),
-        _ => None,
-    };
-    if let Some(data_type) = data_type {
-        return Ok(EthereumFieldType {
-            data_type: data_type as i32,
-            size: None,
-            entry_type: None,
-            struct_name: None,
-        });
-    }
-
-    if let Some(members) = types.get(type_name) {
-        return Ok(EthereumFieldType {
-            data_type: EthereumDataTypeProto::Struct as i32,
-            size: Some(members.len() as u32),
-            entry_type: None,
-            struct_name: Some(type_name.to_string()),
-        });
-    }
-
-    Err(BackendError::Transport(format!(
-        "missing EIP-712 type definition for '{type_name}'"
-    )))
-}
-
-pub fn build_struct_ack(
-    typed_data: &Eip712TypedData,
-    struct_name: &str,
-) -> BackendResult<EthereumTypedDataStructAck> {
-    let members = typed_data.types.get(struct_name).ok_or_else(|| {
-        BackendError::Transport(format!(
-            "device requested undefined EIP-712 struct '{struct_name}'"
-        ))
-    })?;
-    let members = members
-        .iter()
-        .map(|member| {
-            let field_type = field_type_from_type_name(&member.type_name, &typed_data.types)?;
-            Ok(EthereumStructMember {
-                field_type,
-                name: member.name.clone(),
+        let members = members
+            .iter()
+            .map(|member| {
+                let field_type = EthereumFieldType::from_type_name(&member.type_name, &self.types)?;
+                Ok(EthereumStructMember {
+                    field_type,
+                    name: member.name.clone(),
+                })
             })
-        })
-        .collect::<BackendResult<Vec<_>>>()?;
-    Ok(EthereumTypedDataStructAck { members })
-}
+            .collect::<BackendResult<Vec<_>>>()?;
+        Ok(EthereumTypedDataStructAck { members })
+    }
 
-pub fn resolve_value_for_member_path(
-    typed_data: &Eip712TypedData,
-    member_path: &[u32],
-) -> BackendResult<Vec<u8>> {
-    let (&root_index, nested_path) = member_path
-        .split_first()
-        .ok_or_else(|| BackendError::Transport("empty member_path in EIP-712 request".into()))?;
+    /// Encodes the value at `member_path` for an `EthereumTypedDataValueRequest`.
+    pub fn member_value(&self, member_path: &[u32]) -> BackendResult<Vec<u8>> {
+        let (&root_index, nested_path) = member_path.split_first().ok_or_else(|| {
+            BackendError::Transport("empty member_path in EIP-712 request".into())
+        })?;
 
-    let (mut current_value, mut current_type_name): (&JsonValue, &str) = match root_index {
-        0 => (&typed_data.domain, "EIP712Domain"),
-        1 => (&typed_data.message, typed_data.primary_type.as_str()),
-        _ => {
-            return Err(BackendError::Transport(format!(
-                "invalid EIP-712 member_path root index {root_index}"
-            )));
-        }
-    };
+        let (mut current_value, mut current_type_name): (&JsonValue, &str) = match root_index {
+            0 => (&self.domain, "EIP712Domain"),
+            1 => (&self.message, self.primary_type.as_str()),
+            _ => {
+                return Err(BackendError::Transport(format!(
+                    "invalid EIP-712 member_path root index {root_index}"
+                )));
+            }
+        };
 
-    for &index in nested_path {
-        if let Some(array) = current_value.as_array() {
-            let (entry_type_name, _) = parse_array_type(current_type_name).ok_or_else(|| {
+        for &index in nested_path {
+            if let Some(array) = current_value.as_array() {
+                let (entry_type_name, _) = parse_array_type(current_type_name).ok_or_else(|| {
                 BackendError::Transport(format!(
                     "member_path traverses array but type '{current_type_name}' is not an array"
                 ))
             })?;
-            current_type_name = entry_type_name;
-            current_value = array.get(index as usize).ok_or_else(|| {
+                current_type_name = entry_type_name;
+                current_value = array.get(index as usize).ok_or_else(|| {
+                    BackendError::Transport(format!(
+                        "array index {index} out of bounds for EIP-712 member_path"
+                    ))
+                })?;
+                continue;
+            }
+
+            let struct_members = self.types.get(current_type_name).ok_or_else(|| {
                 BackendError::Transport(format!(
-                    "array index {index} out of bounds for EIP-712 member_path"
+                    "member_path traverses unknown struct type '{current_type_name}'"
                 ))
             })?;
-            continue;
+            let member = struct_members.get(index as usize).ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "member index {index} out of bounds for struct '{current_type_name}'"
+                ))
+            })?;
+            current_type_name = member.type_name.as_str();
+            current_value = current_value.get(&member.name).ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "member '{}' missing in EIP-712 value for struct '{current_type_name}'",
+                    member.name
+                ))
+            })?;
         }
 
-        let struct_members = typed_data.types.get(current_type_name).ok_or_else(|| {
-            BackendError::Transport(format!(
-                "member_path traverses unknown struct type '{current_type_name}'"
-            ))
-        })?;
-        let member = struct_members.get(index as usize).ok_or_else(|| {
-            BackendError::Transport(format!(
-                "member index {index} out of bounds for struct '{current_type_name}'"
-            ))
-        })?;
-        current_type_name = member.type_name.as_str();
-        current_value = json_member(current_value, &member.name).ok_or_else(|| {
-            BackendError::Transport(format!(
-                "member '{}' missing in EIP-712 value for struct '{current_type_name}'",
-                member.name
-            ))
-        })?;
+        if current_value.is_array() {
+            let len = current_value
+                .as_array()
+                .map(|arr| arr.len())
+                .ok_or_else(|| BackendError::Transport("expected EIP-712 array value".into()))?;
+            return bigint_to_fixed_bytes(BigInt::from(len as u64), 2, false);
+        }
+
+        self.encode_value(current_type_name, current_value)
     }
 
-    if current_value.is_array() {
-        let len = current_value
-            .as_array()
-            .map(|arr| arr.len())
-            .ok_or_else(|| BackendError::Transport("expected EIP-712 array value".into()))?;
-        return bigint_to_fixed_bytes(BigInt::from(len as u64), 2, false);
-    }
+    fn encode_value(&self, type_name: &str, value: &JsonValue) -> BackendResult<Vec<u8>> {
+        if parse_array_type(type_name).is_some() {
+            let array = value.as_array().ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "expected array value for EIP-712 type '{type_name}', got {value}"
+                ))
+            })?;
+            return bigint_to_fixed_bytes(BigInt::from(array.len() as u64), 2, false);
+        }
 
-    encode_typed_data_value(current_type_name, current_value, &typed_data.types)
+        if let Some(size) = parse_bytes_type(type_name) {
+            let str_value = value.as_str().ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "expected string for EIP-712 bytes value '{type_name}', got {value}"
+                ))
+            })?;
+            let bytes = message_to_hex_bytes(str_value)?;
+            if let Some(size) = size
+                && bytes.len() != size as usize
+            {
+                return Err(BackendError::Transport(format!(
+                    "invalid byte length for {type_name}: expected {size}, got {}",
+                    bytes.len()
+                )));
+            }
+            return Ok(bytes);
+        }
+
+        if type_name == "address" {
+            let str_value = value.as_str().ok_or_else(|| {
+                BackendError::Transport(format!("expected string for EIP-712 address, got {value}"))
+            })?;
+            return parse_eip712_address_bytes(str_value);
+        }
+        if type_name == "string" {
+            let str_value = value.as_str().ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "expected string for EIP-712 string value, got {value}"
+                ))
+            })?;
+            return Ok(str_value.as_bytes().to_vec());
+        }
+        if type_name == "bool" {
+            let bool_value = value.as_bool().ok_or_else(|| {
+                BackendError::Transport(format!(
+                    "expected bool for EIP-712 bool value, got {value}"
+                ))
+            })?;
+            return Ok(vec![if bool_value { 1 } else { 0 }]);
+        }
+
+        if let Some((signed, bits)) = parse_number_type(type_name) {
+            let bytes = (bits as usize).div_ceil(8);
+            let number = parse_bigint_from_json(value)?;
+            return bigint_to_fixed_bytes(number, bytes, signed);
+        }
+
+        if self.types.contains_key(type_name) {
+            return Err(BackendError::Transport(format!(
+                "device requested struct value for '{type_name}', expected nested member path"
+            )));
+        }
+
+        Err(BackendError::Transport(format!(
+            "unsupported EIP-712 field type '{type_name}'"
+        )))
+    }
 }
 
 #[cfg(test)]
@@ -502,7 +504,7 @@ mod tests {
     #[test]
     fn suite_parity_struct_ack_field_type_mapping() {
         let typed_data = mail_typed_data();
-        let ack = build_struct_ack(&typed_data, "Mail").unwrap();
+        let ack = typed_data.struct_ack("Mail").unwrap();
         assert_eq!(ack.members.len(), 4);
 
         let from = &ack.members[0].field_type;
@@ -530,23 +532,22 @@ mod tests {
     fn suite_parity_member_path_value_encoding() {
         let typed_data = mail_typed_data();
 
-        let domain_name = resolve_value_for_member_path(&typed_data, &[0, 0]).unwrap();
+        let domain_name = typed_data.member_value(&[0, 0]).unwrap();
         assert_eq!(domain_name, b"Ether Mail");
 
-        let from_wallet = resolve_value_for_member_path(&typed_data, &[1, 0, 0]).unwrap();
+        let from_wallet = typed_data.member_value(&[1, 0, 0]).unwrap();
         assert_eq!(
             hex::encode(from_wallet),
             "1111111111111111111111111111111111111111"
         );
 
-        let from_age = resolve_value_for_member_path(&typed_data, &[1, 0, 1]).unwrap();
+        let from_age = typed_data.member_value(&[1, 0, 1]).unwrap();
         assert_eq!(from_age, vec![0xff]);
 
-        let to_len = resolve_value_for_member_path(&typed_data, &[1, 1]).unwrap();
+        let to_len = typed_data.member_value(&[1, 1]).unwrap();
         assert_eq!(to_len, vec![0x00, 0x02]);
 
-        let second_recipient_age =
-            resolve_value_for_member_path(&typed_data, &[1, 1, 1, 1]).unwrap();
+        let second_recipient_age = typed_data.member_value(&[1, 1, 1, 1]).unwrap();
         assert_eq!(second_recipient_age, vec![35]);
     }
 
@@ -554,7 +555,7 @@ mod tests {
     fn suite_parity_reports_overflow_errors() {
         let mut typed_data = mail_typed_data();
         typed_data.message["from"]["age"] = serde_json::json!(128);
-        let err = resolve_value_for_member_path(&typed_data, &[1, 0, 1]).unwrap_err();
+        let err = typed_data.member_value(&[1, 0, 1]).unwrap_err();
         assert!(err.to_string().contains("overflow"));
     }
 
@@ -563,7 +564,7 @@ mod tests {
         let mut typed_data = mail_typed_data();
         typed_data.message["from"]["wallet"] =
             serde_json::json!("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
-        let err = resolve_value_for_member_path(&typed_data, &[1, 0, 0]).unwrap_err();
+        let err = typed_data.member_value(&[1, 0, 0]).unwrap_err();
         assert!(err.to_string().contains("non-hex characters"));
     }
 
@@ -571,7 +572,7 @@ mod tests {
     fn rejects_wrong_length_address_values() {
         let mut typed_data = mail_typed_data();
         typed_data.message["from"]["wallet"] = serde_json::json!("0x1234");
-        let err = resolve_value_for_member_path(&typed_data, &[1, 0, 0]).unwrap_err();
+        let err = typed_data.member_value(&[1, 0, 0]).unwrap_err();
         assert!(err.to_string().contains("address length"));
     }
 }

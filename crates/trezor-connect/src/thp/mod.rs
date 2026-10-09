@@ -1,6 +1,5 @@
 pub mod backend;
 pub mod crypto;
-pub mod eip712;
 pub mod error;
 pub mod proto;
 pub mod state;

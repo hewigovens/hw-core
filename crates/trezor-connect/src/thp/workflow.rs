@@ -7,7 +7,7 @@ use unicode_normalization::UnicodeNormalization;
 
 use super::{
     backend::{BackendError, ThpBackend},
-    crypto::curve25519::derive_public_from_private,
+    crypto::Curve25519KeyPair,
     error::{Result, ThpWorkflowError},
     state::{HandshakeCache, HandshakeCredentials, Phase, ThpState},
     storage::{HostSnapshot, ThpStorage},
@@ -164,22 +164,19 @@ where
         self.channel_try_to_unlock = None;
 
         let selected_credential = response.selected_credential;
-        let autoconnect = selected_credential.as_ref().is_some_and(|c| c.autoconnect);
         let pairing_credentials: Vec<KnownCredential> =
             selected_credential.iter().cloned().collect();
 
-        self.state
-            .set_pairing_credentials(pairing_credentials.clone());
-        self.state.set_autoconnect_paired(autoconnect);
         if let Some(method) = pairing_methods.first().copied() {
             self.state.set_pairing_method(method);
         }
         self.state.set_handshake_credentials(HandshakeCredentials {
             pairing_methods,
             handshake_hash: response.handshake_hash,
-            host_static_public_key: derive_public_from_private(&static_key).to_vec(),
+            host_static_public_key: Curve25519KeyPair::from_private_key(static_key)
+                .public_key
+                .to_vec(),
             pairing_credentials,
-            selected_credential: selected_credential.clone(),
             ..HandshakeCredentials::default()
         });
 
@@ -201,7 +198,6 @@ where
             HandshakeCompletionState::AutoPaired => {
                 self.state.set_is_paired(true);
                 self.state.set_phase(Phase::Paired);
-                self.state.set_autoconnect_paired(true);
                 self.backend.end_request().await?;
             }
         }

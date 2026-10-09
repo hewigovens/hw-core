@@ -5,14 +5,31 @@ use num_traits::{One, ToPrimitive, Zero};
 use rand::{CryptoRng, Rng, RngExt};
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use super::tools::{
-    bigint_to_little_endian_bytes, little_endian_bytes_to_bigint, mod_reduce, pow_mod,
-};
+use super::tools::{bigint_to_little_endian_bytes, little_endian_bytes_to_bigint, mod_reduce};
 
 #[derive(Debug, Clone)]
 pub struct Curve25519KeyPair {
     pub public_key: [u8; 32],
     pub private_key: [u8; 32],
+}
+
+impl Curve25519KeyPair {
+    pub fn generate<R: Rng + CryptoRng>(rng: &mut R) -> Self {
+        let mut private_key = [0u8; 32];
+        rng.fill(&mut private_key);
+        private_key[0] &= 248;
+        private_key[31] &= 127;
+        private_key[31] |= 64;
+        Self::from_private_key(private_key)
+    }
+
+    pub fn from_private_key(private_key: [u8; 32]) -> Self {
+        let public_key = PublicKey::from(&StaticSecret::from(private_key)).to_bytes();
+        Self {
+            public_key,
+            private_key,
+        }
+    }
 }
 
 struct CurveConstants {
@@ -136,36 +153,9 @@ pub fn curve25519(private_key: &[u8; 32], public_key: &[u8; 32]) -> [u8; 32] {
     let (x2, _x3) = conditional_swap(x2, x3, swap != 0);
     let (z2, _z3) = conditional_swap(z2, z3, swap != 0);
 
-    let z2_inv = pow_mod(&z2, &(p - BigInt::from(2u8)), p);
+    let z2_inv = z2.modpow(&(p - BigInt::from(2u8)), p);
     let x = mod_reduce(&x2 * z2_inv, p);
     encode_coordinate(x)
-}
-
-pub fn get_curve25519_key_pair<R: Rng + CryptoRng>(rng: &mut R) -> Curve25519KeyPair {
-    let mut random_priv = [0u8; 32];
-    rng.fill(&mut random_priv);
-    random_priv[0] &= 248;
-    random_priv[31] &= 127;
-    random_priv[31] |= 64;
-
-    let secret = StaticSecret::from(random_priv);
-    let public = PublicKey::from(&secret);
-    Curve25519KeyPair {
-        public_key: public.to_bytes(),
-        private_key: random_priv,
-    }
-}
-
-pub fn derive_public_from_private(private_key: &[u8; 32]) -> [u8; 32] {
-    let secret = StaticSecret::from(*private_key);
-    let public = PublicKey::from(&secret);
-    public.to_bytes()
-}
-
-pub fn diffie_hellman(private_key: &[u8; 32], public_key: &[u8; 32]) -> [u8; 32] {
-    let secret = StaticSecret::from(*private_key);
-    let public = PublicKey::from(*public_key);
-    secret.diffie_hellman(&public).to_bytes()
 }
 
 pub fn elligator2(input: &[u8; 32]) -> [u8; 32] {
@@ -195,7 +185,7 @@ pub fn elligator2(input: &[u8; 32]) -> [u8; 32] {
     tv3 = mod_reduce(&tv3 * &gx1, p);
     tv2 = mod_reduce(&tv2 * &tv3, p);
 
-    let mut y11 = pow_mod(&tv2, c4, p);
+    let mut y11 = tv2.modpow(c4, p);
     y11 = mod_reduce(&y11 * &tv3, p);
     let y12 = mod_reduce(&y11 * c3, p);
     tv2 = mod_reduce(&y11 * &y11, p);
@@ -209,7 +199,7 @@ pub fn elligator2(input: &[u8; 32]) -> [u8; 32] {
     tv2 = mod_reduce(&tv2 * &gxd, p);
     let e3 = tv2 == gx1;
     let xn = if e3 { x1n.clone() } else { x2n };
-    let xd_inv = pow_mod(&xd, &(p - BigInt::from(2u8)), p);
+    let xd_inv = xd.modpow(&(p - BigInt::from(2u8)), p);
     let x = mod_reduce(&xn * xd_inv, p);
 
     encode_coordinate(x)
@@ -221,19 +211,6 @@ mod tests {
     use hex::decode;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-
-    #[test]
-    fn diffie_hellman_matches_dalek() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let pair_a = get_curve25519_key_pair(&mut rng);
-        let pair_b = get_curve25519_key_pair(&mut rng);
-
-        let ours = diffie_hellman(&pair_a.private_key, &pair_b.public_key);
-        let secret = StaticSecret::from(pair_a.private_key);
-        let public = PublicKey::from(pair_b.public_key);
-        let reference = secret.diffie_hellman(&public).to_bytes();
-        assert_eq!(ours, reference);
-    }
 
     #[test]
     fn curve25519_matches_dalek_for_arbitrary_u_coordinate() {
