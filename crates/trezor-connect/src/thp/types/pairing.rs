@@ -15,6 +15,20 @@ pub struct PairingRequest {
     pub app_name: String,
 }
 
+impl PairingRequest {
+    pub fn new(host_name: &str, app_name: &str) -> Self {
+        Self {
+            host_name: Self::device_safe_name(host_name),
+            app_name: Self::device_safe_name(app_name),
+        }
+    }
+
+    // Matches Suite (af8e018fa): the device font cannot render typographic single quotes.
+    fn device_safe_name(name: &str) -> String {
+        name.replace(['\u{2018}', '\u{2019}'], "'")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PairingRequestApproved;
 

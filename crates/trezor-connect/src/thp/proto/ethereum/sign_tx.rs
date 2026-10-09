@@ -1,7 +1,7 @@
 use prost::Message;
 
 use crate::thp::proto::wire::wire_messages;
-use crate::thp::types::SignTxRequest;
+use crate::thp::types::EthSignTx;
 
 /// Largest `data` slice sent per EIP-1559 sign request or `TxAck`.
 pub const ETH_DATA_CHUNK_SIZE: usize = 1024;
@@ -66,15 +66,16 @@ wire_messages! {
     EthereumTxAck = 60,
 }
 
-impl EthereumSignTxEip1559 {
-    pub(crate) fn initial_chunk_len(request: &SignTxRequest) -> usize {
-        request.data.len().min(ETH_DATA_CHUNK_SIZE)
+impl EthSignTx {
+    /// How many bytes of `data` the initial sign request carries.
+    pub(crate) fn initial_chunk_len(&self) -> usize {
+        self.data.len().min(ETH_DATA_CHUNK_SIZE)
     }
 }
 
-impl From<&SignTxRequest> for EthereumSignTxEip1559 {
-    fn from(request: &SignTxRequest) -> Self {
-        let initial_chunk = &request.data[..Self::initial_chunk_len(request)];
+impl From<&EthSignTx> for EthereumSignTxEip1559 {
+    fn from(request: &EthSignTx) -> Self {
+        let initial_chunk = &request.data[..request.initial_chunk_len()];
         Self {
             path: request.path.clone(),
             nonce: Some(request.nonce.clone()),
@@ -111,7 +112,7 @@ impl EthereumTxAck {
 mod tests {
     use super::*;
     use crate::thp::proto::WireMessage;
-    use crate::thp::types::EthAccessListEntry;
+    use crate::thp::types::{EthAccessListEntry, SignTxRequest};
 
     #[derive(Clone, PartialEq, Message)]
     struct EthereumSignTxEip1559PaymentReqProbe {
@@ -123,7 +124,7 @@ mod tests {
 
     #[test]
     fn encodes_sign_tx_without_data_or_payment_request() {
-        let request = SignTxRequest::ethereum(PATH.to_vec(), 1)
+        let request = EthSignTx::new(PATH.to_vec(), 1)
             .with_nonce(vec![1])
             .with_max_fee_per_gas(vec![0x3b, 0x9a, 0xca, 0x00])
             .with_max_priority_fee(vec![0x59, 0x68, 0x2f, 0x00])
@@ -135,9 +136,9 @@ mod tests {
                 storage_keys: vec![vec![1; 32]],
             }]);
 
-        let (encoded, offset) = request.encode().unwrap();
+        assert_eq!(request.initial_chunk_len(), 0);
+        let encoded = SignTxRequest::from(request).encode();
         assert_eq!(encoded.message_type, EthereumSignTxEip1559::MESSAGE_TYPE);
-        assert_eq!(offset, 0);
 
         let decoded = EthereumSignTxEip1559::decode(encoded.payload.as_slice()).unwrap();
         assert_eq!(decoded.path, PATH);
@@ -161,10 +162,11 @@ mod tests {
             (ETH_DATA_CHUNK_SIZE, ETH_DATA_CHUNK_SIZE),
             (2048, ETH_DATA_CHUNK_SIZE),
         ] {
-            let request = SignTxRequest::ethereum(PATH.to_vec(), 1).with_data(vec![0xAB; data_len]);
+            let request = EthSignTx::new(PATH.to_vec(), 1).with_data(vec![0xAB; data_len]);
 
-            let (encoded, offset) = request.encode().unwrap();
-            assert_eq!(offset, chunk_len);
+            assert_eq!(request.initial_chunk_len(), chunk_len);
+
+            let encoded = SignTxRequest::from(request).encode();
 
             let decoded = EthereumSignTxEip1559::decode(encoded.payload.as_slice()).unwrap();
             assert!(decoded.to.is_none());

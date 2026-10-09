@@ -18,7 +18,7 @@
 ## Module Organization
 
 - Prefer folder modules over long single-file modules, and never mix `foo.rs` with a `foo/` directory: use `foo/mod.rs`.
-- Keep `mod.rs` and `lib.rs` thin: module declarations and `pub use` re-exports only. Put implementation in sibling files named for the responsibility they own, e.g. `ble/mod.rs` (declarations), `ble/backend.rs` (`BleBackend`), `ble/pump.rs` (packet I/O), `ble/tests.rs`.
+- Keep `mod.rs` and `lib.rs` thin: module declarations and `pub use` re-exports only. Put implementation in sibling files named for the responsibility they own, e.g. `ble/mod.rs` (declarations), `ble/backend.rs` (`BleBackend`), `ble/link.rs` (packet I/O), `ble/tests.rs`.
 - One primary type per file, named after the type; its small private helpers stay with it, and a type plus its request/result vocabulary may share a file.
 - Split by responsibility, not line count: when a type or module grows a second job, extract a type or a sibling module. Group related files into responsibility folders, but don't create folders for singletons.
 

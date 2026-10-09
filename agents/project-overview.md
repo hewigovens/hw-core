@@ -44,9 +44,9 @@ Async results must still belong to the active connection/session when applied. C
 ## Key Design Patterns
 
 - **`ThpBackend` trait** (`trezor-connect/src/thp/backend.rs`): Async trait defining all THP protocol operations. `BleBackend` is the concrete implementation. Tests use `MockBackend`.
-- **Workflow state machine** (`trezor-connect/src/thp/workflow.rs`): `ThpWorkflow<B: ThpBackend>` drives Handshake → Pairing → Paired lifecycle. State held in a `ThpState` field on the workflow.
-- **`PairingController` trait** (`trezor-connect/src/thp/types.rs`): Async trait for custom pairing UX. CLI implements `CliPairingController`.
-- **`ThpStorage` trait** (`trezor-connect/src/thp/storage/mod.rs`): `FileStorage` persists host credentials as JSON. Tests use `InMemoryStorage`.
+- **Workflow state machine** (`trezor-connect/src/thp/workflow/`): `ThpWorkflow<B: ThpBackend>` drives Handshake → Pairing → Paired lifecycle. State held in a `ThpState` field on the workflow.
+- **`PairingController` trait** (`trezor-connect/src/thp/types/pairing.rs`): Async trait for custom pairing UX. CLI implements `CliPairingController`.
+- **`ThpStorage` trait** (`trezor-connect/src/thp/storage/`): `FileStorage` persists host credentials as JSON. Tests use `InMemoryStorage`.
 - **`BleProfile`** (`ble-transport`): Pluggable wallet vendor support (currently Trezor Safe 7).
 
 ## License

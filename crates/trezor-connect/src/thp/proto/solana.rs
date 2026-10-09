@@ -4,8 +4,8 @@ use prost::Message;
 use super::ProtoMappingError;
 use super::wire::wire_messages;
 use crate::thp::types::{
-    GetAddressRequest, GetAddressResponse, GetPublicKeyRequest, SignMessageRequest,
-    SignMessageResponse, SignTxRequest,
+    self, GetAddressRequest, GetAddressResponse, GetPublicKeyRequest, SignMessageRequest,
+    SignMessageResponse,
 };
 
 #[derive(Clone, PartialEq, Message)]
@@ -121,11 +121,11 @@ impl From<&GetPublicKeyRequest> for SolanaGetPublicKey {
     }
 }
 
-impl From<&SignTxRequest> for SolanaSignTx {
-    fn from(request: &SignTxRequest) -> Self {
+impl From<&types::SolanaSignTx> for SolanaSignTx {
+    fn from(tx: &types::SolanaSignTx) -> Self {
         Self {
-            path: request.path.clone(),
-            serialized_tx: request.data.clone(),
+            path: tx.path.clone(),
+            serialized_tx: tx.serialized_tx.clone(),
         }
     }
 }
@@ -164,6 +164,7 @@ impl From<SolanaMessageSignature> for SignMessageResponse {
 mod tests {
     use super::*;
     use crate::thp::proto::WireMessage;
+    use crate::thp::types::SignTxRequest;
 
     const PATH: [u32; 4] = [0x8000_002c, 0x8000_01f5, 0x8000_0000, 0x8000_0000];
 
@@ -216,10 +217,12 @@ mod tests {
 
     #[test]
     fn encodes_sign_tx_and_decodes_signature() {
-        let request = SignTxRequest::solana(PATH.to_vec(), vec![0xAA, 0xBB, 0xCC]);
-        let (encoded, offset) = request.encode().unwrap();
+        let encoded = SignTxRequest::from(types::SolanaSignTx {
+            path: PATH.to_vec(),
+            serialized_tx: vec![0xAA, 0xBB, 0xCC],
+        })
+        .encode();
         assert_eq!(encoded.message_type, SolanaSignTx::MESSAGE_TYPE);
-        assert_eq!(offset, 0);
         let decoded = SolanaSignTx::decode(encoded.payload.as_slice()).unwrap();
         assert_eq!(decoded.path, PATH);
         assert_eq!(decoded.serialized_tx, vec![0xAA, 0xBB, 0xCC]);

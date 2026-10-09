@@ -3,7 +3,7 @@ use hw_wallet::eth::verify_sign_tx_response;
 use hw_wallet::message::{
     SignatureEncoding as WalletSignatureEncoding, normalize_message_signature,
 };
-use trezor_connect::thp::ThpWorkflow;
+use trezor_connect::thp::{SignTxRequest as ThpSignTxRequest, ThpWorkflow};
 
 use super::request_mapping::{
     map_get_address_request, map_sign_message_request, map_sign_tx_request,
@@ -58,7 +58,10 @@ where
         .sign_tx(sign_request.clone())
         .await
         .map_err(HWCoreError::from)?;
-    let verification = verify_sign_tx_response(&sign_request, &response).ok();
+    let verification = match &sign_request {
+        ThpSignTxRequest::Ethereum(tx) => verify_sign_tx_response(tx, &response).ok(),
+        ThpSignTxRequest::Bitcoin(_) | ThpSignTxRequest::Solana(_) => None,
+    };
     Ok(SignTxResult {
         chain,
         v: response.v,

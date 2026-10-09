@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use trezor_connect::thp::{
     BtcHDNode, BtcHDNodePath, BtcInputScriptType, BtcMultisig, BtcMultisigPubkeysOrder, BtcOrigTx,
     BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestAmount, BtcPaymentRequestMemo,
-    BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput, BtcSignTx, SignTxRequest,
+    BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput, BtcSignTx,
 };
 
 use crate::bip32::{HARDENED, parse_bip32_path};
@@ -191,7 +191,7 @@ pub fn parse_tx_json(json: &str) -> WalletResult<TxInput> {
         .map_err(|err| WalletError::Signing(format!("invalid bitcoin tx JSON: {err}")))
 }
 
-pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
+pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<BtcSignTx> {
     let TxInput {
         version,
         lock_time,
@@ -450,7 +450,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
     validate_ref_txs_for_inputs(&inputs, &ref_txs)?;
     validate_original_tx_links(&inputs, &outputs, &orig_txs)?;
 
-    Ok(SignTxRequest::bitcoin(BtcSignTx {
+    Ok(BtcSignTx {
         version,
         lock_time,
         inputs,
@@ -459,7 +459,7 @@ pub fn build_sign_tx_request(tx: TxInput) -> WalletResult<SignTxRequest> {
         orig_txs,
         payment_reqs,
         chunkify,
-    }))
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -929,7 +929,6 @@ fn parse_multisig(ms: TxInputMultisig) -> WalletResult<BtcMultisig> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hw_chain::Chain;
 
     const BTC_PARSE_WITH_REF_TXS: &str =
         include_str!("../../../tests/data/bitcoin/btc_parse_with_ref_txs.json");
@@ -956,9 +955,7 @@ mod tests {
     #[test]
     fn build_btc_sign_request() {
         let tx = parse_tx_json(BTC_BUILD_WITH_REF_TXS).unwrap();
-        let request = build_sign_tx_request(tx).unwrap();
-        assert_eq!(request.chain, Chain::Bitcoin);
-        let btc = request.btc.unwrap();
+        let btc = build_sign_tx_request(tx).unwrap();
         assert_eq!(btc.inputs[0].amount, 100);
         assert_eq!(btc.outputs[0].amount, 90);
         assert_eq!(
@@ -1138,8 +1135,7 @@ mod tests {
     #[test]
     fn build_btc_sign_request_with_orig_txs_and_payment_reqs() {
         let tx = parse_tx_json(BTC_RBF_WITH_PAYMENT_REQ).unwrap();
-        let request = build_sign_tx_request(tx).unwrap();
-        let btc = request.btc.unwrap();
+        let btc = build_sign_tx_request(tx).unwrap();
         assert_eq!(btc.orig_txs.len(), 1);
         assert_eq!(btc.payment_reqs.len(), 1);
         assert_eq!(
@@ -1171,9 +1167,7 @@ mod tests {
     #[test]
     fn build_btc_sign_request_with_multisig_input_and_output() {
         let tx = parse_tx_json(BTC_MULTISIG_SIGN).unwrap();
-        let request = build_sign_tx_request(tx).unwrap();
-        assert_eq!(request.chain, Chain::Bitcoin);
-        let btc = request.btc.unwrap();
+        let btc = build_sign_tx_request(tx).unwrap();
 
         assert_eq!(btc.inputs.len(), 1);
         assert_eq!(btc.inputs[0].script_type, BtcInputScriptType::SpendMultisig);

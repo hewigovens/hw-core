@@ -10,9 +10,7 @@ use tempfile::tempdir;
 
 use super::{
     CURRENT_HOST_SNAPSHOT_SCHEMA_VERSION, FileStorage, HostSnapshot, StorageError, ThpStorage,
-    unix::{
-        atomic_write, atomic_write_in_parent, open_secure_parent, read_secure_file_from_parent,
-    },
+    unix::{SecureParent, atomic_write},
 };
 use crate::thp::types::KnownCredential;
 
@@ -210,17 +208,14 @@ fn pinned_parent_descriptor_resists_path_replacement() {
     fs::set_permissions(&replacement, fs::Permissions::from_mode(0o700)).unwrap();
     let path = trusted.join("thp.json");
     atomic_write(&path, b"trusted").unwrap();
-    let parent = open_secure_parent(&path).unwrap();
+    let parent = SecureParent::open(&path).unwrap();
 
     fs::rename(&trusted, &moved).unwrap();
     symlink(&replacement, &trusted).unwrap();
     fs::write(replacement.join("thp.json"), b"replacement").unwrap();
 
-    assert_eq!(
-        read_secure_file_from_parent(&parent).unwrap(),
-        Some(b"trusted".to_vec())
-    );
-    atomic_write_in_parent(&parent, b"updated").unwrap();
+    assert_eq!(parent.read_file().unwrap(), Some(b"trusted".to_vec()));
+    parent.atomic_write(b"updated").unwrap();
     assert_eq!(fs::read(moved.join("thp.json")).unwrap(), b"updated");
     assert_eq!(
         fs::read(replacement.join("thp.json")).unwrap(),
