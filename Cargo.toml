@@ -7,6 +7,7 @@ members = [
     "crates/hw-cli",
     "crates/hw-wallet",
     "crates/hw-chain",
+    "crates/hw-core",
 ]
 resolver = "2"
 
@@ -26,12 +27,12 @@ rust.unused_variables = "warn"
 anyhow = "1"
 async-trait = "0.1"
 btleplug = "0.13.4"
-ble-transport = { version = "0.1.0", path = "crates/ble-transport" }
+ble-transport = { version = "0.1.1", path = "crates/ble-transport" }
 bs58 = "0.5"
 clap = { version = "4.6.7", features = ["derive"] }
 hex = "0.4"
-hw-chain = { version = "0.1.0", path = "crates/hw-chain" }
-hw-wallet = { version = "0.1.0", path = "crates/hw-wallet" }
+hw-chain = { version = "0.1.1", path = "crates/hw-chain" }
+hw-wallet = { version = "0.1.1", path = "crates/hw-wallet" }
 log = "0.4"
 parking_lot = "0.12"
 prost = "0.14.3"
@@ -40,11 +41,11 @@ rustix = { version = "1.1.5", features = ["fs", "process"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
-thp-proto = { version = "0.1.0", path = "crates/thp-proto" }
+thp-proto = { version = "0.1.1", path = "crates/thp-proto" }
 thiserror = "2"
 tokio = "1.53.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "tracing-log"] }
-trezor-connect = { version = "0.1.0", path = "crates/trezor-connect" }
+trezor-connect = { version = "0.1.1", path = "crates/trezor-connect" }
 uuid = { version = "1", features = ["serde"] }
 x25519-dalek = { version = "3", features = ["static_secrets"] }

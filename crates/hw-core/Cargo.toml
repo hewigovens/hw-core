@@ -1,0 +1,16 @@
+[package]
+name = "hw-core"
+version.workspace = true
+edition.workspace = true
+description = "Cross-platform hardware wallet SDK with Trezor Safe 7 support over BLE"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["hardware-wallet", "trezor", "ble", "crypto", "wallet"]
+categories = ["cryptography", "hardware-support"]
+
+[dependencies]
+ble-transport = { workspace = true }
+hw-chain = { workspace = true }
+hw-wallet = { workspace = true }
+trezor-connect = { workspace = true, features = ["ble"] }

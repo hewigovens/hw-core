@@ -87,6 +87,19 @@ Transport is BLE only (Trezor Safe 7). Supported hosts: macOS and Linux (CLI), i
 
 ## Quick start
 
+For Rust applications, add the `hw-core` facade crate:
+
+```toml
+[dependencies]
+hw-core = "0.1.1"
+```
+
+It exposes `hw_core::wallet` for shared wallet orchestration,
+`hw_core::trezor` for THP workflows, and `hw_core::transport` for BLE primitives.
+See the [Rust API guide](crates/hw-core/README.md) for examples.
+
+Run the CLI from the repository:
+
 ```bash
 cargo run -p hw-cli -- scan
 cargo run -p hw-cli -- pair            # --force to re-pair
@@ -98,6 +111,7 @@ Pairing state is stored at `~/.hw-core/thp-host.json`. Add `-vv` for protocol lo
 
 ## Workspace layout
 
+- `crates/hw-core`: public Rust SDK facade
 - `crates/hw-cli`: interactive CLI commands (`scan`, `pair`, `address`, `sign`, `sign-message`)
 - `crates/hw-ffi`: UniFFI-compatible Rust surface for mobile/desktop apps
 - `crates/hw-wallet`: shared wallet logic used by CLI + FFI

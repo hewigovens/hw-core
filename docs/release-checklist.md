@@ -35,9 +35,9 @@ Use this checklist before cutting a tagged release or publishing downstream arti
 
 ## Crates.io
 
-The root manifest is a virtual workspace, so the published packages are
-`ble-transport`, `hw-chain`, `thp-proto`, `trezor-connect`, `hw-wallet`, `hw-cli`,
-and `hw-ffi`. There is no package named `hw-core`.
+The main Rust dependency is the `hw-core` facade. It depends on `ble-transport`,
+`hw-chain`, `thp-proto`, `trezor-connect`, and `hw-wallet`, which must also be
+published. The `hw-cli` and `hw-ffi` adapters can be published separately.
 
 - [ ] The crates.io account has a verified email and permission to publish each package.
 - [ ] For an initial publication, a local Cargo API token permits creating the new crates.
@@ -46,15 +46,15 @@ and `hw-ffi`. There is no package named `hw-core`.
 - [ ] Package verification passes on the exact release commit:
 
 ```bash
-cargo package --workspace --list --locked
-cargo publish --workspace --dry-run --locked
+cargo package --workspace --exclude hw-cli --exclude hw-ffi --list --locked
+cargo publish --workspace --exclude hw-cli --exclude hw-ffi --dry-run --locked
 ```
 
 After validation, publish with Cargo's workspace support, which orders packages
 by their dependencies:
 
 ```bash
-cargo publish --workspace --locked
+cargo publish --workspace --exclude hw-cli --exclude hw-ffi --locked
 ```
 
 For later releases, configure [crates.io Trusted Publishing](https://crates.io/docs/trusted-publishing)

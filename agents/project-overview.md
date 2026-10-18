@@ -5,6 +5,7 @@ hw-core is a Rust workspace for host-to-hardware crypto wallet communication. Th
 ## Crate Architecture
 
 ```
+hw-core          Public Rust SDK facade over wallet, chain, Trezor, and transport crates
 thp-proto        Prost-generated protobuf types from vendored messages-thp.proto
 ble-transport    BLE primitives via btleplug (scanning, connection, I/O)
 trezor-connect   Host-facing THP workflow API + BLE backend
@@ -26,6 +27,7 @@ ble-transport ────────────┘                           
 
 ## Behavior Ownership
 
+- `hw-core` re-exports the shared Rust APIs for SDK consumers; keep implementation in the owning crates below.
 - `ble-transport` owns BLE discovery, connection, and byte I/O; keep wallet orchestration out of the transport layer.
 - `trezor-connect` owns Trezor protocol requests, THP state transitions, and the protocol backend.
 - `hw-wallet` owns shared wallet session orchestration and retry policy used by CLI and FFI consumers; put shared flow fixes here rather than duplicating them in adapters.

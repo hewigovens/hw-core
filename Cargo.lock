@@ -1021,6 +1021,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hw-core"
+version = "0.1.1"
+dependencies = [
+ "ble-transport",
+ "hw-chain",
+ "hw-wallet",
+ "trezor-connect",
+]
+
+[[package]]
 name = "hw-ffi"
 version = "0.1.1"
 dependencies = [
