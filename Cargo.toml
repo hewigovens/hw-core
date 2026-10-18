@@ -13,6 +13,7 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 license = "Apache-2.0"
+readme = "README.md"
 version = "0.1.1"
 repository = "https://github.com/hewigovens/hw-core"
 

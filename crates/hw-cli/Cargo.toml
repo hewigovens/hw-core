@@ -5,6 +5,7 @@ edition.workspace = true
 description = "CLI for Trezor Safe 7 workflows over BLE"
 license.workspace = true
 repository.workspace = true
+readme.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
