@@ -1,14 +1,14 @@
-# Docker image for running emulator BLE integration tests locally.
+# OCI image for running emulator BLE integration tests locally.
 # Mirrors the CI workflow in .github/workflows/emu-integration.yml.
 #
 # Usage:
-#   ./scripts/test-emu-docker.sh
+#   ./scripts/test-emu.sh
 #
 # Or manually:
-#   docker build --platform linux/amd64 -f Dockerfile.emu-test -t hw-core-emu-test .
-#   docker run --platform linux/amd64 --rm hw-core-emu-test
+#   container build --platform linux/amd64 -f Containerfile.emu-test -t hw-core-emu-test .
+#   container run --platform linux/amd64 --rm hw-core-emu-test
 
-FROM --platform=linux/amd64 debian:trixie
+FROM debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Rust toolchain
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Python virtual environment with trezorlib, bridge deps and the TROPIC01 model (ts-tvl)
@@ -45,11 +45,15 @@ RUN if [ -f tests/fixtures/trezor-emu-core-T3W1 ]; then \
       chmod +x tests/fixtures/trezor-emu-core-T3W1; \
     fi
 
-# Build the workspace
-RUN cargo build --workspace
+# Compile the test executables into the image without debug/incremental artifacts.
+ARG BUILD_JOBS=4
+ENV CARGO_BUILD_JOBS=${BUILD_JOBS}
+ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
+RUN cargo build --workspace --locked \
+    && cargo test -p hw-cli -p hw-ffi --test emu_ble --no-run --locked
 
 # Run the emulator integration tests
 ENV TREZOR_EMU_BINARY=/workspace/tests/fixtures/trezor-emu-core-T3W1
 ENV BRIDGE_DIR=/workspace/tests/fixtures
 ENV TROPIC_MODEL_CONFIG=/workspace/tests/fixtures/tropic_model/config.yml
-CMD ["sh", "-c", "cargo test -p hw-cli --test emu_ble -- --ignored --nocapture --test-threads=1 && cargo test -p hw-ffi --test emu_ble -- --ignored --nocapture --test-threads=1"]
+CMD ["sh", "-c", "cargo test -p hw-cli --test emu_ble --locked -- --ignored --nocapture --test-threads=1 && cargo test -p hw-ffi --test emu_ble --locked -- --ignored --nocapture --test-threads=1"]

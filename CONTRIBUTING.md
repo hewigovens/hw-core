@@ -74,8 +74,31 @@ These tests are `#[ignore]`d and only run when the harness env vars are set.
 
 ### Running locally
 
-The easiest path on any host is Docker (`./scripts/test-emu-docker.sh`), which mirrors CI.
-Natively, on Debian trixie or another distro that ships SDL3:
+On Apple Silicon macOS, use [Apple container](https://github.com/apple/container)
+(macOS 26 or later). It builds and runs the same Linux x86_64 environment as CI;
+Rosetta handles the emulator and Rust toolchain. No Bluetooth hardware or host ports
+are required: the harness starts its own D-Bus, simulated BlueZ, and TROPIC01 model.
+
+```bash
+brew install container
+container system start
+./scripts/test-emu.sh
+./scripts/test-emu.sh --shell  # interactive debugging
+```
+
+The script defaults to Apple `container` on macOS and Docker on Linux. Docker
+remains available explicitly with `CONTAINER_RUNTIME=docker ./scripts/test-emu.sh`.
+It downloads the pinned emulator fixture using `curl`, builds `Containerfile.emu-test`,
+and runs both the `hw-cli` and `hw-ffi` emulator suites serially. The image includes
+compiled tests; debug symbols and incremental compilation are disabled to limit
+its size. No Docker Engine API or OrbStack service is needed for the Apple path.
+
+By default, builds and tests use 4 CPUs and 4 GiB RAM. Override `EMU_CPUS` and
+`EMU_MEMORY` for a larger workload (the build resource flags apply to Apple
+`container`; Docker uses its configured builder). `EMU_IMAGE_NAME` selects a separate image for another checkout
+(for example, `EMU_IMAGE_NAME=hw-core-emu-review ./scripts/test-emu.sh`).
+
+To run natively on Debian trixie or another distro that ships SDL3:
 
 ```bash
 # 1. Install system deps
@@ -119,7 +142,7 @@ When bumping firmware, also update `tests/fixtures/tropic_model/config.yml` from
 `tests/tropic_model/config.yml` and the ts-tvl commit (`vendor/ts-tvl` submodule) at the same tag.
 
 Upload a new binary to a new tag, then point `EMU_FIXTURES_TAG` in
-`.github/workflows/emu-integration.yml` and `scripts/test-emu-docker.sh` at it:
+`.github/workflows/emu-integration.yml` and `scripts/test-emu.sh` at it:
 
 ```bash
 gh release create emu-fixtures-vX.Y.Z --repo hewigovens/hw-core --title "Emulator fixtures (core vX.Y.Z)" \
