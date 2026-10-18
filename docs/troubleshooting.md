@@ -34,4 +34,4 @@ How to get logs from each surface, and fixes for failures seen on real devices.
 
 ## Emulator tests
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md#emulator-integration-tests) for running the T3W1 emulator suite. `./scripts/test-emu-docker.sh` mirrors CI on any host.
+See [CONTRIBUTING.md](../CONTRIBUTING.md#emulator-integration-tests) for running the T3W1 emulator suite. `./scripts/test-emu.sh` mirrors CI using Apple `container` on macOS or Docker on Linux. See the linked setup instructions and runtime override.

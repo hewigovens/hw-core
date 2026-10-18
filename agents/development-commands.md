@@ -11,6 +11,18 @@ just ci               # fmt check + clippy + test (mirrors CI)
 just bindings         # build hw-ffi and generate Swift/Kotlin bindings
 ```
 
+## Emulator Integration
+
+```bash
+./scripts/test-emu.sh          # Apple container on macOS; Docker on Linux
+./scripts/test-emu.sh --shell  # inspect the same Linux x86_64 environment
+```
+
+Requires a running runtime; on macOS use `container system start` first.
+The script downloads the pinned T3W1 fixture and runs both ignored BLE suites.
+See [CONTRIBUTING.md](../CONTRIBUTING.md#emulator-integration-tests) for installation,
+resource overrides, and `CONTAINER_RUNTIME=docker` compatibility.
+
 ## Running a Single Test
 
 ```bash
