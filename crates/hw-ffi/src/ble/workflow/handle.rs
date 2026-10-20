@@ -1,29 +1,35 @@
-use std::collections::VecDeque;
-use std::time::Duration;
+use std::sync::Arc;
 
-use tokio::sync::{Mutex as AsyncMutex, Notify};
-use tokio::time::timeout;
+use tokio::sync::Mutex as AsyncMutex;
 use trezor_connect::ble::BleBackend;
-use trezor_connect::thp::ThpWorkflow;
+use trezor_connect::thp::{CancelHandle, ThpWorkflow};
 
+use super::event_queue::EventQueue;
 use crate::errors::HWCoreError;
-use crate::types::{SessionPhase, SessionState, WorkflowEvent, WorkflowEventKind};
+use crate::types::{ButtonRequest, SessionPhase, SessionState, WorkflowEvent, WorkflowEventKind};
 
 #[derive(uniffi::Object)]
 pub struct BleWorkflowHandle {
     pub(super) workflow: AsyncMutex<ThpWorkflow<BleBackend>>,
     pub(super) session_ready: AsyncMutex<bool>,
-    events: AsyncMutex<VecDeque<WorkflowEvent>>,
-    notify: Notify,
+    pub(super) cancel: CancelHandle,
+    events: Arc<EventQueue>,
 }
 
 impl BleWorkflowHandle {
-    pub(crate) fn new(workflow: ThpWorkflow<BleBackend>) -> Self {
+    pub(crate) fn new(mut workflow: ThpWorkflow<BleBackend>) -> Self {
+        let events = Arc::new(EventQueue::default());
+        let sink_events = events.clone();
+        workflow
+            .backend_mut()
+            .set_event_sink(Some(Arc::new(move |event| {
+                sink_events.push(ButtonRequest::from_device_event(event).into());
+            })));
         Self {
+            cancel: workflow.backend().cancel_handle(),
             workflow: AsyncMutex::new(workflow),
             session_ready: AsyncMutex::new(false),
-            events: AsyncMutex::new(VecDeque::new()),
-            notify: Notify::new(),
+            events,
         }
     }
 
@@ -31,7 +37,7 @@ impl BleWorkflowHandle {
     pub(crate) async fn ready(workflow: ThpWorkflow<BleBackend>) -> Self {
         let handle = Self::new(workflow);
         *handle.session_ready.lock().await = true;
-        handle.push_session_ready().await;
+        handle.push_session_ready();
         handle
     }
 
@@ -42,77 +48,45 @@ impl BleWorkflowHandle {
     ) -> Result<T, HWCoreError> {
         let result = {
             let mut workflow = self.workflow.lock().await;
+            // A cancel requested while no operation ran must not hit this one.
+            self.cancel.clear();
             op(&mut workflow).await
         };
         if let Err(err) = &result {
-            self.push_event(err.into()).await;
+            self.events.push(err.into());
         }
         result
     }
 
     pub(super) async fn next_queued_event(&self, timeout_ms: Option<u64>) -> Option<WorkflowEvent> {
-        loop {
-            if let Some(event) = self.events.lock().await.pop_front() {
-                return Some(event);
-            }
-
-            let notified = self.notify.notified();
-            if let Some(timeout_ms) = timeout_ms {
-                if timeout(Duration::from_millis(timeout_ms), notified)
-                    .await
-                    .is_err()
-                {
-                    return None;
-                }
-            } else {
-                notified.await;
-            }
-        }
+        self.events.next(timeout_ms).await
     }
 
-    async fn push_event(&self, event: WorkflowEvent) {
-        let mut events = self.events.lock().await;
-        events.push_back(event);
-        self.notify.notify_waiters();
+    pub(super) fn push(&self, kind: WorkflowEventKind, code: &str, message: &str) {
+        self.events.push(WorkflowEvent::new(kind, code, message));
     }
 
-    pub(super) async fn push(&self, kind: WorkflowEventKind, code: &str, message: &str) {
-        self.push_event(WorkflowEvent::new(kind, code, message))
-            .await;
+    pub(super) fn progress(&self, code: &str, message: &str) {
+        self.push(WorkflowEventKind::Progress, code, message);
     }
 
-    pub(super) async fn progress(&self, code: &str, message: &str) {
-        self.push(WorkflowEventKind::Progress, code, message).await;
-    }
-
-    pub(super) async fn confirmation_possible(&self, message: &str) {
-        self.push(
-            WorkflowEventKind::ButtonRequest,
-            "DEVICE_CONFIRMATION_POSSIBLE",
-            message,
-        )
-        .await;
-    }
-
-    async fn push_session_ready(&self) {
+    fn push_session_ready(&self) {
         self.push(
             WorkflowEventKind::Ready,
             "SESSION_READY",
             "BLE workflow is authenticated and session-ready",
-        )
-        .await;
+        );
     }
 
-    pub(super) async fn push_session_state_event(&self, state: &SessionState) {
+    pub(super) fn push_session_state_event(&self, state: &SessionState) {
         match (&state.phase, &state.prompt_message) {
-            (SessionPhase::Ready, _) => self.push_session_ready().await,
+            (SessionPhase::Ready, _) => self.push_session_ready(),
             (SessionPhase::NeedsPairingCode, Some(message)) => {
                 self.push(
                     WorkflowEventKind::PairingPrompt,
                     "PAIRING_CODE_REQUIRED",
                     message,
-                )
-                .await;
+                );
             }
             _ => {}
         }

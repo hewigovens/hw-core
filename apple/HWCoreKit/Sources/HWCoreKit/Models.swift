@@ -43,14 +43,19 @@ public struct WalletEvent: Sendable {
     public let kind: WorkflowEventKind
     public let code: String
     public let message: String
+    /// The prompt the device is showing; set only for `.buttonRequest` events.
+    public let buttonRequest: ButtonRequest?
 
     init(raw: WorkflowEvent) {
         kind = raw.kind
         code = raw.code
         message = raw.message
+        buttonRequest = raw.buttonRequest
     }
 }
 
+public typealias ButtonRequest = HWCoreFFI.ButtonRequest
+public typealias ButtonRequestCode = HWCoreFFI.ButtonRequestCode
 public typealias SessionHandshakeState = HWCoreFFI.SessionHandshakeState
 public typealias Chain = HWCoreFFI.Chain
 public typealias ChainConfig = HWCoreFFI.ChainConfig

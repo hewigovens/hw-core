@@ -204,6 +204,11 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
+    /// Cancels the prompt the Trezor is showing; the running call throws `ActionCancelled`.
+    public func cancel() {
+        workflow.cancel()
+    }
+
     public func disconnect(timeout: TimeInterval? = 5) async {
         do {
             _ = try await withTimeout(seconds: timeout, operation: "disconnect") {

@@ -1,7 +1,9 @@
 mod address;
 mod btc;
+mod cancel;
 mod channel;
 mod credential;
+mod device_event;
 mod eip712;
 mod eth_sign_tx;
 mod handshake;
@@ -19,8 +21,10 @@ pub use btc::{
     BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestAmount, BtcPaymentRequestMemo,
     BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput, BtcSignTx,
 };
+pub use cancel::CancelHandle;
 pub use channel::{CreateChannelRequest, CreateChannelResponse, ThpProperties};
 pub use credential::{CredentialRequest, CredentialResponse, KnownCredential};
+pub use device_event::{ButtonRequest, ButtonRequestCode, DeviceEvent, DeviceEventSink};
 pub use eip712::{Eip712StructMember, Eip712TypedData};
 pub use eth_sign_tx::{EthAccessListEntry, EthSignTx, EthTxSignature};
 pub use handshake::{HandshakeCompletionState, HandshakeRequest, HandshakeResponse};

@@ -2,6 +2,7 @@ mod backend;
 mod bitcoin;
 mod channel;
 mod credentials;
+mod device_prompts;
 mod errors;
 mod link;
 mod nfc;

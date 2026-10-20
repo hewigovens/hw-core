@@ -2,10 +2,18 @@ use std::time::Duration;
 
 use trezor_thp::channel::MAX_RETRANSMISSION_COUNT;
 
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+use prost::Message;
+
+use super::device_prompts::DevicePrompts;
+use super::errors::MESSAGE_TYPE_FAILURE;
 use super::link::{PacketLink, SESSION_ID};
 use crate::thp::backend::BackendError;
 use crate::thp::messages;
-use crate::thp::proto::{MESSAGE_TYPE_SUCCESS, WireMessage};
+use crate::thp::proto::{ButtonAck, ButtonRequestProto, Cancel, MESSAGE_TYPE_SUCCESS, WireMessage};
+use crate::thp::types::{ButtonRequest, ButtonRequestCode, DeviceEvent};
 
 mod fake_device {
     use std::collections::VecDeque;
@@ -44,12 +52,17 @@ mod fake_device {
         Open(Box<Buffered<device::Channel<NoiseBackend>>>),
     }
 
+    /// Device reply to a host message type; `None` keeps the device waiting (e.g. on a prompt).
+    pub type Responder = Box<dyn FnMut(u16) -> Option<(u16, Vec<u8>)> + Send>;
+
     /// In-process device built from trezor-thp's device side, driven synchronously by host packets.
     pub struct FakeDevice {
         state: Option<State>,
         outbox: VecDeque<Vec<u8>>,
         pub busy: bool,
         pub replies: usize,
+        pub received: Vec<u16>,
+        pub respond: Responder,
     }
 
     impl FakeDevice {
@@ -63,6 +76,8 @@ mod fake_device {
                 outbox: VecDeque::new(),
                 busy: false,
                 replies: 0,
+                received: Vec::new(),
+                respond: Box::new(|_| Some((MESSAGE_TYPE_SUCCESS, Vec::new()))),
             }
         }
 
@@ -112,11 +127,14 @@ mod fake_device {
                     if self.busy {
                         ch.send_error(trezor_thp::error::TransportError::TransportBusy);
                     } else if ch.packet_in(packet).got_message() {
-                        let (session, _message_type, _payload) =
+                        let (session, message_type, _payload) =
                             ch.message_out().expect("device message_out");
-                        ch.message_in(session, MESSAGE_TYPE_SUCCESS, &[])
-                            .expect("device reply");
-                        self.replies += 1;
+                        self.received.push(message_type);
+                        if let Some((reply_type, reply)) = (self.respond)(message_type) {
+                            ch.message_in(session, reply_type, &reply)
+                                .expect("device reply");
+                            self.replies += 1;
+                        }
                     }
                     Self::drain(&mut self.outbox, &mut *ch);
                     State::Open(ch)
@@ -174,7 +192,11 @@ async fn final_response_is_acknowledged_before_returning() {
         .message_in(SESSION_ID, messages::ThpCreateNewSession::MESSAGE_TYPE, &[])
         .unwrap();
     let (message_type, _) = device
-        .receive_message(&mut channel, Duration::from_secs(5))
+        .receive_message(
+            &mut channel,
+            Duration::from_secs(5),
+            &DevicePrompts::default(),
+        )
         .await
         .unwrap();
 
@@ -197,11 +219,122 @@ async fn repeated_transport_busy_stops_at_retry_limit() {
         .unwrap();
     let result = tokio::time::timeout(
         Duration::from_secs(3600),
-        device.receive_message(&mut channel, Duration::from_secs(5)),
+        device.receive_message(
+            &mut channel,
+            Duration::from_secs(5),
+            &DevicePrompts::default(),
+        ),
     )
     .await
     .expect("busy retries must be bounded");
 
     assert!(matches!(result, Err(BackendError::TransportBusy)));
     assert_eq!(channel.sending_retry(), Some(MAX_RETRANSMISSION_COUNT - 1));
+}
+
+const FAILURE_ACTION_CANCELLED: &[u8] = &[0x08, 0x04];
+
+/// Device that prompts for every request and answers `Cancel` with `Failure(ActionCancelled)`.
+fn prompting_device() -> fake_device::FakeDevice {
+    let mut device = fake_device::FakeDevice::new();
+    device.respond = Box::new(|message_type| match message_type {
+        t if t == ButtonAck::MESSAGE_TYPE => None,
+        t if t == Cancel::MESSAGE_TYPE => {
+            Some((MESSAGE_TYPE_FAILURE, FAILURE_ACTION_CANCELLED.to_vec()))
+        }
+        t if t == messages::ThpCreateNewSession::MESSAGE_TYPE => Some((
+            ButtonRequestProto::MESSAGE_TYPE,
+            ButtonRequestProto {
+                code: Some(8),
+                pages: None,
+                name: Some("confirm_tx".into()),
+            }
+            .encode_to_vec(),
+        )),
+        _ => Some((MESSAGE_TYPE_SUCCESS, Vec::new())),
+    });
+    device
+}
+
+fn recording_prompts() -> (DevicePrompts, Arc<Mutex<Vec<DeviceEvent>>>) {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink_events = events.clone();
+    let prompts = DevicePrompts {
+        sink: Some(Arc::new(move |event| sink_events.lock().push(event))),
+        ..DevicePrompts::default()
+    };
+    (prompts, events)
+}
+
+#[tokio::test(start_paused = true)]
+async fn cancel_during_prompt_sends_cancel_and_keeps_channel_open() {
+    let mut device = prompting_device();
+    let mut channel = fake_device::open_channel(&mut device).await;
+    let (prompts, events) = recording_prompts();
+    let cancel = prompts.cancel.clone();
+
+    channel
+        .message_in(SESSION_ID, messages::ThpCreateNewSession::MESSAGE_TYPE, &[])
+        .unwrap();
+    let (result, ()) = tokio::join!(
+        device.receive_message(&mut channel, Duration::from_secs(30), &prompts),
+        async {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            cancel.cancel();
+        }
+    );
+
+    let (message_type, payload) = result.unwrap();
+    assert_eq!(message_type, MESSAGE_TYPE_FAILURE);
+    assert!(matches!(
+        BackendError::from_failure(&payload),
+        BackendError::ActionCancelled
+    ));
+    assert_eq!(
+        *events.lock(),
+        vec![DeviceEvent::ButtonRequest(ButtonRequest {
+            code: Some(ButtonRequestCode::SignTx),
+            pages: None,
+            name: Some("confirm_tx".into()),
+        })]
+    );
+    assert!(!cancel.is_requested(), "cancel request must be consumed");
+
+    channel.message_in(SESSION_ID, 31, &[]).unwrap();
+    let (message_type, _) = device
+        .receive_message(&mut channel, Duration::from_secs(5), &prompts)
+        .await
+        .unwrap();
+    assert_eq!(message_type, MESSAGE_TYPE_SUCCESS);
+    assert_eq!(
+        device.received,
+        vec![
+            messages::ThpCreateNewSession::MESSAGE_TYPE,
+            ButtonAck::MESSAGE_TYPE,
+            Cancel::MESSAGE_TYPE,
+            31,
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn cancel_requested_before_prompt_applies_once_device_prompts() {
+    let mut device = prompting_device();
+    let mut channel = fake_device::open_channel(&mut device).await;
+    let prompts = DevicePrompts::default();
+    prompts.cancel.cancel();
+
+    channel
+        .message_in(SESSION_ID, messages::ThpCreateNewSession::MESSAGE_TYPE, &[])
+        .unwrap();
+    let (message_type, _) = tokio::time::timeout(
+        Duration::from_secs(10),
+        device.receive_message(&mut channel, Duration::from_secs(30), &prompts),
+    )
+    .await
+    .expect("cancel must not wait for the prompt timeout")
+    .unwrap();
+
+    assert_eq!(message_type, MESSAGE_TYPE_FAILURE);
+    assert_eq!(device.received.last(), Some(&Cancel::MESSAGE_TYPE));
 }

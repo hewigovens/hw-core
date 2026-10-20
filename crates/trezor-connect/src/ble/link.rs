@@ -9,12 +9,11 @@ use trezor_thp::channel::{MAX_RETRANSMISSION_COUNT, PacketInResult, retransmit_a
 use trezor_thp::error::TransportError;
 
 use super::channel::{OpenChannel, PumpChannel};
+use super::device_prompts::DevicePrompts;
 use crate::thp::backend::{BackendError, BackendResult};
-use crate::thp::messages;
+use crate::thp::proto::{ButtonAck, ButtonRequestProto, Cancel, WireMessage};
 
 pub(super) const SESSION_ID: u8 = 0;
-const MESSAGE_TYPE_BUTTON_REQUEST: u16 = messages::ThpMessageType::ButtonRequest as i32 as u16;
-const MESSAGE_TYPE_BUTTON_ACK: u16 = messages::ThpMessageType::ButtonAck as i32 as u16;
 const MAX_BUSY_BACKOFF_MS: u64 = 500;
 
 fn can_retransmit(retry: Option<u8>) -> bool {
@@ -77,24 +76,63 @@ pub(super) trait PacketLink {
         }
     }
 
-    /// Reads the next device message, acknowledging any ButtonRequest on the way.
+    /// Reads the next device message, announcing and acknowledging any ButtonRequest on the way.
+    ///
+    /// While the device waits for the user, a cancel request sends `Cancel` on the open channel
+    /// (as Suite does); the device then answers the pending request with a `Failure`.
     async fn receive_message(
         &mut self,
         channel: &mut OpenChannel,
         timeout: Duration,
+        prompts: &DevicePrompts,
     ) -> BackendResult<(u16, Vec<u8>)> {
+        let mut prompting = false;
         loop {
-            self.pump(channel, timeout, |_, result| result.got_message())
-                .await?;
+            if prompting && !self.await_prompt(channel, timeout, prompts).await? {
+                prompts.cancel.clear();
+                debug!("THP device prompt cancelled; sending Cancel");
+                channel.message_in(SESSION_ID, Cancel::MESSAGE_TYPE, &[])?;
+                prompting = false;
+                continue;
+            }
+            if !prompting {
+                self.pump(channel, timeout, |_, result| result.got_message())
+                    .await?;
+            }
             // trezor-thp queues the ACK when the message is consumed, so flush after message_out.
             let (_session, message_type, payload) = channel.message_out()?;
             trace!(message_type, len = payload.len(), "THP receive");
-            if message_type != MESSAGE_TYPE_BUTTON_REQUEST {
+            if message_type != ButtonRequestProto::MESSAGE_TYPE {
                 self.flush(channel).await?;
                 return Ok((message_type, payload));
             }
             debug!("THP ButtonRequest; sending ButtonAck");
-            channel.message_in(SESSION_ID, MESSAGE_TYPE_BUTTON_ACK, &[])?;
+            prompts.announce(&payload);
+            channel.message_in(SESSION_ID, ButtonAck::MESSAGE_TYPE, &[])?;
+            prompting = true;
+        }
+    }
+
+    /// Waits on a device prompt; returns `true` once a message is ready, `false` on cancel.
+    async fn await_prompt(
+        &mut self,
+        channel: &mut OpenChannel,
+        timeout: Duration,
+        prompts: &DevicePrompts,
+    ) -> BackendResult<bool> {
+        // Cancel can only be sent once the device has acknowledged the ButtonAck.
+        let mut got_message = false;
+        self.pump(channel, timeout, |channel, result| {
+            got_message |= result.got_message();
+            got_message || channel.retry_count().is_none()
+        })
+        .await?;
+        if got_message {
+            return Ok(true);
+        }
+        tokio::select! {
+            result = self.pump(channel, timeout, |_, result| result.got_message()) => result.map(|()| true),
+            () = prompts.cancel.requested() => Ok(false),
         }
     }
 }

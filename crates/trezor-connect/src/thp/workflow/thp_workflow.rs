@@ -57,6 +57,10 @@ where
         &self.config
     }
 
+    pub fn backend(&self) -> &B {
+        &self.backend
+    }
+
     pub fn backend_mut(&mut self) -> &mut B {
         &mut self.backend
     }

@@ -1,5 +1,6 @@
 mod address;
 mod ble_device_info;
+mod button_request;
 mod chain;
 mod host_config;
 mod pairing_progress;
@@ -15,6 +16,7 @@ mod workflow_event;
 
 pub use address::{AddressResult, GetAddressRequest};
 pub use ble_device_info::BleDeviceInfo;
+pub use button_request::{ButtonRequest, ButtonRequestCode};
 pub use chain::{Chain, ChainConfig, chain_config};
 pub use host_config::{HostConfig, KnownCredential, PairingMethod, host_config_new};
 pub use pairing_progress::{PairingProgress, PairingProgressKind};

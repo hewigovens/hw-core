@@ -1,5 +1,6 @@
 mod address;
 mod bitcoin;
+mod button_request;
 mod channel;
 mod credential;
 mod error;
@@ -15,6 +16,7 @@ pub use bitcoin::{
     BitcoinTxAck, BitcoinTxAckPaymentRequest, BitcoinTxRequest, BitcoinTxRequestType,
     DecodedBitcoinTxRequest, TxAck,
 };
+pub use button_request::{ButtonAck, ButtonRequestProto, Cancel};
 pub use error::ProtoMappingError;
 pub use ethereum::{
     DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE, EthereumDataTypeProto, EthereumFieldType,

@@ -8,12 +8,13 @@ use trezor_thp::channel::{PairingState, Phase};
 
 use super::channel::{NoiseBackend, ThpChannel};
 use super::credentials::SharedCredentials;
+use super::device_prompts::DevicePrompts;
 use super::errors::MESSAGE_TYPE_FAILURE;
 use super::link::{PacketLink, SESSION_ID};
 use super::nfc::NfcSecret;
 use crate::thp::backend::{BackendError, BackendResult};
 use crate::thp::proto::{EncodedMessage, ProtoMappingError};
-use crate::thp::types::HandshakeCompletionState;
+use crate::thp::types::{CancelHandle, DeviceEventSink, HandshakeCompletionState};
 
 pub struct BleBackend {
     pub(super) link: BleLink,
@@ -21,6 +22,7 @@ pub struct BleBackend {
     pub(super) channel: ThpChannel,
     pub(super) credentials: SharedCredentials,
     pub(super) nfc_secret: Option<NfcSecret>,
+    prompts: DevicePrompts,
 }
 
 impl BleBackend {
@@ -31,6 +33,7 @@ impl BleBackend {
             channel: ThpChannel::Closed,
             credentials: SharedCredentials::default(),
             nfc_secret: None,
+            prompts: DevicePrompts::default(),
         }
     }
 
@@ -45,6 +48,16 @@ impl BleBackend {
 
     pub fn set_handshake_timeout(&mut self, timeout: Duration) {
         self.handshake_timeout = timeout;
+    }
+
+    /// Reports device prompts (`ButtonRequest`) to `sink` as the device shows them.
+    pub fn set_event_sink(&mut self, sink: Option<DeviceEventSink>) {
+        self.prompts.sink = sink;
+    }
+
+    /// Returns a handle that cancels the device prompt from another task.
+    pub fn cancel_handle(&self) -> CancelHandle {
+        self.prompts.cancel.clone()
     }
 
     pub(super) fn send(&mut self, message: &EncodedMessage) -> BackendResult<()> {
@@ -64,7 +77,7 @@ impl BleBackend {
     pub(super) async fn receive_raw(&mut self) -> BackendResult<(u16, Vec<u8>)> {
         let channel = self.channel.established()?;
         self.link
-            .receive_message(channel, self.handshake_timeout)
+            .receive_message(channel, self.handshake_timeout, &self.prompts)
             .await
     }
 
