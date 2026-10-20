@@ -51,6 +51,35 @@ Use `wallet::ble::connect_and_bootstrap_session` to connect and prepare a THP
 session, or `trezor::thp::ThpWorkflow` to drive pairing and session transitions
 with your own UI.
 
+## Embedding in an app
+
+Apps that ship their own Rust core can depend on these crates instead of the
+UniFFI library:
+
+- Implement `trezor::thp::ThpStorage` to keep the pairing snapshot
+  (`HostSnapshot`) in the platform's secure storage. It holds the host's static
+  private key and the device-issued pairing credentials, so never write it to a
+  plain file or log it.
+- `trezor::ble::BleBackend::set_event_sink` reports each device prompt
+  (`ButtonRequest`) as the device shows it, and `BleBackend::cancel_handle`
+  cancels that prompt in-session without dropping the channel.
+- `WalletError::kind()` classifies failures (rejected on device, locked, busy,
+  disconnected, pairing required, unsupported, ...) without matching message
+  text.
+
+`hw-core` always enables BLE (`trezor-connect/ble`, which pulls in btleplug).
+To use the THP workflow with your own transport, depend on `trezor-connect`
+without the `ble` feature and implement `trezor::thp::ThpBackend`. The CLI
+(`hw-cli`) and UniFFI (`hw-ffi`) crates are separate and never pulled in.
+
+## Versioning
+
+The crates are released together with one version. Before 1.0, a minor release
+(`0.x` → `0.(x+1)`) may break the public API and a patch release does not, so
+depend on `hw-core = "0.x"` with a caret requirement. Breaking changes are listed
+in the release notes. Public enums such as `WalletErrorKind` gain variants in
+minor releases, and new `ThpBackend` methods are also minor-release changes.
+
 ## Platforms and status
 
 This is an early-stage SDK. macOS and Linux are the supported CLI hosts; native
