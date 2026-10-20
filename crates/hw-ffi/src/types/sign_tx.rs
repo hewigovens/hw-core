@@ -64,6 +64,7 @@ impl TryFrom<SignTxRequest> for ThpSignTxRequest {
     type Error = HWCoreError;
 
     fn try_from(request: SignTxRequest) -> Result<Self, Self::Error> {
+        request.reject_other_chain_metadata()?;
         match request.chain {
             Chain::Ethereum => {
                 let path = parse_bip32_path(&request.path)?;
@@ -95,6 +96,35 @@ impl TryFrom<SignTxRequest> for ThpSignTxRequest {
                 let tx = BtcTxInput::from_json(&request.data)?;
                 Ok(BtcSignTx::try_from(tx)?.into())
             }
+        }
+    }
+}
+
+impl SignTxRequest {
+    /// Chain-specific display metadata on the wrong chain would be dropped silently, so the
+    /// device would sign without showing the context the caller meant to supply.
+    fn reject_other_chain_metadata(&self) -> Result<(), HWCoreError> {
+        let field = match self.chain {
+            Chain::Ethereum => self
+                .solana_additional_info
+                .as_ref()
+                .map(|_| "solana_additional_info"),
+            Chain::Solana => self.eth_definitions.as_ref().map(|_| "eth_definitions"),
+            Chain::Bitcoin => self
+                .eth_definitions
+                .as_ref()
+                .map(|_| "eth_definitions")
+                .or(self
+                    .solana_additional_info
+                    .as_ref()
+                    .map(|_| "solana_additional_info")),
+        };
+        match field {
+            Some(field) => Err(HWCoreError::Validation(format!(
+                "{field} is not supported for {:?} transactions",
+                self.chain
+            ))),
+            None => Ok(()),
         }
     }
 }

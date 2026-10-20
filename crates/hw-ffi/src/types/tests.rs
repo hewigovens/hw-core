@@ -434,3 +434,45 @@ fn definitions_source_selects_version_and_parses_hex_arguments() {
         Err(HWCoreError::Validation(_))
     ));
 }
+
+#[test]
+fn sign_tx_request_rejects_metadata_for_another_chain() {
+    let request = |chain, eth_definitions, solana_additional_info| SignTxRequest {
+        chain,
+        path: String::new(),
+        to: String::new(),
+        value: "0x0".into(),
+        nonce: "0x0".into(),
+        gas_limit: "0x0".into(),
+        chain_id: 0,
+        data: String::new(),
+        max_fee_per_gas: "0x0".into(),
+        max_priority_fee: "0x0".into(),
+        access_list: Vec::new(),
+        chunkify: false,
+        eth_definitions,
+        solana_additional_info,
+    };
+    let eth = || Some(EthereumDefinitions::default());
+    let sol = || {
+        Some(SolanaTxAdditionalInfo {
+            token_accounts_infos: Vec::new(),
+            encoded_token: None,
+        })
+    };
+    let cases = [
+        (Chain::Ethereum, None, sol(), "solana_additional_info"),
+        (Chain::Solana, eth(), None, "eth_definitions"),
+        (Chain::Bitcoin, eth(), None, "eth_definitions"),
+        (Chain::Bitcoin, None, sol(), "solana_additional_info"),
+    ];
+    for (chain, eth_definitions, solana_additional_info, field) in cases {
+        let err =
+            ThpSignTxRequest::try_from(request(chain, eth_definitions, solana_additional_info))
+                .expect_err("metadata for another chain must be rejected");
+        assert!(
+            matches!(&err, HWCoreError::Validation(message) if message.starts_with(field)),
+            "{chain:?}: unexpected error {err:?}"
+        );
+    }
+}
