@@ -70,7 +70,7 @@ The patch is not optional for THP traffic. On stock droidplug, notifications tha
 
 Re-check that the patch applies whenever you bump btleplug.
 
-If you minify release builds, keep these classes: Rust finds them by name and registers native methods on them, so R8 must not rename or strip them. The rule below is not exercised by hw-core's own builds, which ship with `isMinifyEnabled = false`:
+If you minify release builds, keep these classes: Rust finds them by name and registers native methods on them, so R8 must not rename or strip them. hw-core's library ships the same rules in [`consumer-rules.pro`](../android/lib/consumer-rules.pro), though its own builds run with `isMinifyEnabled = false`, so a minified build has not been exercised:
 
 ```proguard
 -keep class com.nonpolynomial.btleplug.** { *; }
