@@ -429,7 +429,8 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
         val hostName = defaultHostName(context)
         hostConfig = hostConfigNew(hostName, DEFAULT_APP_NAME)
-        storagePath = context.filesDir.resolve("hwcore/thp-host.json").absolutePath
+        // noBackupFilesDir keeps the host key and pairing credentials out of Auto Backup.
+        storagePath = context.noBackupFilesDir.resolve("hwcore/thp-host.json").absolutePath
         log("Host configured: $hostName / $DEFAULT_APP_NAME")
     }
 
