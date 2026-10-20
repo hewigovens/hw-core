@@ -12,6 +12,7 @@ use super::channel::{OpenChannel, PumpChannel};
 use super::device_prompts::DevicePrompts;
 use crate::thp::backend::{BackendError, BackendResult};
 use crate::thp::proto::{ButtonAck, ButtonRequestProto, Cancel, WireMessage};
+use crate::thp::types::CancelHandle;
 
 pub(super) const SESSION_ID: u8 = 0;
 const MAX_BUSY_BACKOFF_MS: u64 = 500;
@@ -39,15 +40,39 @@ pub(super) trait PacketLink {
         &mut self,
         channel: &mut Buffered<C>,
         response_timeout: Duration,
-        mut done: impl FnMut(&Buffered<C>, &PacketInResult) -> bool,
+        done: impl FnMut(&Buffered<C>, &PacketInResult) -> bool,
     ) -> BackendResult<()> {
+        self.pump_cancellable(channel, response_timeout, done, None)
+            .await
+            .map(drop)
+    }
+
+    /// Like [`PacketLink::pump`], but returns `Ok(false)` when `cancel` is requested.
+    ///
+    /// Cancellation is only observed while waiting for the next packet, so the channel never
+    /// holds a half-processed packet or an unconsumed message when this returns `false`.
+    async fn pump_cancellable<C: PumpChannel>(
+        &mut self,
+        channel: &mut Buffered<C>,
+        response_timeout: Duration,
+        mut done: impl FnMut(&Buffered<C>, &PacketInResult) -> bool,
+        cancel: Option<&CancelHandle>,
+    ) -> BackendResult<bool> {
         loop {
             self.flush(channel).await?;
             let retry = channel.retry_count();
             let wait = retry.map_or(response_timeout, |r| {
                 Duration::from_millis(retransmit_after_ms(r).into())
             });
-            let Some(packet) = self.recv_packet(wait).await? else {
+            let received = match cancel {
+                Some(cancel) => tokio::select! {
+                    biased;
+                    packet = self.recv_packet(wait) => packet?,
+                    () = cancel.requested() => return Ok(false),
+                },
+                None => self.recv_packet(wait).await?,
+            };
+            let Some(packet) = received else {
                 if !can_retransmit(retry) {
                     return Err(BackendError::TransportTimeout);
                 }
@@ -71,7 +96,8 @@ pub(super) trait PacketLink {
                 _ => {}
             }
             if done(channel, &result) {
-                return self.flush(channel).await;
+                self.flush(channel).await?;
+                return Ok(true);
             }
         }
     }
@@ -130,10 +156,13 @@ pub(super) trait PacketLink {
         if got_message {
             return Ok(true);
         }
-        tokio::select! {
-            result = self.pump(channel, timeout, |_, result| result.got_message()) => result.map(|()| true),
-            () = prompts.cancel.requested() => Ok(false),
-        }
+        self.pump_cancellable(
+            channel,
+            timeout,
+            |_, result| result.got_message(),
+            Some(&prompts.cancel),
+        )
+        .await
     }
 }
 

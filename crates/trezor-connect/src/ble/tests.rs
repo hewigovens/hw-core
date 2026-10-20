@@ -338,3 +338,38 @@ async fn cancel_requested_before_prompt_applies_once_device_prompts() {
     assert_eq!(message_type, MESSAGE_TYPE_FAILURE);
     assert_eq!(device.received.last(), Some(&Cancel::MESSAGE_TYPE));
 }
+
+#[tokio::test(start_paused = true)]
+async fn response_already_received_wins_over_late_cancel() {
+    // The device answers right after the ButtonAck, so its reply is queued when cancel lands.
+    let mut device = fake_device::FakeDevice::new();
+    device.respond = Box::new(|message_type| match message_type {
+        t if t == messages::ThpCreateNewSession::MESSAGE_TYPE => Some((
+            ButtonRequestProto::MESSAGE_TYPE,
+            ButtonRequestProto::default().encode_to_vec(),
+        )),
+        _ => Some((MESSAGE_TYPE_SUCCESS, Vec::new())),
+    });
+    let mut channel = fake_device::open_channel(&mut device).await;
+    let prompts = DevicePrompts::default();
+    prompts.cancel.cancel();
+
+    channel
+        .message_in(SESSION_ID, messages::ThpCreateNewSession::MESSAGE_TYPE, &[])
+        .unwrap();
+    for _ in 0..20 {
+        let (message_type, _) = device
+            .receive_message(&mut channel, Duration::from_secs(30), &prompts)
+            .await
+            .unwrap();
+        assert_eq!(message_type, MESSAGE_TYPE_SUCCESS);
+        assert!(
+            !device.received.contains(&Cancel::MESSAGE_TYPE),
+            "Cancel must not be sent once the device has replied"
+        );
+        prompts.cancel.cancel();
+        channel
+            .message_in(SESSION_ID, messages::ThpCreateNewSession::MESSAGE_TYPE, &[])
+            .unwrap();
+    }
+}
