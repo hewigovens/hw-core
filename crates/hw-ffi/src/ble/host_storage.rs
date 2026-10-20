@@ -20,14 +20,15 @@ pub trait HostStorage: Send + Sync {
 
 #[derive(Debug, uniffi::Error, thiserror::Error)]
 pub enum HostStorageError {
-    #[error("{message}")]
-    Failed { message: String },
+    // Not `message`: Kotlin exceptions would clash with `Throwable.message`.
+    #[error("{reason}")]
+    Failed { reason: String },
 }
 
 impl From<uniffi::UnexpectedUniFFICallbackError> for HostStorageError {
     fn from(error: uniffi::UnexpectedUniFFICallbackError) -> Self {
         Self::Failed {
-            message: error.reason,
+            reason: error.reason,
         }
     }
 }
@@ -76,7 +77,7 @@ mod tests {
         fn persist(&self, snapshot: Vec<u8>) -> Result<(), HostStorageError> {
             if self.fail {
                 return Err(HostStorageError::Failed {
-                    message: "keychain locked".into(),
+                    reason: "keychain locked".into(),
                 });
             }
             *self.blob.lock() = Some(snapshot);
