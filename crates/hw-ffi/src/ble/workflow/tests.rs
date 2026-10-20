@@ -123,6 +123,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
                 }],
                 ..EthereumDefinitions::default()
             }),
+            solana_additional_info: None,
         })
         .await
         .unwrap();

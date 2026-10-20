@@ -14,6 +14,7 @@ mod sign_message;
 mod sign_tx;
 mod sign_typed_data;
 mod signature_encoding;
+mod solana_sign_tx;
 mod uuid;
 mod workflow_event;
 

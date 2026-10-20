@@ -5,6 +5,7 @@ use hw_wallet::hex::decode as decode_hex;
 use hw_wallet::sol::SolanaSignTxExt;
 use trezor_connect::thp::{
     BtcSignTx, EthTxSignature, SignTxRequest as ThpSignTxRequest, SignTxResponse, SolanaSignTx,
+    SolanaTxAdditionalInfo,
 };
 
 use super::{Chain, EthereumDefinitions};
@@ -33,6 +34,9 @@ pub struct SignTxRequest {
     /// Ethereum only: network, token and display-format definitions for the device to show.
     #[uniffi(default = None)]
     pub eth_definitions: Option<EthereumDefinitions>,
+    /// Solana only: token account infos and token definition for SPL transfers.
+    #[uniffi(default = None)]
+    pub solana_additional_info: Option<SolanaTxAdditionalInfo>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -83,7 +87,9 @@ impl TryFrom<SignTxRequest> for ThpSignTxRequest {
             Chain::Solana => {
                 let path = parse_bip32_path(&request.path)?;
                 let serialized_tx = decode_hex(&request.data)?;
-                Ok(SolanaSignTx::from_serialized_tx(path, serialized_tx)?.into())
+                let mut tx = SolanaSignTx::from_serialized_tx(path, serialized_tx)?;
+                tx.additional_info = request.solana_additional_info;
+                Ok(tx.into())
             }
             Chain::Bitcoin => {
                 let tx = BtcTxInput::from_json(&request.data)?;

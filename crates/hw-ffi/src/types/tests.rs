@@ -2,7 +2,8 @@ use trezor_connect::thp::{
     BtcInputScriptType, BtcOutputScriptType, BtcSignTx, Chain,
     GetAddressRequest as ThpGetAddressRequest, SignMessageRequest as ThpSignMessageRequest,
     SignTxRequest as ThpSignTxRequest, SignTypedDataPayload,
-    SignTypedDataRequest as ThpSignTypedDataRequest,
+    SignTypedDataRequest as ThpSignTypedDataRequest, SolanaTxAdditionalInfo,
+    SolanaTxTokenAccountInfo,
 };
 
 use crate::errors::HWCoreError;
@@ -38,33 +39,46 @@ fn get_address_request_maps_solana_chain() {
 }
 
 #[test]
-fn sign_tx_request_maps_solana_chain() {
-    let mapped = ThpSignTxRequest::try_from(SignTxRequest {
-        chain: Chain::Solana,
-        path: "m/44'/501'/0'/0'".into(),
-        to: String::new(),
-        value: "0x0".into(),
-        nonce: "0x0".into(),
-        gas_limit: "0x0".into(),
-        chain_id: 0,
-        data: "0x0102030405060708090a0b0c0d0e0f10".into(),
-        max_fee_per_gas: "0x0".into(),
-        max_priority_fee: "0x0".into(),
-        access_list: Vec::new(),
-        chunkify: false,
-        eth_definitions: None,
-    })
-    .expect("solana request should map");
-    let ThpSignTxRequest::Solana(mapped) = mapped else {
-        panic!("expected a Solana sign request");
+fn sign_tx_request_maps_solana_chain_with_additional_info() {
+    let additional_info = SolanaTxAdditionalInfo {
+        token_accounts_infos: vec![SolanaTxTokenAccountInfo {
+            base_address: "base".into(),
+            token_program: "program".into(),
+            token_mint: "mint".into(),
+            token_account: "account".into(),
+        }],
+        encoded_token: Some(vec![0xde, 0xad]),
     };
-    assert_eq!(
-        mapped.serialized_tx,
-        vec![
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
-            0x0f, 0x10,
-        ]
-    );
+    for expected in [None, Some(additional_info)] {
+        let mapped = ThpSignTxRequest::try_from(SignTxRequest {
+            chain: Chain::Solana,
+            path: "m/44'/501'/0'/0'".into(),
+            to: String::new(),
+            value: "0x0".into(),
+            nonce: "0x0".into(),
+            gas_limit: "0x0".into(),
+            chain_id: 0,
+            data: "0x0102030405060708090a0b0c0d0e0f10".into(),
+            max_fee_per_gas: "0x0".into(),
+            max_priority_fee: "0x0".into(),
+            access_list: Vec::new(),
+            chunkify: false,
+            eth_definitions: None,
+            solana_additional_info: expected.clone(),
+        })
+        .expect("solana request should map");
+        let ThpSignTxRequest::Solana(mapped) = mapped else {
+            panic!("expected a Solana sign request");
+        };
+        assert_eq!(
+            mapped.serialized_tx,
+            vec![
+                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+                0x0f, 0x10,
+            ]
+        );
+        assert_eq!(mapped.additional_info, expected);
+    }
 }
 
 #[test]
@@ -83,6 +97,7 @@ fn sign_tx_request_rejects_too_short_solana_payload() {
         access_list: Vec::new(),
         chunkify: false,
         eth_definitions: None,
+        solana_additional_info: None,
     })
     .expect_err("short Solana payload should fail");
     assert!(matches!(err, HWCoreError::Validation(_)));
@@ -104,6 +119,7 @@ fn sign_tx_request_maps_bitcoin_chain() {
         access_list: Vec::new(),
         chunkify: false,
         eth_definitions: None,
+        solana_additional_info: None,
     })
     .expect("bitcoin request should map");
     assert!(matches!(mapped, ThpSignTxRequest::Bitcoin(_)));
@@ -388,6 +404,7 @@ fn ethereum_definitions_are_rejected_when_misplaced_or_malformed() {
             }],
             ..EthereumDefinitions::default()
         }),
+        solana_additional_info: None,
     })
     .expect_err("display format address must be 20 bytes");
     assert!(matches!(err, HWCoreError::Validation(_)));

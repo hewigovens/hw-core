@@ -116,7 +116,8 @@ public extension SignTxRequest {
     static func solana(
         path: String = Chain.solana.defaultPath,
         serializedTxHex: String,
-        chunkify: Bool = false
+        chunkify: Bool = false,
+        additionalInfo: SolanaTxAdditionalInfo? = nil
     ) -> SignTxRequest {
         SignTxRequest(
             chain: .solana,
@@ -130,7 +131,8 @@ public extension SignTxRequest {
             maxFeePerGas: "0x0",
             maxPriorityFee: "0x0",
             accessList: [],
-            chunkify: chunkify
+            chunkify: chunkify,
+            solanaAdditionalInfo: additionalInfo
         )
     }
 
