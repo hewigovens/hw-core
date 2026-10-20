@@ -56,7 +56,9 @@ with your own UI.
 This is an early-stage SDK. macOS and Linux are the supported CLI hosts; native
 Apple and Android apps use the project's separate UniFFI integrations. Linux
 builds require `libdbus-1-dev` and `pkg-config`. BLE access also requires the host
-platform's Bluetooth permissions.
+platform's Bluetooth permissions. Android apps that build these crates into their
+own native library must also initialize btleplug and ship its Java classes; see
+[Embedding hw-core on Android](https://github.com/hewigovens/hw-core/blob/main/docs/android-embedding.md).
 
 See the [project README](https://github.com/hewigovens/hw-core#status) for supported
 operations and known limitations, and the

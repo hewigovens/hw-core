@@ -2,6 +2,8 @@
 
 Android library and sample app for hw-core, exposing Trezor hardware wallet communication via UniFFI bindings.
 
+To build hw-core's Rust crates into your own native library instead of using this one, see [Embedding hw-core on Android](../docs/android-embedding.md).
+
 ## Structure
 
 ```
