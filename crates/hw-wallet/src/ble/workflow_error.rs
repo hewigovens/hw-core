@@ -36,7 +36,7 @@ impl WorkflowErrorExt for ThpWorkflowError {
     }
 
     fn into_session_error(self) -> WalletError {
-        let message = match self {
+        let hint = match &self {
             Self::Backend(BackendError::DeviceFirmwareError) => {
                 "device reported a firmware error. Ensure the Trezor screen is unlocked and idle, then retry."
             }
@@ -46,10 +46,8 @@ impl WorkflowErrorExt for ThpWorkflowError {
             Self::Backend(BackendError::DeviceBusy) => {
                 "device is busy. Finish or cancel the action on the Trezor and retry."
             }
-            other => return WalletError::Workflow(other),
+            _ => return WalletError::Workflow(self),
         };
-        WalletError::Workflow(ThpWorkflowError::Backend(BackendError::Device(
-            message.into(),
-        )))
+        WalletError::SessionUnavailable { hint, source: self }
     }
 }
