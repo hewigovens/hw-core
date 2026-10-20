@@ -9,6 +9,16 @@ On Android, hw-core talks Bluetooth through [btleplug](https://github.com/device
 A shared library has one `JNI_OnLoad`. hw-core defines its own only in `hw-ffi` ([`crates/hw-ffi/src/platform/android.rs`](../crates/hw-ffi/src/platform/android.rs)), which embedding apps do not link, so yours must call `btleplug::platform::init` before any hw-core BLE call:
 
 ```rust
+/// `attach_current_thread` needs an error type that converts from `jni::errors::Error`.
+#[cfg(target_os = "android")]
+#[derive(Debug, thiserror::Error)]
+enum InitError {
+    #[error(transparent)]
+    Jni(#[from] jni::errors::Error),
+    #[error(transparent)]
+    Btleplug(#[from] btleplug::Error),
+}
+
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn JNI_OnLoad(
@@ -20,8 +30,9 @@ pub unsafe extern "system" fn JNI_OnLoad(
     }
     // SAFETY: the JVM passes a valid JavaVM pointer; null was rejected above.
     let vm = unsafe { jni::JavaVM::from_raw(vm) };
-    let result = vm.attach_current_thread(|env| {
-        btleplug::platform::init(env).map_err(|err| err.to_string())
+    let result = vm.attach_current_thread(|env| -> Result<(), InitError> {
+        btleplug::platform::init(env)?;
+        Ok(())
     });
     match result {
         Ok(()) => jni::sys::JNI_VERSION_1_6,
@@ -36,6 +47,7 @@ Add the matching dependencies for the Android target. Use the btleplug version h
 [target.'cfg(target_os = "android")'.dependencies]
 btleplug = "0.13.4"
 jni = "0.22"
+thiserror = "2"
 ```
 
 `init` registers btleplug's native methods and caches its Java classes and the global adapter. Without it, the first adapter lookup (for example `BleManager` scanning) panics with "Droidplug has not been initialized".
@@ -114,5 +126,5 @@ cargo ndk --target arm64-v8a --platform 28 -- build --release -p yourlib
 ## Known pitfalls
 
 - **Stale OS bond:** `btleplug error: Not connected` right after connecting usually means a stale Bluetooth bond to the Trezor; see [troubleshooting](troubleshooting.md#android).
-- **Pairing file location:** if you persist pairing state with `FileStorage`, use a dedicated subdirectory such as `filesDir/hwcore/thp-host.json`. Android's `filesDir` is group-writable, and hw-core refuses to store credentials directly in it. The snapshot holds the host's static key and pairing credentials, so keep it out of backups and logs.
+- **Pairing file location:** if you persist pairing state with `FileStorage`, use a dedicated subdirectory of `noBackupFilesDir`, such as `noBackupFilesDir/hwcore/thp-host.json`. The snapshot holds the host's static key and pairing credentials, and Auto Backup includes `filesDir` but excludes `noBackupFilesDir` ([Android Auto Backup](https://developer.android.com/identity/data/autobackup)). Android's app directories are group-writable, and hw-core refuses to store credentials directly in one, so pass a path inside a subdirectory (hw-core creates it owner-only). Keep the snapshot out of logs too.
 - **Logs:** logcat buffers rotate quickly on some devices; enlarge them with `adb logcat -G 16M`.
