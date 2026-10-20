@@ -1,6 +1,6 @@
 # Embedding hw-core on Android
 
-This guide is for Android apps that build hw-core's Rust crates (`hw-core`, `hw-wallet`, `trezor-connect`, `ble-transport`) into **their own** native library, for example a wallet that already ships one UniFFI `.so`. Apps that use hw-core's Kotlin library in [`android/lib`](../android/README.md) get all of this from that library and only need the [permissions](#4-request-bluetooth-permissions).
+This guide is for Android apps that build hw-core's Rust crates (`hw-core`, `hw-wallet`, `trezor-connect`, `ble-transport`) into **their own** native library, for example a wallet that already ships one UniFFI `.so`. Apps that use hw-core's Kotlin library in [`android/lib`](../android/README.md) get steps 1, 3 and 5 from that library, but still need [step 2](#2-load-the-library-with-systemloadlibrary-first) (`System.loadLibrary("hwcore")` before any binding call) and the [permissions](#4-request-bluetooth-permissions).
 
 On Android, hw-core talks Bluetooth through [btleplug](https://github.com/deviceplug/btleplug), whose Android backend ("droidplug") is Java code driven from Rust over JNI. That Java code is not compiled into the `.so`, so the embedding app has to supply it, initialize it from `JNI_OnLoad`, and load the library in a way that runs `JNI_OnLoad`. The steps below mirror what hw-core's own library and sample app do; they are the path tested on real devices.
 
@@ -60,7 +60,15 @@ btleplug's Java side lives in the btleplug crate source under `src/droidplug/jav
 - `com.nonpolynomial.btleplug.android.impl` (adapter, peripheral, exceptions)
 - `io.github.gedgygedgy.rust` (jni-utils futures, streams and callbacks)
 
-Copy both into your Android module's `src/main/java`, from the same btleplug version your Rust build uses, then apply [`android/patches/btleplug-Peripheral.patch`](../android/patches/btleplug-Peripheral.patch). [`scripts/sync-bindings.sh`](../scripts/sync-bindings.sh) (`sync_android_java_support`) is the reference: it finds the crate under `~/.cargo/registry/src` (or `BTLEPLUG_RS_DIR`), copies both trees, and applies the patch with `git apply`.
+Copy both into your Android module's `src/main/java`, from the same btleplug version your Rust build uses, then apply [`android/patches/btleplug-Peripheral.patch`](../android/patches/btleplug-Peripheral.patch). The patch paths are relative to hw-core's repository (`android/lib/src/main/java/...`), so strip those six leading components and point it at your module's source root:
+
+```bash
+git apply -p6 --directory=app/src/main/java btleplug-Peripheral.patch
+# outside a git checkout:
+patch -p6 -d app/src/main/java < btleplug-Peripheral.patch
+```
+
+[`scripts/sync-bindings.sh`](../scripts/sync-bindings.sh) (`sync_android_java_support`) does the same for hw-core's own layout: it finds the crate under `~/.cargo/registry/src` (or `BTLEPLUG_RS_DIR`), copies both trees, and applies the patch.
 
 The patch is not optional for THP traffic. On stock droidplug, notifications that arrive while no read is pending are dropped, and `WRITE_TYPE_NO_RESPONSE` writes can stall the command queue on stacks that never fire `onCharacteristicWrite`. The patch:
 
@@ -79,7 +87,7 @@ If you minify release builds, keep these classes: Rust finds them by name and re
 
 ## 4. Request Bluetooth permissions
 
-Declare the permissions the sample app uses ([`AndroidManifest.xml`](../android/sample-app/app/src/main/AndroidManifest.xml)):
+Declare the Bluetooth permissions:
 
 ```xml
 <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
@@ -88,12 +96,12 @@ Declare the permissions the sample app uses ([`AndroidManifest.xml`](../android/
     android:name="android.permission.BLUETOOTH_SCAN"
     android:usesPermissionFlags="neverForLocation" />
 <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
 <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 ```
 
-At runtime, request `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT` and `ACCESS_FINE_LOCATION` on Android 12 (API 31) and later, and `BLUETOOTH`, `BLUETOOTH_ADMIN` and `ACCESS_FINE_LOCATION` before that, and only start scanning once they are granted. hw-core's Android builds target API 28 as the minimum (`cargo ndk --platform 28`, `minSdk = 28`).
+At runtime, request `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` on Android 12 (API 31) and later, and `BLUETOOTH`, `BLUETOOTH_ADMIN` and `ACCESS_FINE_LOCATION` before that, and only start scanning once they are granted. Because `BLUETOOTH_SCAN` is declared `neverForLocation`, API 31+ does not need location ([Android Bluetooth permissions](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions#assert-never-for-location)), and droidplug itself checks no location permission. hw-core's [sample app](../android/sample-app/app/src/main/AndroidManifest.xml) still declares and requests `ACCESS_FINE_LOCATION` on all versions; that is the configuration tested on devices, so scanning on API 31+ without location has not been exercised. hw-core's Android builds target API 28 as the minimum (`cargo ndk --platform 28`, `minSdk = 28`).
 
 ## 5. Build the native library
 
