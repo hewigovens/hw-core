@@ -12,7 +12,8 @@ pub use crate::ble::{
 };
 pub use crate::errors::HWCoreError;
 pub use crate::types::{
-    AccessListEntry, AddressResult, BitcoinRefTx, BitcoinRefTxInput, BitcoinRefTxOutput,
+    AccessListEntry, AddressResult, BitcoinMultisig, BitcoinMultisigPubkey,
+    BitcoinMultisigPubkeysOrder, BitcoinRefTx, BitcoinRefTxInput, BitcoinRefTxOutput,
     BitcoinSignTxRequest, BitcoinTxInput, BitcoinTxOutput, BleDeviceInfo, ButtonRequest,
     ButtonRequestCode, Chain, ChainConfig, DeviceFeatures, EthereumDefinitions,
     EthereumDefinitionsSource, EthereumDisplayFormatDefinition, EthereumTokenDefinition,

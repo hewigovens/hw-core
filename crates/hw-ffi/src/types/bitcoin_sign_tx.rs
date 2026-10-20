@@ -1,5 +1,7 @@
 use hw_wallet::btc::{
-    TxInput, TxInputInput, TxInputOutput, TxInputRefTx, TxInputRefTxInput, TxInputRefTxOutput,
+    TxInput, TxInputHDNodePath, TxInputHDNodeRef, TxInputInput, TxInputMultisig,
+    TxInputMultisigPubkeysOrder, TxInputOutput, TxInputRefTx, TxInputRefTxInput,
+    TxInputRefTxOutput,
 };
 use trezor_connect::thp::{BtcInputScriptType, BtcOutputScriptType, BtcSignTx};
 
@@ -29,6 +31,9 @@ pub struct BitcoinTxInput {
     /// `None` uses `0xffffffff`.
     pub sequence: Option<u32>,
     pub script_type: BtcInputScriptType,
+    /// Required for `SpendMultisig`.
+    #[uniffi(default = None)]
+    pub multisig: Option<BitcoinMultisig>,
 }
 
 /// Payment to `address`, or change back to the wallet at `path`.
@@ -42,6 +47,33 @@ pub struct BitcoinTxOutput {
     pub script_type: Option<BtcOutputScriptType>,
     /// Hex payload for a PayToOpReturn output.
     pub op_return_data: Option<String>,
+    /// Required for `PayToMultisig` change.
+    #[uniffi(default = None)]
+    pub multisig: Option<BitcoinMultisig>,
+}
+
+/// Multisig redeem script description: `m` of the cosigner keys in `pubkeys`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct BitcoinMultisig {
+    pub pubkeys: Vec<BitcoinMultisigPubkey>,
+    /// Hex signatures already collected from other cosigners, one slot per pubkey (empty if none).
+    pub signatures: Vec<String>,
+    pub m: u32,
+    pub pubkeys_order: BitcoinMultisigPubkeysOrder,
+}
+
+/// A cosigner's account xpub and the non-hardened path below it, e.g. `[0, 5]`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct BitcoinMultisigPubkey {
+    pub xpub: String,
+    pub address_n: Vec<u32>,
+}
+
+#[derive(uniffi::Enum, Clone, Copy, Debug)]
+pub enum BitcoinMultisigPubkeysOrder {
+    Preserved,
+    /// BIP-67 sorted, as `sortedmulti` descriptors use.
+    Lexicographic,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -158,7 +190,7 @@ impl From<BitcoinTxInput> for TxInputInput {
             amount: input.amount.to_string(),
             sequence: input.sequence.unwrap_or(DEFAULT_SEQUENCE),
             script_type: input.script_type.wallet_name().to_string(),
-            multisig: None,
+            multisig: input.multisig.map(Into::into),
             script_sig: None,
             witness: None,
             orig_hash: None,
@@ -176,11 +208,36 @@ impl From<BitcoinTxOutput> for TxInputOutput {
             script_type: output
                 .script_type
                 .map(|script_type| script_type.wallet_name().to_string()),
-            multisig: None,
+            multisig: output.multisig.map(Into::into),
             op_return_data: output.op_return_data,
             orig_hash: None,
             orig_index: None,
             payment_req_index: None,
+        }
+    }
+}
+
+impl From<BitcoinMultisig> for TxInputMultisig {
+    fn from(multisig: BitcoinMultisig) -> Self {
+        Self {
+            pubkeys: multisig
+                .pubkeys
+                .into_iter()
+                .map(|pubkey| TxInputHDNodePath {
+                    node: TxInputHDNodeRef::Xpub(pubkey.xpub),
+                    address_n: pubkey.address_n,
+                })
+                .collect(),
+            signatures: multisig.signatures,
+            m: multisig.m,
+            nodes: Vec::new(),
+            address_n: Vec::new(),
+            pubkeys_order: match multisig.pubkeys_order {
+                BitcoinMultisigPubkeysOrder::Preserved => TxInputMultisigPubkeysOrder::Preserved,
+                BitcoinMultisigPubkeysOrder::Lexicographic => {
+                    TxInputMultisigPubkeysOrder::Lexicographic
+                }
+            },
         }
     }
 }

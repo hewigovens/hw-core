@@ -1,5 +1,5 @@
 use trezor_connect::thp::{
-    BtcInputScriptType, BtcOutputScriptType, BtcSignTx, Chain,
+    BtcInputScriptType, BtcMultisigPubkeysOrder, BtcOutputScriptType, BtcSignTx, Chain,
     GetAddressRequest as ThpGetAddressRequest, SignMessageRequest as ThpSignMessageRequest,
     SignTxRequest as ThpSignTxRequest, SignTypedDataPayload,
     SignTypedDataRequest as ThpSignTypedDataRequest, SolanaTxAdditionalInfo,
@@ -8,8 +8,9 @@ use trezor_connect::thp::{
 
 use crate::errors::HWCoreError;
 use crate::types::{
-    BitcoinRefTx, BitcoinRefTxInput, BitcoinRefTxOutput, BitcoinSignTxRequest, BitcoinTxInput,
-    BitcoinTxOutput, DeviceFeatures, EthereumDefinitions, EthereumDefinitionsSource,
+    BitcoinMultisig, BitcoinMultisigPubkey, BitcoinMultisigPubkeysOrder, BitcoinRefTx,
+    BitcoinRefTxInput, BitcoinRefTxOutput, BitcoinSignTxRequest, BitcoinTxInput, BitcoinTxOutput,
+    DeviceFeatures, EthereumDefinitions, EthereumDefinitionsSource,
     EthereumDisplayFormatDefinition, GetAddressRequest, SignMessageRequest, SignTxRequest,
     SignTypedDataRequest,
 };
@@ -136,6 +137,7 @@ fn typed_bitcoin_request() -> BitcoinSignTxRequest {
             amount: 1000,
             sequence: None,
             script_type: BtcInputScriptType::SpendWitness,
+            multisig: None,
         }],
         outputs: vec![
             BitcoinTxOutput {
@@ -144,6 +146,7 @@ fn typed_bitcoin_request() -> BitcoinSignTxRequest {
                 amount: 900,
                 script_type: None,
                 op_return_data: None,
+                multisig: None,
             },
             BitcoinTxOutput {
                 address: None,
@@ -151,6 +154,7 @@ fn typed_bitcoin_request() -> BitcoinSignTxRequest {
                 amount: 50,
                 script_type: None,
                 op_return_data: None,
+                multisig: None,
             },
         ],
         ref_txs: vec![BitcoinRefTx {
@@ -185,6 +189,46 @@ fn typed_bitcoin_request_maps_with_inferred_script_types_and_defaults() {
     assert_eq!(tx.outputs[1].script_type, BtcOutputScriptType::PayToWitness);
     assert_eq!(tx.ref_txs.len(), 1);
     assert_eq!(tx.ref_txs[0].bin_outputs[0].amount, 1000);
+}
+
+#[test]
+fn typed_bitcoin_request_carries_multisig_metadata() {
+    const COSIGNER_XPUB: &str = "tpubDF4tYm8PaDydbLMZZRqcquYZ6AvxFmyTv6RhSokPh6YxccaCxP1gF2VABKV9wsinAdUbsbdLx1vcXdJH8qRcQMM9VYd926rWM685CepPUdN";
+    let multisig = BitcoinMultisig {
+        pubkeys: vec![
+            BitcoinMultisigPubkey {
+                xpub: COSIGNER_XPUB.into(),
+                address_n: vec![0, 0],
+            },
+            BitcoinMultisigPubkey {
+                xpub: COSIGNER_XPUB.into(),
+                address_n: vec![0, 1],
+            },
+        ],
+        signatures: vec![String::new(), String::new()],
+        m: 2,
+        pubkeys_order: BitcoinMultisigPubkeysOrder::Lexicographic,
+    };
+    let mut request = typed_bitcoin_request();
+    request.inputs[0].path = "m/48'/1'/0'/2'/0/0".into();
+    request.inputs[0].script_type = BtcInputScriptType::SpendMultisig;
+
+    let err = BtcSignTx::try_from(request.clone()).expect_err("SpendMultisig needs metadata");
+    assert!(matches!(err, HWCoreError::Validation(_)));
+
+    request.inputs[0].multisig = Some(multisig);
+    let tx = BtcSignTx::try_from(request).expect("multisig input should map");
+    let multisig = tx.inputs[0]
+        .multisig
+        .as_ref()
+        .expect("multisig is forwarded");
+    assert_eq!(multisig.m, 2);
+    assert_eq!(multisig.pubkeys.len(), 2);
+    assert_eq!(multisig.pubkeys[1].address_n, vec![0, 1]);
+    assert_eq!(
+        multisig.pubkeys_order,
+        BtcMultisigPubkeysOrder::Lexicographic
+    );
 }
 
 #[test]
