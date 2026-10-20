@@ -44,10 +44,18 @@ public final class HWCoreKit: @unchecked Sendable {
     public func connect(device: WalletDevice) async throws -> WalletSession {
         do {
             let session = try await device.raw.connect()
-            let workflow = try await session.intoWorkflowWithStorage(
-                config: makeHostConfig(),
-                storagePath: config.storagePath
-            )
+            let workflow: BleWorkflowHandle
+            if let hostStorage = config.hostStorage {
+                workflow = try await session.intoWorkflowWithHostStorage(
+                    config: makeHostConfig(),
+                    storage: hostStorage
+                )
+            } else {
+                workflow = try await session.intoWorkflowWithStorage(
+                    config: makeHostConfig(),
+                    storagePath: config.storagePath
+                )
+            }
             log(
                 level: .info,
                 operation: "connect",

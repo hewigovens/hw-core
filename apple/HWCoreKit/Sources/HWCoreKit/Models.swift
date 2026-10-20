@@ -5,6 +5,8 @@ public struct HWCoreConfig: Sendable {
     public var hostName: String
     public var appName: String
     public var storagePath: String?
+    /// App-owned store for the pairing snapshot (e.g. the Keychain); takes precedence over `storagePath`.
+    public var hostStorage: HostStorage?
     public var pairingMethods: [PairingMethod]
     public var sessionRetryPolicy: SessionRetryPolicy
 
@@ -12,12 +14,14 @@ public struct HWCoreConfig: Sendable {
         hostName: String,
         appName: String,
         storagePath: String? = nil,
+        hostStorage: HostStorage? = nil,
         pairingMethods: [PairingMethod] = [.codeEntry],
         sessionRetryPolicy: SessionRetryPolicy = sessionRetryPolicyDefault()
     ) {
         self.hostName = hostName
         self.appName = appName
         self.storagePath = storagePath
+        self.hostStorage = hostStorage
         self.pairingMethods = pairingMethods
         self.sessionRetryPolicy = sessionRetryPolicy
     }
@@ -54,6 +58,8 @@ public struct WalletEvent: Sendable {
     }
 }
 
+public typealias HostStorage = HWCoreFFI.HostStorage
+public typealias HostStorageError = HWCoreFFI.HostStorageError
 public typealias ButtonRequest = HWCoreFFI.ButtonRequest
 public typealias ButtonRequestCode = HWCoreFFI.ButtonRequestCode
 public typealias DeviceFeatures = HWCoreFFI.DeviceFeatures
