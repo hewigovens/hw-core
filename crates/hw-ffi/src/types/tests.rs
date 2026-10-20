@@ -1,11 +1,15 @@
 use trezor_connect::thp::{
-    Chain, GetAddressRequest as ThpGetAddressRequest, SignMessageRequest as ThpSignMessageRequest,
+    BtcInputScriptType, BtcOutputScriptType, BtcSignTx, Chain,
+    GetAddressRequest as ThpGetAddressRequest, SignMessageRequest as ThpSignMessageRequest,
     SignTxRequest as ThpSignTxRequest, SignTypedDataPayload,
     SignTypedDataRequest as ThpSignTypedDataRequest,
 };
 
 use crate::errors::HWCoreError;
-use crate::types::{GetAddressRequest, SignMessageRequest, SignTxRequest, SignTypedDataRequest};
+use crate::types::{
+    BitcoinRefTx, BitcoinRefTxInput, BitcoinRefTxOutput, BitcoinSignTxRequest, BitcoinTxInput,
+    BitcoinTxOutput, GetAddressRequest, SignMessageRequest, SignTxRequest, SignTypedDataRequest,
+};
 
 const BTC_SIGN_WITH_REF_TXS: &str =
     include_str!("../../../../tests/data/bitcoin/btc_sign_with_ref_txs.json");
@@ -97,6 +101,85 @@ fn sign_tx_request_maps_bitcoin_chain() {
     })
     .expect("bitcoin request should map");
     assert!(matches!(mapped, ThpSignTxRequest::Bitcoin(_)));
+}
+
+/// Typed equivalent of `btc_sign_with_ref_txs.json`.
+fn typed_bitcoin_request() -> BitcoinSignTxRequest {
+    let prev_hash = format!("0x{}", "11".repeat(32));
+    BitcoinSignTxRequest {
+        inputs: vec![BitcoinTxInput {
+            path: "m/84'/0'/0'/0/0".into(),
+            prev_hash: prev_hash.clone(),
+            prev_index: 0,
+            amount: 1000,
+            sequence: None,
+            script_type: BtcInputScriptType::SpendWitness,
+        }],
+        outputs: vec![
+            BitcoinTxOutput {
+                address: Some("bc1qexample0000000000000000000000000000000000".into()),
+                path: None,
+                amount: 900,
+                script_type: None,
+                op_return_data: None,
+            },
+            BitcoinTxOutput {
+                address: None,
+                path: Some("m/84'/0'/0'/1/0".into()),
+                amount: 50,
+                script_type: None,
+                op_return_data: None,
+            },
+        ],
+        ref_txs: vec![BitcoinRefTx {
+            hash: prev_hash,
+            version: 2,
+            lock_time: 0,
+            inputs: vec![BitcoinRefTxInput {
+                prev_hash: format!("0x{}", "aa".repeat(32)),
+                prev_index: 0,
+                script_sig: String::new(),
+                sequence: None,
+            }],
+            bin_outputs: vec![BitcoinRefTxOutput {
+                amount: 1000,
+                script_pubkey: "001400112233445566778899aabbccddeeff00112233".into(),
+            }],
+            extra_data: None,
+        }],
+        version: 2,
+        lock_time: 0,
+        chunkify: false,
+    }
+}
+
+#[test]
+fn typed_bitcoin_request_maps_with_inferred_script_types_and_defaults() {
+    let tx = BtcSignTx::try_from(typed_bitcoin_request()).expect("typed request should map");
+    assert_eq!(tx.inputs[0].script_type, BtcInputScriptType::SpendWitness);
+    assert_eq!(tx.inputs[0].amount, 1000);
+    assert_eq!(tx.inputs[0].sequence, 0xffff_ffff);
+    assert_eq!(tx.outputs[0].script_type, BtcOutputScriptType::PayToAddress);
+    assert_eq!(tx.outputs[1].script_type, BtcOutputScriptType::PayToWitness);
+    assert_eq!(tx.ref_txs.len(), 1);
+    assert_eq!(tx.ref_txs[0].bin_outputs[0].amount, 1000);
+}
+
+#[test]
+fn typed_bitcoin_request_rejects_invalid_shapes_before_signing() {
+    let mut request = typed_bitcoin_request();
+    request.outputs[0].script_type = Some(BtcOutputScriptType::PayToWitness);
+    assert!(matches!(
+        BtcSignTx::try_from(request),
+        Err(HWCoreError::Validation(_))
+    ));
+
+    let mut request = typed_bitcoin_request();
+    request.ref_txs.clear();
+    assert!(
+        BtcSignTx::try_from(request).is_err(),
+        "inputs must have their reference transaction"
+    );
 }
 
 #[test]

@@ -7,10 +7,10 @@ use super::wallet_requests::WalletRequests;
 use crate::ble::bootstrap_options::SessionBootstrapOptionsExt;
 use crate::errors::HWCoreError;
 use crate::types::{
-    AddressResult, DeviceFeatures, GetAddressRequest, PairingMethod, PairingProgress,
-    PairingPrompt, SessionHandshakeState, SessionPhase, SessionRetryPolicy, SessionState,
-    SessionStateExt, SignMessageRequest, SignMessageResult, SignTxRequest, SignTxResult,
-    SignTypedDataRequest, SignTypedDataResult, WorkflowEvent, WorkflowEventKind,
+    AddressResult, BitcoinSignTxRequest, DeviceFeatures, GetAddressRequest, PairingMethod,
+    PairingProgress, PairingPrompt, SessionHandshakeState, SessionPhase, SessionRetryPolicy,
+    SessionState, SessionStateExt, SignMessageRequest, SignMessageResult, SignTxRequest,
+    SignTxResult, SignTypedDataRequest, SignTypedDataResult, WorkflowEvent, WorkflowEventKind,
 };
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -248,6 +248,23 @@ impl BleWorkflowHandle {
         );
         let response = self
             .with_workflow(async |workflow| workflow.request_tx_signature(request).await)
+            .await?;
+        self.progress("SIGN_TX_OK", "Transaction signed");
+        Ok(response)
+    }
+
+    /// Signs a Bitcoin transaction described by typed inputs, outputs and reference txs.
+    #[uniffi::method]
+    pub async fn sign_bitcoin_tx(
+        &self,
+        request: BitcoinSignTxRequest,
+    ) -> Result<SignTxResult, HWCoreError> {
+        self.progress(
+            "SIGN_TX_START",
+            "Requesting transaction signature from device",
+        );
+        let response = self
+            .with_workflow(async |workflow| workflow.request_bitcoin_tx_signature(request).await)
             .await?;
         self.progress("SIGN_TX_OK", "Transaction signed");
         Ok(response)

@@ -1,4 +1,5 @@
 mod address;
+mod bitcoin_sign_tx;
 mod ble_device_info;
 mod button_request;
 mod chain;
@@ -16,6 +17,10 @@ mod uuid;
 mod workflow_event;
 
 pub use address::{AddressResult, GetAddressRequest};
+pub use bitcoin_sign_tx::{
+    BitcoinRefTx, BitcoinRefTxInput, BitcoinRefTxOutput, BitcoinSignTxRequest, BitcoinTxInput,
+    BitcoinTxOutput,
+};
 pub use ble_device_info::BleDeviceInfo;
 pub use button_request::{ButtonRequest, ButtonRequestCode};
 pub use chain::{Chain, ChainConfig, chain_config};

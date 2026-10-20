@@ -222,6 +222,20 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
+    /// Signs a Bitcoin transaction from typed inputs, outputs and reference transactions.
+    public func signBitcoinTx(
+        _ request: BitcoinSignTxRequest,
+        timeout: TimeInterval? = nil
+    ) async throws -> SignTxResult {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "signBitcoinTx") {
+                try await self.workflow.signBitcoinTx(request: request)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
     public func signTx(
         _ request: SignTxRequest,
         timeout: TimeInterval? = nil

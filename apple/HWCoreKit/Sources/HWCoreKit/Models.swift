@@ -67,6 +67,7 @@ public typealias SignatureEncoding = HWCoreFFI.SignatureEncoding
 public typealias MessageSignatureEncoding = SignatureEncoding
 public typealias SignMessageRequest = HWCoreFFI.SignMessageRequest
 public typealias SignMessageResult = HWCoreFFI.SignMessageResult
+public typealias BitcoinSignTxRequest = HWCoreFFI.BitcoinSignTxRequest
 public typealias SignTxRequest = HWCoreFFI.SignTxRequest
 public typealias SignTxResult = HWCoreFFI.SignTxResult
 
