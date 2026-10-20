@@ -27,6 +27,7 @@ impl SolanaSignTxExt for SolanaSignTx {
         Ok(Self {
             path,
             serialized_tx,
+            additional_info: None,
         })
     }
 }

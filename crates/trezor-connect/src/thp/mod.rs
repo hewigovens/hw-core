@@ -25,6 +25,7 @@ pub use types::{
     EthTokenDefinition, EthTxSignature, GetAddressRequest, GetAddressResponse, HostConfig,
     PairingController, PairingDecision, PairingMethod, SignMessageRequest, SignMessageResponse,
     SignTxRequest, SignTxResponse, SignTypedDataPayload, SignTypedDataRequest,
-    SignTypedDataResponse, SolanaSignTx, decode_solana_public_key,
+    SignTypedDataResponse, SolanaSignTx, SolanaTxAdditionalInfo, SolanaTxTokenAccountInfo,
+    decode_solana_public_key,
 };
 pub use workflow::ThpWorkflow;

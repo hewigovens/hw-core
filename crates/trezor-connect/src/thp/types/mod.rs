@@ -48,5 +48,5 @@ pub use sign_message::{
     SOLANA_PUBLIC_KEY_LEN, SignMessageRequest, SignMessageResponse, decode_solana_public_key,
 };
 pub use sign_tx::{SignTxRequest, SignTxResponse};
-pub use solana_sign_tx::SolanaSignTx;
+pub use solana_sign_tx::{SolanaSignTx, SolanaTxAdditionalInfo, SolanaTxTokenAccountInfo};
 pub use typed_data::{SignTypedDataPayload, SignTypedDataRequest, SignTypedDataResponse};

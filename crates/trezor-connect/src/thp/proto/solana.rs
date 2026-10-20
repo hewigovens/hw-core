@@ -41,11 +41,33 @@ pub(crate) struct SolanaAddress {
 }
 
 #[derive(Clone, PartialEq, Message)]
+pub(crate) struct SolanaTxTokenAccountInfo {
+    #[prost(string, required, tag = "1")]
+    base_address: String,
+    #[prost(string, required, tag = "2")]
+    token_program: String,
+    #[prost(string, required, tag = "3")]
+    token_mint: String,
+    #[prost(string, required, tag = "4")]
+    token_account: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub(crate) struct SolanaTxAdditionalInfo {
+    #[prost(message, repeated, tag = "1")]
+    token_accounts_infos: Vec<SolanaTxTokenAccountInfo>,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    encoded_token: Option<Vec<u8>>,
+}
+
+#[derive(Clone, PartialEq, Message)]
 pub(crate) struct SolanaSignTx {
     #[prost(uint32, repeated, packed = "false", tag = "1")]
     path: Vec<u32>,
     #[prost(bytes = "vec", required, tag = "2")]
     serialized_tx: Vec<u8>,
+    #[prost(message, optional, tag = "3")]
+    additional_info: Option<SolanaTxAdditionalInfo>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -126,6 +148,27 @@ impl From<&types::SolanaSignTx> for SolanaSignTx {
         Self {
             path: tx.path.clone(),
             serialized_tx: tx.serialized_tx.clone(),
+            additional_info: tx.additional_info.as_ref().map(Into::into),
+        }
+    }
+}
+
+impl From<&types::SolanaTxAdditionalInfo> for SolanaTxAdditionalInfo {
+    fn from(info: &types::SolanaTxAdditionalInfo) -> Self {
+        Self {
+            token_accounts_infos: info.token_accounts_infos.iter().map(Into::into).collect(),
+            encoded_token: info.encoded_token.clone(),
+        }
+    }
+}
+
+impl From<&types::SolanaTxTokenAccountInfo> for SolanaTxTokenAccountInfo {
+    fn from(info: &types::SolanaTxTokenAccountInfo) -> Self {
+        Self {
+            base_address: info.base_address.clone(),
+            token_program: info.token_program.clone(),
+            token_mint: info.token_mint.clone(),
+            token_account: info.token_account.clone(),
         }
     }
 }
@@ -216,17 +259,65 @@ mod tests {
     }
 
     #[test]
-    fn encodes_sign_tx_and_decodes_signature() {
-        let encoded = SignTxRequest::from(types::SolanaSignTx {
-            path: PATH.to_vec(),
-            serialized_tx: vec![0xAA, 0xBB, 0xCC],
-        })
-        .encode();
-        assert_eq!(encoded.message_type, SolanaSignTx::MESSAGE_TYPE);
-        let decoded = SolanaSignTx::decode(encoded.payload.as_slice()).unwrap();
-        assert_eq!(decoded.path, PATH);
-        assert_eq!(decoded.serialized_tx, vec![0xAA, 0xBB, 0xCC]);
+    fn encodes_sign_tx_with_optional_additional_info() {
+        let token_account = types::SolanaTxTokenAccountInfo {
+            base_address: "A".into(),
+            token_program: "B".into(),
+            token_mint: "C".into(),
+            token_account: "D".into(),
+        };
+        let cases = [
+            ("without additional info", None, ""),
+            (
+                "empty additional info",
+                Some(types::SolanaTxAdditionalInfo::default()),
+                "1a00",
+            ),
+            (
+                "token definition only",
+                Some(types::SolanaTxAdditionalInfo {
+                    token_accounts_infos: Vec::new(),
+                    encoded_token: Some(vec![0xde, 0xad]),
+                }),
+                "1a041202dead",
+            ),
+            (
+                "token account and definition",
+                Some(types::SolanaTxAdditionalInfo {
+                    token_accounts_infos: vec![token_account],
+                    encoded_token: Some(vec![0xde, 0xad]),
+                }),
+                "1a12\
+                 0a0c0a01411201421a0143220144\
+                 1202dead",
+            ),
+        ];
 
+        for (name, additional_info, expected_suffix) in cases {
+            let encoded = SignTxRequest::from(types::SolanaSignTx {
+                path: PATH.to_vec(),
+                serialized_tx: vec![0xAA, 0xBB, 0xCC],
+                additional_info,
+            })
+            .encode();
+            assert_eq!(encoded.message_type, SolanaSignTx::MESSAGE_TYPE, "{name}");
+            assert_eq!(
+                hex::encode(&encoded.payload),
+                format!(
+                    "08ac80808008\
+                     08f583808008\
+                     088080808008\
+                     088080808008\
+                     1203aabbcc\
+                     {expected_suffix}"
+                ),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn decodes_tx_signature() {
         let payload = SolanaTxSignature {
             signature: vec![0x11; 64],
         }
