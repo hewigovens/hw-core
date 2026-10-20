@@ -5,6 +5,7 @@ mod channel;
 mod credential;
 mod error;
 mod ethereum;
+mod features;
 mod pairing;
 mod session;
 mod sign_message;
@@ -23,6 +24,7 @@ pub use ethereum::{
     EthereumStructMember, EthereumTxAck, EthereumTxRequest, EthereumTypedDataStructAck,
     EthereumTypedDataStructRequest, EthereumTypedDataValueAck, EthereumTypedDataValueRequest,
 };
+pub use features::{FeaturesProto, GetFeatures};
 pub use pairing::ParsedTagResponse;
 #[cfg(test)]
 pub(crate) use session::MESSAGE_TYPE_SUCCESS;

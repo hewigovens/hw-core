@@ -6,7 +6,7 @@ use super::channel::ThpChannel;
 use crate::thp::Chain;
 use crate::thp::backend::{BackendError, BackendResult, ThpBackend};
 use crate::thp::messages;
-use crate::thp::proto::{GetNonce, Nonce, WireMessage};
+use crate::thp::proto::{GetFeatures, GetNonce, Nonce, WireMessage};
 use crate::thp::types::*;
 
 impl ThpBackend for BleBackend {
@@ -176,6 +176,11 @@ impl ThpBackend for BleBackend {
             Ok(Nonce::from_message(message_type, payload)?.nonce)
         })
         .await
+    }
+
+    async fn get_features(&mut self) -> BackendResult<DeviceFeatures> {
+        self.call(GetFeatures {}.to_message(), DeviceFeatures::decode)
+            .await
     }
 
     async fn sign_message(

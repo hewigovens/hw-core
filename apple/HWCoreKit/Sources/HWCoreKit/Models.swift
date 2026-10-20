@@ -56,6 +56,7 @@ public struct WalletEvent: Sendable {
 
 public typealias ButtonRequest = HWCoreFFI.ButtonRequest
 public typealias ButtonRequestCode = HWCoreFFI.ButtonRequestCode
+public typealias DeviceFeatures = HWCoreFFI.DeviceFeatures
 public typealias SessionHandshakeState = HWCoreFFI.SessionHandshakeState
 public typealias Chain = HWCoreFFI.Chain
 public typealias ChainConfig = HWCoreFFI.ChainConfig

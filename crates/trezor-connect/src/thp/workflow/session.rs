@@ -4,7 +4,9 @@ use super::ThpWorkflow;
 use crate::thp::backend::ThpBackend;
 use crate::thp::error::Result;
 use crate::thp::state::Phase;
-use crate::thp::types::{CreateSessionRequest, GetAddressRequest, GetAddressResponse};
+use crate::thp::types::{
+    CreateSessionRequest, DeviceFeatures, GetAddressRequest, GetAddressResponse,
+};
 
 impl<B> ThpWorkflow<B>
 where
@@ -29,6 +31,12 @@ where
     pub async fn get_address(&mut self, request: GetAddressRequest) -> Result<GetAddressResponse> {
         self.require_phase(Phase::Paired)?;
         Ok(self.backend.get_address(request).await?)
+    }
+
+    /// Reads the device identity, firmware version and passphrase settings.
+    pub async fn get_features(&mut self) -> Result<DeviceFeatures> {
+        self.require_phase(Phase::Paired)?;
+        Ok(self.backend.get_features().await?)
     }
 
     pub async fn get_nonce(&mut self) -> Result<Vec<u8>> {

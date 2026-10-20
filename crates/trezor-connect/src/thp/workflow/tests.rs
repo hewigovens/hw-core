@@ -501,7 +501,7 @@ async fn get_address_requires_paired_phase() {
 }
 
 #[tokio::test]
-async fn get_nonce_requires_paired_phase() {
+async fn device_queries_require_paired_phase() {
     let backend = MockBackend::autopair();
     let mut workflow = ThpWorkflow::new(
         backend,
@@ -519,6 +519,12 @@ async fn get_nonce_requires_paired_phase() {
         .await
         .expect_err("should fail before pairing");
     assert!(matches!(err, ThpWorkflowError::InvalidPhase));
+    let err = workflow
+        .get_features()
+        .await
+        .expect_err("should fail before pairing");
+    assert!(matches!(err, ThpWorkflowError::InvalidPhase));
+    assert_eq!(workflow.backend().counters.get_features_calls, 0);
 }
 
 #[tokio::test]

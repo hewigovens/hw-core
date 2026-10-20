@@ -168,6 +168,17 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
+    /// Device id, label, model, firmware version and passphrase settings.
+    public func getFeatures(timeout: TimeInterval? = nil) async throws -> DeviceFeatures {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "getFeatures") {
+                try await self.workflow.getFeatures()
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
     public func getNonce(timeout: TimeInterval? = nil) async throws -> String {
         do {
             return try await withTimeout(seconds: timeout, operation: "getNonce") {

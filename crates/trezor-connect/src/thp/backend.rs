@@ -88,6 +88,8 @@ pub trait ThpBackend: Send {
 
     async fn get_nonce(&mut self) -> BackendResult<Vec<u8>>;
 
+    async fn get_features(&mut self) -> BackendResult<DeviceFeatures>;
+
     async fn sign_message(
         &mut self,
         request: SignMessageRequest,

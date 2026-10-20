@@ -7,10 +7,10 @@ use super::wallet_requests::WalletRequests;
 use crate::ble::bootstrap_options::SessionBootstrapOptionsExt;
 use crate::errors::HWCoreError;
 use crate::types::{
-    AddressResult, GetAddressRequest, PairingProgress, PairingPrompt, SessionHandshakeState,
-    SessionPhase, SessionRetryPolicy, SessionState, SessionStateExt, SignMessageRequest,
-    SignMessageResult, SignTxRequest, SignTxResult, SignTypedDataRequest, SignTypedDataResult,
-    WorkflowEvent, WorkflowEventKind,
+    AddressResult, DeviceFeatures, GetAddressRequest, PairingProgress, PairingPrompt,
+    SessionHandshakeState, SessionPhase, SessionRetryPolicy, SessionState, SessionStateExt,
+    SignMessageRequest, SignMessageResult, SignTxRequest, SignTxResult, SignTypedDataRequest,
+    SignTypedDataResult, WorkflowEvent, WorkflowEventKind,
 };
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -181,6 +181,15 @@ impl BleWorkflowHandle {
             .await?;
         self.progress("GET_ADDRESS_OK", "Address received");
         Ok(response)
+    }
+
+    /// Reads the device id, label, model, firmware version and passphrase settings.
+    ///
+    /// `device_id` is stable across phones and reconnects, unlike `BleDeviceInfo.id`.
+    #[uniffi::method]
+    pub async fn get_features(&self) -> Result<DeviceFeatures, HWCoreError> {
+        self.with_workflow(async |workflow| Ok(workflow.get_features().await?))
+            .await
     }
 
     #[uniffi::method]
