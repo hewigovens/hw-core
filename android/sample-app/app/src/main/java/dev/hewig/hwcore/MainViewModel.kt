@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import java.io.File
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -86,6 +87,7 @@ private const val DEFAULT_APP_NAME = "hw-core/android"
 private const val UI_STATE_SNAPSHOT_FILE = "sample-ui-state.json"
 private const val UI_STATE_SAVED_KEY = "sample_ui_state_json"
 private const val REMEMBERED_DEVICE_FILE = "remembered-device-id.txt"
+private const val HOST_STORAGE_FILE = "hwcore/thp-host.json"
 private const val MAX_LOG_ENTRIES = 500
 
 private const val DEFAULT_SOLANA_TX_HEX =
@@ -429,10 +431,38 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
         val hostName = defaultHostName(context)
         hostConfig = hostConfigNew(hostName, DEFAULT_APP_NAME)
-        // noBackupFilesDir keeps the host key and pairing credentials out of Auto Backup.
-        storagePath = context.noBackupFilesDir.resolve("hwcore/thp-host.json").absolutePath
+        storagePath = hostStorageFile(context).absolutePath
         log("Host configured: $hostName / $DEFAULT_APP_NAME")
     }
+
+    /**
+     * The pairing snapshot holds the host key and credentials, so it lives in noBackupFilesDir,
+     * outside Auto Backup. Earlier versions kept it in filesDir: move that copy over, and delete
+     * it even if the move fails so it stops being backed up (the app then pairs again).
+     */
+    private fun hostStorageFile(context: Context): File {
+        val target = context.noBackupFilesDir.resolve(HOST_STORAGE_FILE)
+        val legacy = context.filesDir.resolve(HOST_STORAGE_FILE)
+        if (!legacy.exists()) {
+            return target
+        }
+        val moved = !target.exists() && runCatching {
+            val dir = target.parentFile ?: return@runCatching false
+            // hw-core refuses a credentials directory that group or others can write to.
+            (dir.isDirectory || dir.mkdirs()) && dir.restrictToOwner() && legacy.renameTo(target)
+        }.getOrDefault(false)
+        if (!moved) {
+            legacy.delete()
+        }
+        legacy.parentFile?.delete()
+        log(if (moved) "Moved pairing snapshot out of Auto Backup" else "Removed backed-up pairing snapshot")
+        return target
+    }
+
+    private fun File.restrictToOwner(): Boolean =
+        setReadable(false, false) && setReadable(true, true) &&
+            setWritable(false, false) && setWritable(true, true) &&
+            setExecutable(false, false) && setExecutable(true, true)
 
     // -- Logging helpers --
 
