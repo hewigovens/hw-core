@@ -4,6 +4,7 @@ mod channel;
 mod credentials;
 mod device_prompts;
 mod errors;
+mod ethereum;
 mod link;
 mod nfc;
 mod pairing;

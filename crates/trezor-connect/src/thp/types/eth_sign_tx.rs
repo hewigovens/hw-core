@@ -1,3 +1,5 @@
+use super::{EthDefinitionCatalog, EthDefinitions};
+
 #[derive(Debug, Clone)]
 pub struct EthAccessListEntry {
     pub address: String,
@@ -25,6 +27,10 @@ pub struct EthSignTx {
     pub chain_id: u64,
     pub access_list: Vec<EthAccessListEntry>,
     pub chunkify: bool,
+    /// Sent with the sign request.
+    pub definitions: EthDefinitions,
+    /// Answers the firmware's `EthereumDefinitionRequest`s; non-empty opts in to those requests.
+    pub definition_catalog: EthDefinitionCatalog,
 }
 
 impl EthSignTx {
@@ -41,6 +47,8 @@ impl EthSignTx {
             chain_id,
             access_list: Vec::new(),
             chunkify: false,
+            definitions: EthDefinitions::default(),
+            definition_catalog: EthDefinitionCatalog::default(),
         }
     }
 
@@ -86,6 +94,16 @@ impl EthSignTx {
 
     pub fn with_chunkify(mut self, chunkify: bool) -> Self {
         self.chunkify = chunkify;
+        self
+    }
+
+    pub fn with_definitions(mut self, definitions: EthDefinitions) -> Self {
+        self.definitions = definitions;
+        self
+    }
+
+    pub fn with_definition_catalog(mut self, definition_catalog: EthDefinitionCatalog) -> Self {
+        self.definition_catalog = definition_catalog;
         self
     }
 }

@@ -1,5 +1,6 @@
 use prost::Message;
 
+use super::definitions::EthereumDefinitions;
 use crate::thp::proto::wire::wire_messages;
 use crate::thp::types::EthSignTx;
 
@@ -38,8 +39,12 @@ pub(crate) struct EthereumSignTxEip1559 {
     chain_id: u64,
     #[prost(message, repeated, tag = "11")]
     access_list: Vec<EthereumAccessList>,
+    #[prost(message, optional, tag = "12")]
+    definitions: Option<EthereumDefinitions>,
     #[prost(bool, optional, tag = "13")]
     chunkify: Option<bool>,
+    #[prost(bool, optional, tag = "15")]
+    supports_definition_request: Option<bool>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -95,7 +100,10 @@ impl From<&EthSignTx> for EthereumSignTxEip1559 {
                     storage_keys: entry.storage_keys.clone(),
                 })
                 .collect(),
+            definitions: EthereumDefinitions::from_definitions(&request.definitions),
             chunkify: Some(request.chunkify),
+            // Without a catalog every answer would be empty, so skip the extra round trips.
+            supports_definition_request: (!request.definition_catalog.is_empty()).then_some(true),
         }
     }
 }
@@ -112,7 +120,9 @@ impl EthereumTxAck {
 mod tests {
     use super::*;
     use crate::thp::proto::WireMessage;
-    use crate::thp::types::{EthAccessListEntry, SignTxRequest};
+    use crate::thp::types::{
+        EthAccessListEntry, EthDefinitionCatalog, EthDefinitions, EthTokenDefinition, SignTxRequest,
+    };
 
     #[derive(Clone, PartialEq, Message)]
     struct EthereumSignTxEip1559PaymentReqProbe {
@@ -149,10 +159,39 @@ mod tests {
         assert!(decoded.data_initial_chunk.is_none());
         assert_eq!(decoded.access_list[0].address, "0xbeef");
         assert_eq!(decoded.chunkify, Some(false));
+        assert!(decoded.definitions.is_none());
+        assert!(decoded.supports_definition_request.is_none());
 
         let probe =
             EthereumSignTxEip1559PaymentReqProbe::decode(encoded.payload.as_slice()).unwrap();
         assert!(probe.payment_req.is_none());
+    }
+
+    #[test]
+    fn encodes_definitions_and_opts_in_to_definition_requests_with_a_catalog() {
+        let definitions = EthDefinitions {
+            encoded_network: Some(vec![1]),
+            encoded_token: Some(vec![2]),
+            encoded_display_format: Some(vec![3]),
+        };
+        let catalog = EthDefinitionCatalog {
+            tokens: vec![EthTokenDefinition {
+                address: [0xAA; 20],
+                encoded: vec![4],
+            }],
+            display_formats: Vec::new(),
+        };
+        let request = EthSignTx::new(PATH.to_vec(), 1)
+            .with_definitions(definitions)
+            .with_definition_catalog(catalog);
+
+        let encoded = SignTxRequest::from(request).encode();
+        let decoded = EthereumSignTxEip1559::decode(encoded.payload.as_slice()).unwrap();
+        let definitions = decoded.definitions.unwrap();
+        assert_eq!(definitions.encoded_network, Some(vec![1]));
+        assert_eq!(definitions.encoded_token, Some(vec![2]));
+        assert_eq!(definitions.encoded_display_format, Some(vec![3]));
+        assert_eq!(decoded.supports_definition_request, Some(true));
     }
 
     #[test]

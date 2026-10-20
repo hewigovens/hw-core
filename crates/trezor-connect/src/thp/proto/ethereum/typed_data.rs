@@ -1,5 +1,6 @@
 use prost::Message;
 
+use super::definitions::EthereumDefinitions;
 use crate::thp::proto::wire::wire_messages;
 use crate::thp::proto::{EncodedMessage, ProtoMappingError, WireMessage};
 use crate::thp::types::{SignTypedDataPayload, SignTypedDataRequest, SignTypedDataResponse};
@@ -29,14 +30,6 @@ pub(crate) struct EthereumSignTypedData {
     definitions: Option<EthereumDefinitions>,
     #[prost(bytes = "vec", optional, tag = "5")]
     show_message_hash: Option<Vec<u8>>,
-}
-
-#[derive(Clone, PartialEq, Message)]
-pub(crate) struct EthereumDefinitions {
-    #[prost(bytes = "vec", optional, tag = "1")]
-    encoded_network: Option<Vec<u8>>,
-    #[prost(bytes = "vec", optional, tag = "2")]
-    encoded_token: Option<Vec<u8>>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -137,6 +130,7 @@ impl SignTypedDataRequest {
                 definitions: Some(EthereumDefinitions {
                     encoded_network: self.encoded_network.clone(),
                     encoded_token: None,
+                    encoded_display_format: None,
                 }),
                 show_message_hash: typed_data.show_message_hash.clone(),
             }

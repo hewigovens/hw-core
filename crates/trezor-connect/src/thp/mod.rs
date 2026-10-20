@@ -20,10 +20,11 @@ pub use types::{
     BtcOutputScriptType, BtcPaymentRequest, BtcPaymentRequestAmount, BtcPaymentRequestMemo,
     BtcRefTx, BtcRefTxInput, BtcRefTxOutput, BtcSignInput, BtcSignOutput, BtcSignTx, ButtonRequest,
     ButtonRequestCode, CancelHandle, CreateSessionRequest, DeviceEvent, DeviceEventSink,
-    DeviceFeatures, Eip712StructMember, Eip712TypedData, EthAccessListEntry, EthSignTx,
-    EthTxSignature, GetAddressRequest, GetAddressResponse, HostConfig, PairingController,
-    PairingDecision, PairingMethod, SignMessageRequest, SignMessageResponse, SignTxRequest,
-    SignTxResponse, SignTypedDataPayload, SignTypedDataRequest, SignTypedDataResponse,
-    SolanaSignTx, decode_solana_public_key,
+    DeviceFeatures, Eip712StructMember, Eip712TypedData, EthAccessListEntry, EthDefinitionCatalog,
+    EthDefinitions, EthDefinitionsVersion, EthDisplayFormatDefinition, EthSignTx,
+    EthTokenDefinition, EthTxSignature, GetAddressRequest, GetAddressResponse, HostConfig,
+    PairingController, PairingDecision, PairingMethod, SignMessageRequest, SignMessageResponse,
+    SignTxRequest, SignTxResponse, SignTypedDataPayload, SignTypedDataRequest,
+    SignTypedDataResponse, SolanaSignTx, decode_solana_public_key,
 };
 pub use workflow::ThpWorkflow;

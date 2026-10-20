@@ -1,4 +1,5 @@
 mod address;
+mod definitions;
 mod sign_message;
 mod sign_tx;
 mod typed_data;
@@ -6,6 +7,7 @@ mod typed_data;
 pub(crate) use address::{
     EthereumAddress, EthereumGetAddress, EthereumGetPublicKey, EthereumPublicKey,
 };
+pub use definitions::{EthereumDefinitionAck, EthereumDefinitionRequest};
 pub(crate) use sign_message::{EthereumMessageSignature, EthereumSignMessage};
 pub(crate) use sign_tx::EthereumSignTxEip1559;
 pub use sign_tx::{ETH_DATA_CHUNK_SIZE, EthereumTxAck, EthereumTxRequest};

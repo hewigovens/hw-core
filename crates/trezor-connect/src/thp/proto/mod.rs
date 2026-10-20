@@ -20,9 +20,10 @@ pub use bitcoin::{
 pub use button_request::{ButtonAck, ButtonRequestProto, Cancel};
 pub use error::ProtoMappingError;
 pub use ethereum::{
-    DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE, EthereumDataTypeProto, EthereumFieldType,
-    EthereumStructMember, EthereumTxAck, EthereumTxRequest, EthereumTypedDataStructAck,
-    EthereumTypedDataStructRequest, EthereumTypedDataValueAck, EthereumTypedDataValueRequest,
+    DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE, EthereumDataTypeProto, EthereumDefinitionAck,
+    EthereumDefinitionRequest, EthereumFieldType, EthereumStructMember, EthereumTxAck,
+    EthereumTxRequest, EthereumTypedDataStructAck, EthereumTypedDataStructRequest,
+    EthereumTypedDataValueAck, EthereumTypedDataValueRequest,
 };
 pub use features::{FeaturesProto, GetFeatures};
 pub use pairing::ParsedTagResponse;
