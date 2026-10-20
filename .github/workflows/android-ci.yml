@@ -14,8 +14,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
 
 jobs:
   android-ci:
@@ -46,13 +44,10 @@ jobs:
           toolchain: stable
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
-      - name: Run sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-      - name: Restore cargo cache
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - name: Set up mbx build cache
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
         with:
-          shared-key: "ci-rust"
+          cache-key-suffix: android
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
