@@ -12,10 +12,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
-
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -30,16 +26,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
-      - name: Run sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-      - name: Restore cargo cache
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - name: Set up mbx build cache
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
         with:
-          shared-key: "ci-rust"
+          cache-key-suffix: ci
       - name: Format check
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: mbx clippy --workspace --all-targets --all-features -- -D warnings
       - name: Tests
-        run: cargo test --workspace
+        run: mbx test --workspace
