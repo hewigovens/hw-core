@@ -6,6 +6,7 @@ use trezor_connect::thp::{
 
 use super::pairing_flow::PairingFlow;
 use super::wallet_requests::WalletRequests;
+use crate::errors::HWCoreError;
 use crate::types::{
     GetAddressRequest, PairingProgressKind, PairingPrompt, SignMessageRequest, SignTxRequest,
     SignTypedDataRequest, SignatureEncoding,
@@ -210,4 +211,45 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
         "So11111111111111111111111111111111111111112"
     );
     assert_eq!(signed_sol_message.signed_data, Some(vec![0xff; 4]));
+}
+
+#[tokio::test]
+async fn qr_tag_submit_requires_selected_method_and_hex_tag() {
+    let mut backend = MockBackend::code_entry_flow();
+    backend.create_channel_response.properties.pairing_methods =
+        vec![PairingMethod::CodeEntry, PairingMethod::QrCode];
+    backend.select_responses.push_back(
+        trezor_connect::thp::types::SelectMethodResponse::PairingPreparationsFinished {
+            nfc_data: None,
+        },
+    );
+    let mut config = default_host_config();
+    config.pairing_methods = vec![PairingMethod::CodeEntry, PairingMethod::QrCode];
+    let mut workflow = ThpWorkflow::new(backend, config);
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    PairingFlow::start_pairing(&mut workflow).await.unwrap();
+
+    let err =
+        PairingFlow::submit_pairing_tag(&mut workflow, PairingMethod::QrCode, "c0ffee".into())
+            .await
+            .expect_err("QR pairing not selected yet");
+    assert!(matches!(err, HWCoreError::Validation(_)));
+
+    let prompt = PairingFlow::select_pairing_method(&mut workflow, PairingMethod::QrCode)
+        .await
+        .unwrap();
+    assert_eq!(prompt.selected_method, Some(PairingMethod::QrCode));
+    let err =
+        PairingFlow::submit_pairing_tag(&mut workflow, PairingMethod::QrCode, "not-hex".into())
+            .await
+            .expect_err("tag must be hex");
+    assert!(matches!(err, HWCoreError::Validation(_)));
+
+    let progress =
+        PairingFlow::submit_pairing_tag(&mut workflow, PairingMethod::QrCode, " c0ffee ".into())
+            .await
+            .unwrap();
+    assert_eq!(progress.kind, PairingProgressKind::Completed);
+    assert_eq!(workflow.state().phase(), Phase::Paired);
 }

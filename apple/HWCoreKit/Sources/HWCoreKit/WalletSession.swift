@@ -112,6 +112,39 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
+    /// Switches a started pairing to QR code or NFC; for NFC, hand `nfcData` to the device.
+    public func selectPairingMethod(_ method: PairingMethod, timeout: TimeInterval? = nil) async throws -> PairingPrompt {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "selectPairingMethod") {
+                try await self.workflow.pairingSelectMethod(method: method)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
+    /// Completes QR code pairing with the hex data scanned from the Trezor screen.
+    public func submitPairingQrTag(_ tag: String, timeout: TimeInterval? = nil) async throws -> PairingProgress {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "submitPairingQrTag") {
+                try await self.workflow.pairingSubmitQrTag(tag: tag)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
+    /// Completes NFC pairing with the hex tag read from the Trezor over NFC.
+    public func submitPairingNfcTag(_ tag: String, timeout: TimeInterval? = nil) async throws -> PairingProgress {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "submitPairingNfcTag") {
+                try await self.workflow.pairingSubmitNfcTag(tag: tag)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
     public func confirmPairedConnection(timeout: TimeInterval? = nil) async throws -> PairingProgress {
         do {
             return try await withTimeout(seconds: timeout, operation: "confirmPairedConnection") {

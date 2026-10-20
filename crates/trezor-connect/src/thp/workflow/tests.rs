@@ -350,6 +350,84 @@ async fn code_entry_submit_tag_completes_after_pairing_start() {
 }
 
 #[tokio::test]
+async fn qr_code_fallback_after_code_entry_start_completes_pairing() {
+    let mut backend = MockBackend::code_entry_flow();
+    backend.create_channel_response.properties.pairing_methods =
+        vec![PairingMethod::CodeEntry, PairingMethod::QrCode];
+    backend
+        .select_responses
+        .push_back(SelectMethodResponse::PairingPreparationsFinished { nfc_data: None });
+    let mut workflow = ThpWorkflow::new(
+        backend,
+        HostConfig {
+            pairing_methods: vec![PairingMethod::CodeEntry, PairingMethod::QrCode],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        },
+    );
+
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    workflow
+        .pairing(None)
+        .await
+        .expect_err("pairing should pause for host interaction");
+    let err = workflow
+        .submit_pairing_tag("c0ffee".into())
+        .await
+        .expect_err("code entry is still selected");
+    assert!(matches!(err, ThpWorkflowError::PairingInteractionRequired));
+
+    let nfc_data = workflow
+        .select_tag_pairing_method(PairingMethod::QrCode)
+        .await
+        .unwrap();
+    assert!(nfc_data.is_none());
+    workflow.submit_pairing_tag("c0ffee".into()).await.unwrap();
+
+    assert_eq!(workflow.state().phase(), Phase::Paired);
+    let (backend, config, _) = workflow.into_parts();
+    assert!(matches!(
+        backend.tag_requests.as_slice(),
+        [PairingTagRequest::QrCode { tag, handshake_hash }]
+            if tag == "c0ffee" && handshake_hash.as_slice() == b"code-entry"
+    ));
+    assert_eq!(config.known_credentials[0].credential, "code-entry-cred");
+}
+
+#[tokio::test]
+async fn tag_pairing_method_must_be_offered_by_device() {
+    let mut workflow = ThpWorkflow::new(
+        MockBackend::code_entry_flow(),
+        HostConfig {
+            pairing_methods: vec![PairingMethod::CodeEntry],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        },
+    );
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+
+    let err = workflow
+        .select_tag_pairing_method(PairingMethod::Nfc)
+        .await
+        .expect_err("device does not offer NFC");
+    assert!(matches!(err, ThpWorkflowError::NoCommonPairingMethod));
+    let err = workflow
+        .select_tag_pairing_method(PairingMethod::CodeEntry)
+        .await
+        .expect_err("code entry is not a tag method");
+    assert!(matches!(
+        err,
+        ThpWorkflowError::Backend(BackendError::UnsupportedPairingMethod)
+    ));
+}
+
+#[tokio::test]
 async fn code_entry_retry_requests_fresh_commitment() {
     let mut backend = MockBackend::code_entry_flow();
     backend

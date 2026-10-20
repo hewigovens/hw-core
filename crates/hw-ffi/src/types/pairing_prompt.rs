@@ -9,6 +9,8 @@ pub struct PairingPrompt {
     pub selected_method: Option<PairingMethod>,
     pub requires_connection_confirmation: bool,
     pub message: String,
+    /// Data to hand to the device over NFC, once NFC pairing is selected.
+    pub nfc_data: Option<Vec<u8>>,
 }
 
 #[derive(uniffi::Enum, Clone, Debug)]
@@ -29,8 +31,13 @@ impl TryFrom<&ThpState> for PairingPrompt {
         }
 
         let methods = state.pairing_methods().to_vec();
+        let selected = state.pairing_method();
         let message = if state.is_paired() {
             "Connection confirmation is required for this already-paired device".to_string()
+        } else if selected == Some(PairingMethod::QrCode) {
+            "Scan the QR code shown on the Trezor to finish pairing".to_string()
+        } else if selected == Some(PairingMethod::Nfc) {
+            "Hold the phone to the Trezor to finish pairing over NFC".to_string()
         } else if methods.contains(&PairingMethod::CodeEntry) {
             "Enter the 6-digit code shown on the Trezor to finish pairing".to_string()
         } else {
@@ -39,9 +46,12 @@ impl TryFrom<&ThpState> for PairingPrompt {
 
         Ok(Self {
             available_methods: methods,
-            selected_method: state.pairing_method(),
+            selected_method: selected,
             requires_connection_confirmation: state.is_paired(),
             message,
+            nfc_data: state
+                .handshake_credentials()
+                .and_then(|creds| creds.nfc_data.clone()),
         })
     }
 }

@@ -73,6 +73,27 @@ pub enum PairingTagRequest {
     },
 }
 
+impl PairingTagRequest {
+    /// Builds the tag request for QR code or NFC pairing; `None` for other methods.
+    pub fn for_tag_method(
+        method: PairingMethod,
+        handshake_hash: Vec<u8>,
+        tag: String,
+    ) -> Option<Self> {
+        match method {
+            PairingMethod::QrCode => Some(Self::QrCode {
+                handshake_hash,
+                tag,
+            }),
+            PairingMethod::Nfc => Some(Self::Nfc {
+                handshake_hash,
+                tag,
+            }),
+            PairingMethod::CodeEntry | PairingMethod::SkipPairing => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum PairingTagResponse {
     Accepted { secret: Vec<u8> },

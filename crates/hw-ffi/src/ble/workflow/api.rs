@@ -7,10 +7,10 @@ use super::wallet_requests::WalletRequests;
 use crate::ble::bootstrap_options::SessionBootstrapOptionsExt;
 use crate::errors::HWCoreError;
 use crate::types::{
-    AddressResult, DeviceFeatures, GetAddressRequest, PairingProgress, PairingPrompt,
-    SessionHandshakeState, SessionPhase, SessionRetryPolicy, SessionState, SessionStateExt,
-    SignMessageRequest, SignMessageResult, SignTxRequest, SignTxResult, SignTypedDataRequest,
-    SignTypedDataResult, WorkflowEvent, WorkflowEventKind,
+    AddressResult, DeviceFeatures, GetAddressRequest, PairingMethod, PairingProgress,
+    PairingPrompt, SessionHandshakeState, SessionPhase, SessionRetryPolicy, SessionState,
+    SessionStateExt, SignMessageRequest, SignMessageResult, SignTxRequest, SignTxResult,
+    SignTypedDataRequest, SignTypedDataResult, WorkflowEvent, WorkflowEventKind,
 };
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -131,6 +131,41 @@ impl BleWorkflowHandle {
         *self.session_ready.lock().await = false;
         self.progress("PAIRING_COMPLETE", &progress.message);
         Ok(progress)
+    }
+
+    /// Switches a started pairing to QR code or NFC; the device then shows the QR code or
+    /// waits for NFC. For NFC, hand the returned prompt's `nfc_data` to the device.
+    #[uniffi::method]
+    pub async fn pairing_select_method(
+        &self,
+        method: PairingMethod,
+    ) -> Result<PairingPrompt, HWCoreError> {
+        let prompt = self
+            .with_workflow(async |workflow| {
+                PairingFlow::select_pairing_method(workflow, method).await
+            })
+            .await?;
+        self.push(
+            WorkflowEventKind::PairingPrompt,
+            "PAIRING_TAG_REQUIRED",
+            &prompt.message,
+        );
+        Ok(prompt)
+    }
+
+    /// Completes QR code pairing with the hex data scanned from the Trezor screen.
+    #[uniffi::method]
+    pub async fn pairing_submit_qr_tag(&self, tag: String) -> Result<PairingProgress, HWCoreError> {
+        self.submit_pairing_tag(PairingMethod::QrCode, tag).await
+    }
+
+    /// Completes NFC pairing with the hex tag read from the Trezor over NFC.
+    #[uniffi::method]
+    pub async fn pairing_submit_nfc_tag(
+        &self,
+        tag: String,
+    ) -> Result<PairingProgress, HWCoreError> {
+        self.submit_pairing_tag(PairingMethod::Nfc, tag).await
     }
 
     #[uniffi::method]
@@ -281,6 +316,22 @@ impl BleWorkflowHandle {
 }
 
 impl BleWorkflowHandle {
+    async fn submit_pairing_tag(
+        &self,
+        method: PairingMethod,
+        tag: String,
+    ) -> Result<PairingProgress, HWCoreError> {
+        self.progress("PAIRING_SUBMIT_TAG_START", "Submitting pairing tag");
+        let progress = self
+            .with_workflow(async |workflow| {
+                PairingFlow::submit_pairing_tag(workflow, method, tag).await
+            })
+            .await?;
+        *self.session_ready.lock().await = false;
+        self.progress("PAIRING_COMPLETE", &progress.message);
+        Ok(progress)
+    }
+
     async fn create_channel(&self) -> Result<(), HWCoreError> {
         self.progress("CREATE_CHANNEL_START", "Creating THP channel");
         self.with_workflow(async |workflow| Ok(workflow.create_channel().await?))

@@ -7,7 +7,7 @@ use super::ThpWorkflow;
 use super::pairing::PairingStep;
 use crate::thp::backend::{BackendError, ThpBackend};
 use crate::thp::error::{Result, ThpWorkflowError};
-use crate::thp::state::{HandshakeCredentials, Phase};
+use crate::thp::state::HandshakeCredentials;
 use crate::thp::types::{
     CodeEntryChallengeRequest, PairingController, PairingMethod, PairingPrompt, PairingTagResponse,
 };
@@ -17,16 +17,7 @@ where
     B: ThpBackend + Send,
 {
     pub async fn submit_code_entry_pairing_tag(&mut self, code: String) -> Result<()> {
-        self.require_phase(Phase::Pairing)?;
-        if self.state.is_paired() {
-            return Err(ThpWorkflowError::AlreadyPaired);
-        }
-
-        let handshake = self
-            .state
-            .handshake_credentials()
-            .cloned()
-            .ok_or(ThpWorkflowError::MissingHandshakeCredentials)?;
+        let handshake = self.unpaired_handshake()?;
 
         if self.state.pairing_method() != Some(PairingMethod::CodeEntry)
             || !handshake.has_code_entry_inputs()
