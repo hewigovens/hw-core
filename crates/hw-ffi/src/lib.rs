@@ -6,7 +6,10 @@ mod platform;
 mod types;
 mod version;
 
-pub use crate::ble::{BleDiscoveredDevice, BleManagerHandle, BleSessionHandle, BleWorkflowHandle};
+pub use crate::ble::{
+    BleDiscoveredDevice, BleManagerHandle, BleSessionHandle, BleWorkflowHandle, HostStorage,
+    HostStorageError,
+};
 pub use crate::errors::HWCoreError;
 pub use crate::types::{
     AccessListEntry, AddressResult, BleDeviceInfo, ButtonRequest, ButtonRequestCode, Chain,

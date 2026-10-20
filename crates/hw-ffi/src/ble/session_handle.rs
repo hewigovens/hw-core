@@ -4,10 +4,11 @@ use ble_transport::BleSession;
 use hw_wallet::ble::SessionBootstrapOptions;
 use tokio::sync::Mutex as AsyncMutex;
 use trezor_connect::ble::BleBackend;
-use trezor_connect::thp::{FileStorage, ThpWorkflow};
+use trezor_connect::thp::{FileStorage, ThpStorage, ThpWorkflow};
 
 use super::BleWorkflowHandle;
 use super::file_storage::FileStorageExt;
+use super::host_storage::{ForeignStorage, HostStorage};
 use crate::errors::HWCoreError;
 use crate::types::HostConfig;
 
@@ -39,11 +40,34 @@ impl BleSessionHandle {
         config: HostConfig,
         storage_path: Option<String>,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
+        let storage = storage_path
+            .map(FileStorage::from_storage_path)
+            .transpose()?;
+        self.workflow_from_session(config, storage).await
+    }
+
+    /// Like `into_workflow_with_storage`, but the app keeps the pairing snapshot itself.
+    #[uniffi::method]
+    pub async fn into_workflow_with_host_storage(
+        self: Arc<Self>,
+        config: HostConfig,
+        storage: Arc<dyn HostStorage>,
+    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
+        self.workflow_from_session(config, Some(Arc::new(ForeignStorage(storage))))
+            .await
+    }
+}
+
+impl BleSessionHandle {
+    async fn workflow_from_session(
+        &self,
+        config: HostConfig,
+        storage: Option<Arc<dyn ThpStorage>>,
+    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
         let session = self.take_session().await?;
         let thp_timeout = SessionBootstrapOptions::default().thp_timeout;
         let backend = BleBackend::from_session(session, thp_timeout);
-        let workflow = if let Some(path) = storage_path {
-            let storage = FileStorage::from_storage_path(path)?;
+        let workflow = if let Some(storage) = storage {
             ThpWorkflow::with_storage(backend, config.into(), storage).await?
         } else {
             ThpWorkflow::new(backend, config.into())

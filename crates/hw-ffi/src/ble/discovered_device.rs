@@ -5,10 +5,11 @@ use hw_wallet::ble::{
     SessionBootstrapOptions, connect_and_bootstrap_session, connect_trezor_device,
 };
 use parking_lot::Mutex;
-use trezor_connect::thp::FileStorage;
+use trezor_connect::thp::{FileStorage, ThpStorage};
 
 use super::bootstrap_options::SessionBootstrapOptionsExt;
 use super::file_storage::FileStorageExt;
+use super::host_storage::{ForeignStorage, HostStorage};
 use super::{BleSessionHandle, BleWorkflowHandle};
 use crate::errors::HWCoreError;
 use crate::types::{BleDeviceInfo, HostConfig, SessionRetryPolicy};
@@ -58,10 +59,37 @@ impl BleDiscoveredDevice {
         try_to_unlock: bool,
         retry_policy: Option<SessionRetryPolicy>,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        let device = self.take_device()?;
         let storage = storage_path
             .map(FileStorage::from_storage_path)
             .transpose()?;
+        self.connect_ready_workflow(config, storage, try_to_unlock, retry_policy)
+            .await
+    }
+
+    /// Like `connect_ready_workflow_with_policy`, but the app keeps the pairing snapshot itself.
+    #[uniffi::method]
+    pub async fn connect_ready_workflow_with_host_storage(
+        &self,
+        config: HostConfig,
+        storage: Arc<dyn HostStorage>,
+        try_to_unlock: bool,
+        retry_policy: Option<SessionRetryPolicy>,
+    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
+        let storage: Arc<dyn ThpStorage> = Arc::new(ForeignStorage(storage));
+        self.connect_ready_workflow(config, Some(storage), try_to_unlock, retry_policy)
+            .await
+    }
+}
+
+impl BleDiscoveredDevice {
+    async fn connect_ready_workflow(
+        &self,
+        config: HostConfig,
+        storage: Option<Arc<dyn ThpStorage>>,
+        try_to_unlock: bool,
+        retry_policy: Option<SessionRetryPolicy>,
+    ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
+        let device = self.take_device()?;
         let workflow = connect_and_bootstrap_session(
             device,
             self.profile,

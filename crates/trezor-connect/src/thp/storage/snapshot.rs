@@ -5,6 +5,12 @@ use crate::thp::types::{HostConfig, KnownCredential};
 
 pub const CURRENT_HOST_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 
+/// Host pairing state that must survive app restarts.
+///
+/// Secret: `static_key` is this host's THP static private key, and `known_credentials` holds the
+/// pairing credentials the device issued to it. Together they let whoever holds them connect to
+/// the paired Trezor as this host without pairing again (requests still need on-device
+/// confirmation), so store the snapshot in secure storage and never log it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostSnapshot {
     pub schema_version: u32,
@@ -36,6 +42,10 @@ impl HostSnapshot {
             });
         }
         Ok(snapshot)
+    }
+
+    pub fn to_json(&self) -> Result<Vec<u8>, StorageError> {
+        Ok(serde_json::to_vec_pretty(self)?)
     }
 
     /// Overrides `config` with the persisted host key and credentials, when present.

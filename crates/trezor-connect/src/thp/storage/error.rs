@@ -8,4 +8,7 @@ pub enum StorageError {
     Serde(#[from] serde_json::Error),
     #[error("storage snapshot schema version {found} does not match supported version {supported}")]
     UnsupportedSchemaVersion { found: u32, supported: u32 },
+    /// An app-provided store failed to load or persist the snapshot.
+    #[error("storage backend error: {0}")]
+    Backend(String),
 }
