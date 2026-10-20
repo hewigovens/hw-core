@@ -4,7 +4,7 @@ use trezor_connect::thp::{
     SignMessageRequest as ThpSignMessageRequest, SignMessageResponse as ThpSignMessageResponse,
 };
 
-use super::{Chain, SignatureEncoding};
+use super::{Chain, SignatureEncoding, ethereum_encoded_network};
 use crate::errors::HWCoreError;
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -17,6 +17,9 @@ pub struct SignMessageRequest {
     /// Solana only: base58 OCMS v1 signers; empty signs with the path's key alone.
     #[uniffi(default = [])]
     pub signers: Vec<String>,
+    /// Ethereum only: signed network definition for chains the firmware does not know.
+    #[uniffi(default = None)]
+    pub encoded_network: Option<Vec<u8>>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -37,6 +40,7 @@ impl TryFrom<SignMessageRequest> for ThpSignMessageRequest {
 
     fn try_from(request: SignMessageRequest) -> Result<Self, Self::Error> {
         let path = parse_bip32_path(&request.path)?;
+        let encoded_network = ethereum_encoded_network(request.chain, request.encoded_network)?;
         Ok(Self::from_message(
             request.chain,
             path,
@@ -44,7 +48,8 @@ impl TryFrom<SignMessageRequest> for ThpSignMessageRequest {
             request.is_hex,
             request.chunkify,
             &request.signers,
-        )?)
+        )?
+        .with_encoded_network(encoded_network))
     }
 }
 

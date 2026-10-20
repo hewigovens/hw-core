@@ -181,6 +181,7 @@ public final class WalletSession: @unchecked Sendable {
         showOnDevice: Bool = true,
         includePublicKey: Bool = false,
         chunkify: Bool = false,
+        encodedNetwork: Data? = nil,
         timeout: TimeInterval? = nil
     ) async throws -> AddressResult {
         do {
@@ -192,7 +193,8 @@ public final class WalletSession: @unchecked Sendable {
                         path: resolvedPath,
                         showOnDevice: showOnDevice,
                         includePublicKey: includePublicKey,
-                        chunkify: chunkify
+                        chunkify: chunkify,
+                        encodedNetwork: encodedNetwork
                     )
                 )
             }

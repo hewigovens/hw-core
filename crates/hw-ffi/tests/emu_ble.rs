@@ -51,6 +51,7 @@ async fn emu_ble_ffi_connect_ready_and_get_eth_address() {
             show_on_device: false,
             include_public_key: false,
             chunkify: false,
+            encoded_network: None,
         })
         .await
         .expect("fetch ethereum address");
@@ -90,6 +91,7 @@ async fn emu_ble_ffi_sign_eth_message() {
             is_hex: false,
             chunkify: false,
             signers: Vec::new(),
+            encoded_network: None,
         })
         .await
         .expect("sign ethereum message");
@@ -134,6 +136,7 @@ async fn emu_ble_ffi_sign_sol_message_with_given_signers() {
                 "14CCvQzQzHCVgZM3j9soPnXuJXh1RmCfwLVUcdfbZVBS".to_string(),
                 "7v91N7iZ9mNicL8WfG6cgSCKyRXydQjLh6UYBWwm6y1Q".to_string(),
             ],
+            encoded_network: None,
         })
         .await
         .expect("sign solana message");

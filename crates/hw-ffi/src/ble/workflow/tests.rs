@@ -8,8 +8,8 @@ use super::pairing_flow::PairingFlow;
 use super::wallet_requests::WalletRequests;
 use crate::errors::HWCoreError;
 use crate::types::{
-    GetAddressRequest, PairingProgressKind, PairingPrompt, SignMessageRequest, SignTxRequest,
-    SignTypedDataRequest, SignatureEncoding,
+    EthereumDefinitions, EthereumTokenDefinition, GetAddressRequest, PairingProgressKind,
+    PairingPrompt, SignMessageRequest, SignTxRequest, SignTypedDataRequest, SignatureEncoding,
 };
 
 fn default_host_config() -> HostConfig {
@@ -87,6 +87,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             show_on_device: true,
             include_public_key: true,
             chunkify: true,
+            encoded_network: Some(vec![0x0a]),
         })
         .await
         .unwrap();
@@ -114,6 +115,14 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             max_priority_fee: "0x59682f00".into(),
             access_list: Vec::new(),
             chunkify: false,
+            eth_definitions: Some(EthereumDefinitions {
+                encoded_network: Some(vec![0x0b]),
+                tokens: vec![EthereumTokenDefinition {
+                    address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+                    encoded: vec![0x0c],
+                }],
+                ..EthereumDefinitions::default()
+            }),
         })
         .await
         .unwrap();
@@ -130,6 +139,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             is_hex: false,
             chunkify: true,
             signers: Vec::new(),
+            encoded_network: Some(vec![0x0d]),
         })
         .await
         .unwrap();
@@ -148,6 +158,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             ),
             data_json: None,
             metamask_v4_compat: true,
+            encoded_network: Some(vec![0x0e]),
         })
         .await
         .unwrap();
@@ -161,11 +172,22 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
     assert!(get_address_request.show_display);
     assert!(get_address_request.include_public_key);
     assert!(get_address_request.chunkify);
+    assert_eq!(get_address_request.encoded_network, Some(vec![0x0a]));
 
     let Some(ThpSignTxRequest::Ethereum(sign_request)) = &backend.last_sign_tx_request else {
         panic!("expected an Ethereum sign request");
     };
     assert_eq!(sign_request.chain_id, 1);
+    assert_eq!(sign_request.definitions.encoded_network, Some(vec![0x0b]));
+    assert_eq!(sign_request.definition_catalog.tokens.len(), 1);
+    assert_eq!(
+        sign_request.definition_catalog.tokens[0].address,
+        [0xAA; 20]
+    );
+    assert_eq!(
+        sign_request.definition_catalog.tokens[0].encoded,
+        vec![0x0c]
+    );
     assert_eq!(
         sign_request.path,
         vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0]
@@ -178,8 +200,10 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
     );
     assert_eq!(sign_message_request.message, b"hello from ffi".to_vec());
     assert!(sign_message_request.chunkify);
+    assert_eq!(sign_message_request.encoded_network, Some(vec![0x0d]));
     let sign_typed_data_request = backend.last_sign_typed_data_request.as_ref().unwrap();
     assert_eq!(sign_typed_data_request.chain, Chain::Ethereum);
+    assert_eq!(sign_typed_data_request.encoded_network, Some(vec![0x0e]));
     assert_eq!(
         sign_typed_data_request.path,
         vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0]
@@ -203,6 +227,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             is_hex: false,
             chunkify: false,
             signers: Vec::new(),
+            encoded_network: None,
         })
         .await
         .unwrap();

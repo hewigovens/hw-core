@@ -8,7 +8,9 @@ use trezor_connect::thp::{
 use crate::errors::HWCoreError;
 use crate::types::{
     BitcoinRefTx, BitcoinRefTxInput, BitcoinRefTxOutput, BitcoinSignTxRequest, BitcoinTxInput,
-    BitcoinTxOutput, GetAddressRequest, SignMessageRequest, SignTxRequest, SignTypedDataRequest,
+    BitcoinTxOutput, DeviceFeatures, EthereumDefinitions, EthereumDefinitionsSource,
+    EthereumDisplayFormatDefinition, GetAddressRequest, SignMessageRequest, SignTxRequest,
+    SignTypedDataRequest,
 };
 
 const BTC_SIGN_WITH_REF_TXS: &str =
@@ -22,6 +24,7 @@ fn get_address_request_maps_solana_chain() {
         show_on_device: false,
         include_public_key: true,
         chunkify: true,
+        encoded_network: None,
     })
     .expect("map request");
     assert_eq!(mapped.chain, Chain::Solana);
@@ -49,6 +52,7 @@ fn sign_tx_request_maps_solana_chain() {
         max_priority_fee: "0x0".into(),
         access_list: Vec::new(),
         chunkify: false,
+        eth_definitions: None,
     })
     .expect("solana request should map");
     let ThpSignTxRequest::Solana(mapped) = mapped else {
@@ -78,6 +82,7 @@ fn sign_tx_request_rejects_too_short_solana_payload() {
         max_priority_fee: "0x0".into(),
         access_list: Vec::new(),
         chunkify: false,
+        eth_definitions: None,
     })
     .expect_err("short Solana payload should fail");
     assert!(matches!(err, HWCoreError::Validation(_)));
@@ -98,6 +103,7 @@ fn sign_tx_request_maps_bitcoin_chain() {
         max_priority_fee: "0x0".into(),
         access_list: Vec::new(),
         chunkify: false,
+        eth_definitions: None,
     })
     .expect("bitcoin request should map");
     assert!(matches!(mapped, ThpSignTxRequest::Bitcoin(_)));
@@ -191,6 +197,7 @@ fn sign_message_request_maps_ethereum_chain() {
         is_hex: false,
         chunkify: true,
         signers: Vec::new(),
+        encoded_network: None,
     })
     .expect("message request should map");
     assert_eq!(mapped.chain, Chain::Ethereum);
@@ -211,6 +218,7 @@ fn sign_message_request_maps_bitcoin_hex_payload() {
         is_hex: true,
         chunkify: false,
         signers: Vec::new(),
+        encoded_network: None,
     })
     .expect("message request should map");
     assert_eq!(mapped.chain, Chain::Bitcoin);
@@ -229,6 +237,7 @@ fn sign_message_request_maps_solana_signers() {
             "14CCvQzQzHCVgZM3j9soPnXuJXh1RmCfwLVUcdfbZVBS".into(),
             "7v91N7iZ9mNicL8WfG6cgSCKyRXydQjLh6UYBWwm6y1Q".into(),
         ],
+        encoded_network: None,
     })
     .expect("solana message request should map");
     assert_eq!(mapped.chain, Chain::Solana);
@@ -252,6 +261,7 @@ fn sign_typed_data_request_maps_ethereum_hashes() {
         ),
         data_json: None,
         metamask_v4_compat: true,
+        encoded_network: None,
     })
     .expect("typed-data request should map");
     assert_eq!(mapped.chain, Chain::Ethereum);
@@ -282,6 +292,7 @@ fn sign_typed_data_request_rejects_message_hash_without_domain() {
         ),
         data_json: None,
         metamask_v4_compat: true,
+        encoded_network: None,
     })
     .expect_err("message hash without domain should fail");
 
@@ -299,6 +310,7 @@ fn sign_typed_data_request_treats_whitespace_message_hash_as_absent() {
         message_hash: Some("   ".into()),
         data_json: None,
         metamask_v4_compat: true,
+        encoded_network: None,
     })
     .expect("whitespace message hash should be ignored");
 
@@ -331,6 +343,7 @@ fn sign_typed_data_request_rejects_mixed_json_and_hash_payloads() {
             .into(),
         ),
         metamask_v4_compat: true,
+        encoded_network: None,
     })
     .expect_err("mixed typed-data payloads should fail");
 
@@ -339,4 +352,68 @@ fn sign_typed_data_request_rejects_mixed_json_and_hash_payloads() {
         err.to_string()
             .contains("must use either `data_json` or hash fields")
     );
+}
+
+#[test]
+fn ethereum_definitions_are_rejected_when_misplaced_or_malformed() {
+    let err = ThpGetAddressRequest::try_from(GetAddressRequest {
+        chain: Chain::Bitcoin,
+        path: "m/84'/0'/0'/0/0".into(),
+        show_on_device: false,
+        include_public_key: false,
+        chunkify: false,
+        encoded_network: Some(vec![1]),
+    })
+    .expect_err("network definitions are Ethereum only");
+    assert!(matches!(err, HWCoreError::Validation(_)));
+
+    let err = ThpSignTxRequest::try_from(SignTxRequest {
+        chain: Chain::Ethereum,
+        path: "m/44'/60'/0'/0/0".into(),
+        to: "0x000000000000000000000000000000000000dead".into(),
+        value: "0x0".into(),
+        nonce: "0x0".into(),
+        gas_limit: "0x5208".into(),
+        chain_id: 1,
+        data: "0x".into(),
+        max_fee_per_gas: "0x0".into(),
+        max_priority_fee: "0x0".into(),
+        access_list: Vec::new(),
+        chunkify: false,
+        eth_definitions: Some(EthereumDefinitions {
+            display_formats: vec![EthereumDisplayFormatDefinition {
+                address: "0xdead".into(),
+                func_sig: "0xa9059cbb".into(),
+                encoded: vec![1],
+            }],
+            ..EthereumDefinitions::default()
+        }),
+    })
+    .expect_err("display format address must be 20 bytes");
+    assert!(matches!(err, HWCoreError::Validation(_)));
+}
+
+#[test]
+fn definitions_source_selects_version_and_parses_hex_arguments() {
+    let features = DeviceFeatures {
+        major_version: 2,
+        minor_version: 13,
+        ..DeviceFeatures::default()
+    };
+    let source = EthereumDefinitionsSource::for_firmware(features);
+    assert_eq!(source.version(), 2);
+    assert_eq!(
+        source
+            .token_url(1, "0xDAC17F958D2EE523A2206206994597C13D831EC7".into())
+            .unwrap(),
+        "https://data.trezor.io/firmware/definitions/v2/eth/chain-id/1/token-dac17f958d2ee523a2206206994597c13d831ec7.dat"
+    );
+    assert!(matches!(
+        source.display_format_url(
+            1,
+            "0xdac17f958d2ee523a2206206994597c13d831ec7".into(),
+            "0x01".into()
+        ),
+        Err(HWCoreError::Validation(_))
+    ));
 }

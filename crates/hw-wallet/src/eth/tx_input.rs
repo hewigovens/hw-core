@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use trezor_connect::thp::{EthAccessListEntry, EthSignTx};
 
+use super::definitions_input::TxDefinitionsInput;
 use crate::error::{WalletError, WalletResult};
 use crate::hex::{decode, decode_quantity};
 
@@ -23,6 +24,8 @@ pub struct TxInput {
     pub max_priority_fee: String,
     #[serde(default)]
     pub access_list: Vec<TxAccessListInput>,
+    #[serde(default)]
+    pub definitions: TxDefinitionsInput,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,7 +62,7 @@ impl TxInput {
             .map(EthAccessListEntry::try_from)
             .collect::<WalletResult<_>>()?;
 
-        Ok(EthSignTx::new(path, self.chain_id)
+        let tx = EthSignTx::new(path, self.chain_id)
             .with_nonce(nonce)
             .with_max_fee_per_gas(max_fee_per_gas)
             .with_max_priority_fee(max_priority_fee)
@@ -67,7 +70,8 @@ impl TxInput {
             .with_to(self.to)
             .with_value(value)
             .with_data(data)
-            .with_access_list(access_list))
+            .with_access_list(access_list);
+        self.definitions.apply_to(tx)
     }
 }
 

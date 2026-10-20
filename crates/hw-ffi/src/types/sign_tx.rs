@@ -7,7 +7,7 @@ use trezor_connect::thp::{
     BtcSignTx, EthTxSignature, SignTxRequest as ThpSignTxRequest, SignTxResponse, SolanaSignTx,
 };
 
-use super::Chain;
+use super::{Chain, EthereumDefinitions};
 use crate::errors::HWCoreError;
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -30,6 +30,9 @@ pub struct SignTxRequest {
     pub max_priority_fee: String,
     pub access_list: Vec<AccessListEntry>,
     pub chunkify: bool,
+    /// Ethereum only: network, token and display-format definitions for the device to show.
+    #[uniffi(default = None)]
+    pub eth_definitions: Option<EthereumDefinitions>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -70,6 +73,7 @@ impl TryFrom<SignTxRequest> for ThpSignTxRequest {
                     max_fee_per_gas: request.max_fee_per_gas,
                     max_priority_fee: request.max_priority_fee,
                     access_list: request.access_list.into_iter().map(Into::into).collect(),
+                    definitions: request.eth_definitions.unwrap_or_default().into(),
                 };
                 Ok(tx
                     .into_sign_tx(path)?

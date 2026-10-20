@@ -70,6 +70,10 @@ public typealias SignMessageResult = HWCoreFFI.SignMessageResult
 public typealias BitcoinSignTxRequest = HWCoreFFI.BitcoinSignTxRequest
 public typealias SignTxRequest = HWCoreFFI.SignTxRequest
 public typealias SignTxResult = HWCoreFFI.SignTxResult
+public typealias EthereumDefinitions = HWCoreFFI.EthereumDefinitions
+public typealias EthereumTokenDefinition = HWCoreFFI.EthereumTokenDefinition
+public typealias EthereumDisplayFormatDefinition = HWCoreFFI.EthereumDisplayFormatDefinition
+public typealias EthereumDefinitionsSource = HWCoreFFI.EthereumDefinitionsSource
 
 public extension Chain {
     var defaultPath: String {
@@ -89,7 +93,8 @@ public extension SignTxRequest {
         maxFeePerGas: String,
         maxPriorityFee: String,
         accessList: [AccessListEntry] = [],
-        chunkify: Bool = false
+        chunkify: Bool = false,
+        definitions: EthereumDefinitions? = nil
     ) -> SignTxRequest {
         SignTxRequest(
             chain: .ethereum,
@@ -103,7 +108,8 @@ public extension SignTxRequest {
             maxFeePerGas: maxFeePerGas,
             maxPriorityFee: maxPriorityFee,
             accessList: accessList,
-            chunkify: chunkify
+            chunkify: chunkify,
+            ethDefinitions: definitions
         )
     }
 
@@ -153,14 +159,16 @@ public extension SignMessageRequest {
         path: String = Chain.ethereum.defaultPath,
         message: String,
         isHex: Bool = false,
-        chunkify: Bool = false
+        chunkify: Bool = false,
+        encodedNetwork: Data? = nil
     ) -> SignMessageRequest {
         SignMessageRequest(
             chain: .ethereum,
             path: path,
             message: message,
             isHex: isHex,
-            chunkify: chunkify
+            chunkify: chunkify,
+            encodedNetwork: encodedNetwork
         )
     }
 

@@ -30,14 +30,15 @@ pub fn decode_quantity(value: &str) -> WalletResult<Vec<u8>> {
 }
 
 pub(crate) fn decode_hash32(field: &str, value: &str) -> WalletResult<Vec<u8>> {
+    decode_fixed::<32>(field, value).map(Vec::from)
+}
+
+pub fn decode_fixed<const N: usize>(field: &str, value: &str) -> WalletResult<[u8; N]> {
     let decoded = decode(value)?;
-    if decoded.len() != 32 {
-        return Err(WalletError::Signing(format!(
-            "{field} must be 32 bytes, got {} bytes",
-            decoded.len()
-        )));
-    }
-    Ok(decoded)
+    let len = decoded.len();
+    decoded
+        .try_into()
+        .map_err(|_| WalletError::Signing(format!("{field} must be {N} bytes, got {len} bytes")))
 }
 
 #[cfg(test)]
