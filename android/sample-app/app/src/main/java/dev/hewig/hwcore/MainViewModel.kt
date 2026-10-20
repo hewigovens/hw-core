@@ -451,11 +451,15 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             // hw-core refuses a credentials directory that group or others can write to.
             (dir.isDirectory || dir.mkdirs()) && dir.restrictToOwner() && legacy.renameTo(target)
         }.getOrDefault(false)
-        if (!moved) {
-            legacy.delete()
-        }
+        val removed = moved || legacy.delete()
         legacy.parentFile?.delete()
-        log(if (moved) "Moved pairing snapshot out of Auto Backup" else "Removed backed-up pairing snapshot")
+        log(
+            when {
+                moved -> "Moved pairing snapshot out of Auto Backup"
+                removed -> "Removed backed-up pairing snapshot"
+                else -> "WARNING: pairing snapshot still in Auto Backup; delete ${legacy.absolutePath}"
+            }
+        )
         return target
     }
 
