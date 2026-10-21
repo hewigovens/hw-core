@@ -181,6 +181,12 @@ impl EmulatorHarness {
         harness
     }
 
+    #[allow(dead_code)]
+    pub fn stop_auto_confirm(&mut self) {
+        self.auto_confirm.kill().expect("stop auto-confirm");
+        self.auto_confirm.wait().expect("reap auto-confirm");
+    }
+
     pub fn dbus_system_bus_address(&self) -> &str {
         &self.bus_address
     }
