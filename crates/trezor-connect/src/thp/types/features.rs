@@ -20,7 +20,6 @@ pub struct DeviceFeatures {
 }
 
 impl DeviceFeatures {
-    /// True when the reported version is at least `major.minor.patch`.
     pub fn version_at_least(&self, major: u32, minor: u32, patch: u32) -> bool {
         (self.major_version, self.minor_version, self.patch_version) >= (major, minor, patch)
     }

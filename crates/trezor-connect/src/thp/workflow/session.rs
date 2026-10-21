@@ -33,7 +33,6 @@ where
         Ok(self.backend.get_address(request).await?)
     }
 
-    /// Reads the device identity, firmware version and passphrase settings.
     pub async fn get_features(&mut self) -> Result<DeviceFeatures> {
         self.require_phase(Phase::Paired)?;
         Ok(self.backend.get_features().await?)

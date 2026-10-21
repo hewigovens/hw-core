@@ -47,10 +47,8 @@ pub(super) trait PacketLink {
             .map(drop)
     }
 
-    /// Like [`PacketLink::pump`], but returns `Ok(false)` when `cancel` is requested.
-    ///
-    /// Cancellation is only observed while waiting for the next packet, so the channel never
-    /// holds a half-processed packet or an unconsumed message when this returns `false`.
+    /// Like [`PacketLink::pump`], but returns `Ok(false)` when `cancel` is requested; it is only
+    /// observed while waiting for a packet, so no packet or message is left half-processed.
     async fn pump_cancellable<C: PumpChannel>(
         &mut self,
         channel: &mut Buffered<C>,
@@ -103,11 +101,7 @@ pub(super) trait PacketLink {
     }
 
     /// Reads the next device message, announcing and acknowledging any ButtonRequest on the way.
-    ///
-    /// While the device waits for the user, a cancel request sends `Cancel` on the open channel
-    /// (as Suite does); the device then answers the pending request with a `Failure`. A prompt
-    /// left open past `timeout` is cancelled the same way and its answer drained, so the call
-    /// fails with `TransportTimeout` without leaving a late response for the next request.
+    /// A cancelled or timed-out prompt sends `Cancel` (as Suite does) and drains the device's answer.
     async fn receive_message(
         &mut self,
         channel: &mut OpenChannel,

@@ -25,6 +25,8 @@ pub enum ThpWorkflowError {
     PairingController(String),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("device sent a pairing response that does not match the selected method")]
+    UnexpectedPairingResponse,
 }
 
 pub type Result<T> = std::result::Result<T, ThpWorkflowError>;

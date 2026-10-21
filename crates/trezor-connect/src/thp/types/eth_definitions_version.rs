@@ -21,7 +21,7 @@ impl EthDefinitionsVersion {
     }
 
     /// Base URL of the Ethereum definitions; production serves v1 from the unversioned path.
-    pub fn eth_base_url(self) -> String {
+    fn eth_base_url(self) -> String {
         match self {
             Self::V1 => format!("{PRODUCTION_DEFINITIONS_URL}/eth"),
             Self::V2 => format!("{PRODUCTION_DEFINITIONS_URL}/v2/eth"),

@@ -98,8 +98,7 @@ where
                 self.state.set_phase(Phase::Pairing);
             }
             HandshakeCompletionState::AutoPaired => {
-                self.state.set_is_paired(true);
-                self.state.set_phase(Phase::Paired);
+                self.state.mark_paired();
                 self.backend.end_request().await?;
             }
         }

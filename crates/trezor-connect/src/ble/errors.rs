@@ -7,7 +7,7 @@ use crate::thp::proto::ProtoMappingError;
 
 pub(super) const MESSAGE_TYPE_FAILURE: u16 = 3;
 const FAILURE_UNEXPECTED_MESSAGE: i32 = 1;
-const FAILURE_ACTION_CANCELLED: i32 = 4;
+pub(super) const FAILURE_ACTION_CANCELLED: i32 = 4;
 const FAILURE_PIN_EXPECTED: i32 = 5;
 const FAILURE_PIN_CANCELLED: i32 = 6;
 const FAILURE_BUSY: i32 = 15;
@@ -15,11 +15,11 @@ const FAILURE_IN_PROGRESS: i32 = 19;
 const FAILURE_FIRMWARE_ERROR: i32 = 99;
 
 #[derive(Clone, PartialEq, Message)]
-struct FailureProto {
+pub(super) struct FailureProto {
     #[prost(int32, optional, tag = "1")]
-    code: Option<i32>,
+    pub(super) code: Option<i32>,
     #[prost(string, optional, tag = "2")]
-    message: Option<String>,
+    pub(super) message: Option<String>,
 }
 
 impl BackendError {
@@ -29,7 +29,7 @@ impl BackendError {
             return Self::Device("firmware reported failure".into());
         };
         match msg.code {
-            Some(FAILURE_UNEXPECTED_MESSAGE) => Self::UnexpectedMessage,
+            Some(FAILURE_UNEXPECTED_MESSAGE) => Self::UnsupportedRequest,
             Some(FAILURE_ACTION_CANCELLED | FAILURE_PIN_CANCELLED) => Self::ActionCancelled,
             Some(FAILURE_PIN_EXPECTED) => Self::PinExpected,
             Some(FAILURE_BUSY | FAILURE_IN_PROGRESS) => Self::DeviceBusy,
@@ -130,7 +130,7 @@ mod tests {
             BackendError::from_failure(&payload)
         };
 
-        assert!(matches!(failure(1), BackendError::UnexpectedMessage));
+        assert!(matches!(failure(1), BackendError::UnsupportedRequest));
         assert!(matches!(failure(4), BackendError::ActionCancelled));
         assert!(matches!(failure(5), BackendError::PinExpected));
         assert!(matches!(failure(6), BackendError::ActionCancelled));

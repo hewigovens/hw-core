@@ -27,7 +27,6 @@ pub struct EthSignTx {
     pub chain_id: u64,
     pub access_list: Vec<EthAccessListEntry>,
     pub chunkify: bool,
-    /// Sent with the sign request.
     pub definitions: EthDefinitions,
     /// Answers the firmware's `EthereumDefinitionRequest`s; non-empty opts in to those requests.
     pub definition_catalog: EthDefinitionCatalog,

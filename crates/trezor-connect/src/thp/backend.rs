@@ -26,7 +26,7 @@ pub enum BackendError {
     #[error("action cancelled on device")]
     ActionCancelled,
     #[error("device does not support this request")]
-    UnexpectedMessage,
+    UnsupportedRequest,
     #[error("device error: code={code}, {message}")]
     DeviceError { code: u32, message: String },
     #[error("device error: {0}")]

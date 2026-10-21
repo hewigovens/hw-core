@@ -104,6 +104,12 @@ impl ThpState {
         self.is_paired = paired;
     }
 
+    /// Pairing finished: the host is paired and the channel is ready for a session.
+    pub fn mark_paired(&mut self) {
+        self.is_paired = true;
+        self.phase = Phase::Paired;
+    }
+
     pub fn is_paired(&self) -> bool {
         self.is_paired
     }
