@@ -61,8 +61,8 @@ Generate Swift/Kotlin bindings:
 just bindings
 ```
 
-On macOS this also prepares the release XCFramework-backed Swift package used by
-the existing sample recipes. `just xcframework` builds only the Apple SDK and
+On macOS this also prepares a debug build of the XCFramework-backed Swift package
+used by the existing sample recipes. `just xcframework` builds only the Apple SDK and
 creates a portable package at `target/xcframework/HWCoreKit`; see the
 [Apple integration guide](docs/apple-integration.md).
 

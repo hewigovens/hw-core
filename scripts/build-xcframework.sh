@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# Builds target/xcframework/HWCore.xcframework (iOS device, iOS simulator, macOS) from release
-# builds of hw-ffi, plus the matching Swift bindings in target/xcframework/swift.
+# Builds target/xcframework/HWCore.xcframework (iOS device, iOS simulator, macOS) from hw-ffi,
+# plus the matching Swift bindings. Release by default; --debug for the faster local dev loop.
 set -euo pipefail
+
+# Cargo profile and its target/<triple>/<dir> output folder.
+CARGO_PROFILE=release
+PROFILE=release
+if [[ "${1:-}" == "--debug" ]]; then
+  CARGO_PROFILE=dev
+  PROFILE=debug
+fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT_DIR/target/xcframework"
@@ -13,13 +21,13 @@ MACOS_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
 cd "$ROOT_DIR"
 rustup target add "${IOS_TARGETS[@]}" "${MACOS_TARGETS[@]}"
 for target in "${IOS_TARGETS[@]}"; do
-  IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" cargo build -p hw-ffi --release --target "$target"
+  IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" cargo build -p hw-ffi --profile "$CARGO_PROFILE" --target "$target"
 done
 for target in "${MACOS_TARGETS[@]}"; do
-  MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" cargo build -p hw-ffi --release --target "$target"
+  MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" cargo build -p hw-ffi --profile "$CARGO_PROFILE" --target "$target"
 done
 
-lib() { echo "$ROOT_DIR/target/$1/release/libhwcore.a"; }
+lib() { echo "$ROOT_DIR/target/$1/$PROFILE/libhwcore.a"; }
 rm -rf "$OUT"
 mkdir -p "$OUT/ios-simulator" "$OUT/macos" "$OUT/headers" "$OUT/swift"
 lipo -create "$(lib aarch64-apple-ios-sim)" "$(lib x86_64-apple-ios)" -output "$OUT/ios-simulator/libhwcore.a"
@@ -38,7 +46,7 @@ xcodebuild -create-xcframework \
   -library "$OUT/macos/libhwcore.a" -headers "$OUT/headers" \
   -output "$OUT/HWCore.xcframework"
 
-echo "Built $OUT/HWCore.xcframework and $OUT/swift/HWCoreFFI.swift"
+echo "Built $OUT/HWCore.xcframework ($PROFILE) and $OUT/swift/HWCoreFFI.swift"
 
 # Stage a portable package and refresh the in-repo package from the same build.
 PACKAGE="$OUT/HWCoreKit"

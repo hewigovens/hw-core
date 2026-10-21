@@ -41,7 +41,7 @@ bindings:
     mkdir -p target/bindings/swift target/bindings/kotlin
     cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        ./scripts/build-xcframework.sh
+        ./scripts/build-xcframework.sh --debug
     else
         ./scripts/sync-bindings.sh --apple
     fi
