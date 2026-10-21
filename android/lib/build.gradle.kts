@@ -1,7 +1,15 @@
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
+    id("maven-publish")
 }
+
+// Published coordinates follow the Rust workspace version unless -PhwcoreVersion overrides it.
+val hwcoreVersion: String = providers.gradleProperty("hwcoreVersion").orNull
+    ?: Regex("""(?m)^version\s*=\s*"([^"]+)"""")
+        .find(rootDir.resolve("../Cargo.toml").readText())
+        ?.groupValues?.get(1)
+    ?: error("workspace version not found in Cargo.toml")
 
 android {
     namespace = "dev.hewig.hwcore.lib"
@@ -29,6 +37,23 @@ android {
 
     kotlinOptions {
         jvmTarget = "1.8"
+    }
+
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+        }
+    }
+}
+
+publishing {
+    publications {
+        register<MavenPublication>("release") {
+            groupId = "dev.hewig.hwcore"
+            artifactId = "hwcore"
+            version = hwcoreVersion
+            afterEvaluate { from(components["release"]) }
+        }
     }
 }
 

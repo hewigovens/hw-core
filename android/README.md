@@ -65,6 +65,26 @@ If multiple devices are connected, select one with:
 ANDROID_SERIAL=<device-id> just run-android
 ```
 
+## Use from another app (local Maven)
+
+hw-core does not publish artifacts. To use the library from an app outside this repository, publish it to your local Maven repository (`~/.m2`):
+
+```bash
+just android-publish-local
+```
+
+This builds release native libraries for `arm64-v8a`, `armeabi-v7a` and `x86_64`, regenerates the Kotlin bindings, and publishes `dev.hewig.hwcore:hwcore:<version>`, where the version is the Rust workspace version (override it with `just android-publish-local <version>`, which still rebuilds the native libraries and bindings first). The AAR carries the native libraries, the patched btleplug Java classes and consumer R8 rules.
+
+In the consuming app, add `mavenLocal()` to the repositories in `settings.gradle.kts` and depend on it:
+
+```kotlin
+dependencies {
+    implementation("dev.hewig.hwcore:hwcore:0.1.1")
+}
+```
+
+Then call `System.loadLibrary("hwcore")` before any `uniffi.hwcore` call and request the Bluetooth permissions, as described in [Embedding hw-core on Android](../docs/android-embedding.md#2-load-the-library-with-systemloadlibrary-first). Re-run `just android-publish-local` after updating hw-core.
+
 ## Sample App Flow
 
 1. **Scan** — discovers nearby Trezor Safe 7 devices via BLE

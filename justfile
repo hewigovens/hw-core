@@ -41,7 +41,7 @@ bindings:
     mkdir -p target/bindings/swift target/bindings/kotlin
     cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        ./scripts/build-xcframework.sh
+        ./scripts/build-xcframework.sh --debug
     else
         ./scripts/sync-bindings.sh --apple
     fi
@@ -51,6 +51,12 @@ build-android:
 
 build-android-release:
     ./scripts/sync-bindings.sh --android --release
+
+# Publish android/lib with release native libs to ~/.m2 as dev.hewig.hwcore:hwcore:<version>
+# (default: the Rust workspace version; `just android-publish-local 0.2.0-dev` overrides it)
+android-publish-local version="":
+    just build-android-release
+    cd android && ./gradlew :lib:publishToMavenLocal --no-daemon {{ if version != "" { "-PhwcoreVersion=" + version } else { "" } }}
 
 run-android log_file="target/android-logcat.log":
     just build-android

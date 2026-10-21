@@ -21,8 +21,8 @@ local Swift package dependency. The consumer does not need Rust or this checkout
 
 `Package.swift` uses a local `binaryTarget` and requires no unsafe linker flags.
 Generated artifacts are not committed; build before resolving a fresh checkout.
-Existing `just bindings` and sample app recipes prepare the same package on macOS.
-See the [iOS and macOS integration guide](../../docs/apple-integration.md) for
+`just bindings` and the sample app recipes prepare a debug build of the same package on macOS.
+See the [iOS and macOS integration guide](https://github.com/hewigovens/hw-core/blob/main/docs/apple-integration.md) for
 platform requirements, Bluetooth permissions, storage and workflow examples.
 
 ## Notes

@@ -49,7 +49,7 @@ just run-ios
 Note:
 - The SwiftUI view and view model are shared between macOS and iOS.
 - All Apple destinations link the static `HWCore.xcframework` through SwiftPM.
-- `just bindings` prepares the framework and matching bindings on macOS.
+- `just bindings` prepares a debug build of the framework and matching bindings on macOS.
 - `just xcframework` also creates a portable `target/xcframework/HWCoreKit` package.
 
 ## iOS UI Tests
