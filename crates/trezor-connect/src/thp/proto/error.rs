@@ -15,4 +15,6 @@ pub enum ProtoMappingError {
     UnexpectedMessage(u16),
     #[error("message is not valid UTF-8")]
     InvalidUtf8(#[from] std::string::FromUtf8Error),
+    #[error("required field {0} is missing")]
+    MissingField(&'static str),
 }

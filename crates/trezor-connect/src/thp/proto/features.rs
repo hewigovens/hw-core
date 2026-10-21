@@ -48,11 +48,14 @@ wire_messages! {
 impl DeviceFeatures {
     pub fn decode(message_type: u16, payload: &[u8]) -> Result<Self, ProtoMappingError> {
         let proto = FeaturesProto::from_message(message_type, payload)?;
+        // Required in the firmware proto; defaulting them would report firmware 0.0.0.
+        let required =
+            |value: Option<u32>, field| value.ok_or(ProtoMappingError::MissingField(field));
         Ok(Self {
             vendor: proto.vendor,
-            major_version: proto.major_version.unwrap_or_default(),
-            minor_version: proto.minor_version.unwrap_or_default(),
-            patch_version: proto.patch_version.unwrap_or_default(),
+            major_version: required(proto.major_version, "major_version")?,
+            minor_version: required(proto.minor_version, "minor_version")?,
+            patch_version: required(proto.patch_version, "patch_version")?,
             device_id: proto.device_id,
             label: proto.label,
             model: proto.model,
@@ -99,5 +102,27 @@ mod tests {
             DeviceFeatures::decode(3, &payload),
             Err(ProtoMappingError::UnexpectedMessage(3))
         ));
+    }
+
+    #[test]
+    fn rejects_features_without_required_version_fields() {
+        let complete = FeaturesProto {
+            major_version: Some(2),
+            minor_version: Some(13),
+            patch_version: Some(0),
+            ..FeaturesProto::default()
+        };
+        for field in ["major_version", "minor_version", "patch_version"] {
+            let mut proto = complete.clone();
+            match field {
+                "major_version" => proto.major_version = None,
+                "minor_version" => proto.minor_version = None,
+                _ => proto.patch_version = None,
+            }
+            assert!(matches!(
+                DeviceFeatures::decode(17, &proto.encode_to_vec()),
+                Err(ProtoMappingError::MissingField(missing)) if missing == field
+            ));
+        }
     }
 }
