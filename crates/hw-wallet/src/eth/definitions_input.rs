@@ -1,20 +1,20 @@
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use trezor_connect::thp::types::{ETH_ADDRESS_LEN, ETH_FUNC_SIG_LEN};
 use trezor_connect::thp::{
     EthDefinitionCatalog, EthDefinitions, EthDisplayFormatDefinition, EthSignTx, EthTokenDefinition,
 };
 
 use crate::error::{WalletError, WalletResult};
-use crate::hex::{decode, decode_fixed};
+use crate::hex::decode_fixed;
 
 /// Signed definition blobs the caller already has; JSON carries them as hex.
 #[derive(Debug, Default, Deserialize)]
 pub struct TxDefinitionsInput {
-    #[serde(default, deserialize_with = "deserialize_optional_hex")]
+    #[serde(default, deserialize_with = "crate::hex::deserialize_optional")]
     pub encoded_network: Option<Vec<u8>>,
-    #[serde(default, deserialize_with = "deserialize_optional_hex")]
+    #[serde(default, deserialize_with = "crate::hex::deserialize_optional")]
     pub encoded_token: Option<Vec<u8>>,
-    #[serde(default, deserialize_with = "deserialize_optional_hex")]
+    #[serde(default, deserialize_with = "crate::hex::deserialize_optional")]
     pub encoded_display_format: Option<Vec<u8>>,
     /// Returned when the device asks for a token mid-signing.
     #[serde(default)]
@@ -27,7 +27,7 @@ pub struct TxDefinitionsInput {
 #[derive(Debug, Deserialize)]
 pub struct TokenDefinitionInput {
     pub address: String,
-    #[serde(deserialize_with = "deserialize_hex")]
+    #[serde(deserialize_with = "crate::hex::deserialize")]
     pub encoded: Vec<u8>,
 }
 
@@ -35,7 +35,7 @@ pub struct TokenDefinitionInput {
 pub struct DisplayFormatDefinitionInput {
     pub address: String,
     pub func_sig: String,
-    #[serde(deserialize_with = "deserialize_hex")]
+    #[serde(deserialize_with = "crate::hex::deserialize")]
     pub encoded: Vec<u8>,
 }
 
@@ -87,17 +87,4 @@ impl TryFrom<DisplayFormatDefinitionInput> for EthDisplayFormatDefinition {
             encoded: input.encoded,
         })
     }
-}
-
-fn deserialize_hex<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-    decode(&String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
-}
-
-fn deserialize_optional_hex<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Vec<u8>>, D::Error> {
-    Option::<String>::deserialize(deserializer)?
-        .map(|value| decode(&value))
-        .transpose()
-        .map_err(serde::de::Error::custom)
 }

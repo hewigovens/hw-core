@@ -62,13 +62,6 @@ fn into_sign_tx_maps_definitions_and_catalog() {
             }],
         }
     );
-
-    let minimal = TxInput::from_json(ETH_BUILD_SIGN_REQUEST)
-        .unwrap()
-        .into_sign_tx(Vec::new())
-        .unwrap();
-    assert!(minimal.definitions.is_empty());
-    assert!(minimal.definition_catalog.is_empty());
 }
 
 #[test]

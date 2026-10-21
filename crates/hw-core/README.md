@@ -81,7 +81,7 @@ Token files live at `chain-id/{chain_id}/token-{address}.dat` and display format
 
 ## Versioning
 
-The crates are released together with one version. Before 1.0, a minor release (`0.x` → `0.(x+1)`) may break the public API and a patch release does not, so depend on `hw-core = "0.x"` with a caret requirement. Breaking changes are listed in the release notes. Public enums such as `WalletErrorKind` gain variants in minor releases, and new `ThpBackend` methods are also minor-release changes.
+The crates are released together with one version. Before 1.0, a minor release (`0.x` → `0.(x+1)`) may break the public API and a patch release does not, so depend on `hw-core = "0.x"` with a caret requirement. Breaking changes are listed in the release notes. Public enums such as `WalletErrorKind` gain variants in minor releases, which breaks exhaustive `match`es, and new `ThpBackend` methods are also minor-release changes.
 
 ## Platforms and status
 

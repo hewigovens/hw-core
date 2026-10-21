@@ -154,6 +154,7 @@ mod tests {
             (BackendError::PinExpected, WalletErrorKind::DeviceLocked),
             (BackendError::DeviceLocked, WalletErrorKind::DeviceLocked),
             (BackendError::DeviceBusy, WalletErrorKind::DeviceBusy),
+            (BackendError::TransportBusy, WalletErrorKind::DeviceBusy),
             (
                 BackendError::SessionConfirmationRequired,
                 WalletErrorKind::ConnectionConfirmationRequired,
