@@ -6,7 +6,9 @@ use trezor_connect::thp::{CancelHandle, ThpWorkflow};
 
 use super::event_queue::EventQueue;
 use crate::errors::HWCoreError;
-use crate::types::{ButtonRequest, SessionPhase, SessionState, WorkflowEvent, WorkflowEventKind};
+use crate::types::{
+    ButtonRequest, PairingPrompt, SessionPhase, SessionState, WorkflowEvent, WorkflowEventKind,
+};
 
 #[derive(uniffi::Object)]
 pub struct BleWorkflowHandle {
@@ -87,17 +89,25 @@ impl BleWorkflowHandle {
         );
     }
 
-    pub(super) fn push_session_state_event(&self, state: &SessionState) {
-        match (&state.phase, &state.prompt_message) {
+    pub(super) fn push_session_state_event(
+        &self,
+        state: &SessionState,
+        prompt: Option<&PairingPrompt>,
+    ) {
+        match (&state.phase, prompt) {
             (SessionPhase::Ready, _) => self.push_session_ready(),
-            (SessionPhase::NeedsPairingCode, Some(message)) => {
-                self.push(
-                    WorkflowEventKind::PairingPrompt,
-                    "PAIRING_CODE_REQUIRED",
-                    message,
-                );
+            (SessionPhase::NeedsPairingCode, Some(prompt)) => {
+                self.push_pairing_prompt(prompt);
             }
             _ => {}
         }
+    }
+
+    pub(super) fn push_pairing_prompt(&self, prompt: &PairingPrompt) {
+        self.push(
+            WorkflowEventKind::PairingPrompt,
+            prompt.event_code(),
+            &prompt.message,
+        );
     }
 }

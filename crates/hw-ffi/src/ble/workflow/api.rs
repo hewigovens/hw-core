@@ -43,12 +43,12 @@ impl BleWorkflowHandle {
                 let phase = workflow
                     .advance_session_bootstrap(false, BootstrapTarget::Paired, &options)
                     .await?;
-                SessionState::with_prompt(phase, workflow.state())
+                SessionState::with_pairing_prompt(phase, workflow.state())
             })
             .await;
         *self.session_ready.lock().await = false;
-        let state = result?;
-        self.push_session_state_event(&state);
+        let (state, prompt) = result?;
+        self.push_session_state_event(&state, prompt.as_ref());
         Ok(state)
     }
 
@@ -74,11 +74,12 @@ impl BleWorkflowHandle {
                 let phase = workflow
                     .advance_session_bootstrap(ready, BootstrapTarget::Session, &options)
                     .await?;
-                SessionState::with_prompt(phase, workflow.state())
+                SessionState::with_pairing_prompt(phase, workflow.state())
             })
             .await?;
+        let (state, prompt) = state;
         *self.session_ready.lock().await = matches!(state.phase, SessionPhase::Ready);
-        self.push_session_state_event(&state);
+        self.push_session_state_event(&state, prompt.as_ref());
         Ok(state)
     }
 
@@ -113,11 +114,7 @@ impl BleWorkflowHandle {
             .with_workflow(async |workflow| workflow.start_pairing().await)
             .await?;
 
-        self.push(
-            WorkflowEventKind::PairingPrompt,
-            prompt.event_code(),
-            &prompt.message,
-        );
+        self.push_pairing_prompt(&prompt);
         Ok(prompt)
     }
 
@@ -144,11 +141,7 @@ impl BleWorkflowHandle {
                 PairingFlow::select_pairing_method(workflow, method).await
             })
             .await?;
-        self.push(
-            WorkflowEventKind::PairingPrompt,
-            "PAIRING_TAG_REQUIRED",
-            &prompt.message,
-        );
+        self.push_pairing_prompt(&prompt);
         Ok(prompt)
     }
 
@@ -371,7 +364,7 @@ impl BleWorkflowHandle {
             self.push(
                 WorkflowEventKind::PairingPrompt,
                 "PAIRING_REQUIRED",
-                "Pairing interaction is required (code-entry expected)",
+                "Pairing interaction is required",
             );
         }
         Ok(())
