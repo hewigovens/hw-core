@@ -79,6 +79,7 @@ public typealias PairingProgressKind = HWCoreFFI.PairingProgressKind
 public typealias SessionState = HWCoreFFI.SessionState
 public typealias SessionPhase = HWCoreFFI.SessionPhase
 public typealias WorkflowEventKind = HWCoreFFI.WorkflowEventKind
+public typealias HwCoreError = HWCoreFFI.HwCoreError
 public typealias HostStorage = HWCoreFFI.HostStorage
 public typealias HostStorageError = HWCoreFFI.HostStorageError
 public typealias ButtonRequest = HWCoreFFI.ButtonRequest
