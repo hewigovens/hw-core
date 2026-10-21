@@ -18,10 +18,11 @@ impl BleWorkflowHandle {
     #[uniffi::method]
     pub async fn session_state(&self) -> Result<SessionState, HWCoreError> {
         let slot = self.slot.lock().await;
-        SessionState::with_prompt(
+        SessionState::with_pairing_prompt(
             SessionPhase::from_state(slot.workflow.state(), slot.session_ready),
             slot.workflow.state(),
         )
+        .map(|(state, _)| state)
     }
 
     #[uniffi::method]
@@ -127,12 +128,11 @@ impl BleWorkflowHandle {
         self.progress("PAIRING_SUBMIT_CODE_START", "Submitting pairing code");
         let progress = self
             .with_slot(async |slot| {
-                let progress = slot.workflow.submit_pairing_code(code).await?;
                 slot.session_ready = false;
-                Ok(progress)
+                slot.workflow.submit_pairing_code(code).await
             })
             .await?;
-        self.progress("PAIRING_COMPLETE", &progress.message);
+        self.progress("PAIRING_SUBMIT_CODE_OK", &progress.message);
         Ok(progress)
     }
 
@@ -175,9 +175,8 @@ impl BleWorkflowHandle {
         );
         let progress = self
             .with_slot(async |slot| {
-                let progress = slot.workflow.confirm_paired_connection().await?;
                 slot.session_ready = false;
-                Ok(progress)
+                slot.workflow.confirm_paired_connection().await
             })
             .await?;
         self.progress("PAIRING_CONFIRM_CONNECTION_OK", &progress.message);
@@ -328,7 +327,7 @@ impl BleWorkflowHandle {
         &self,
         timeout_ms: Option<u64>,
     ) -> Result<Option<WorkflowEvent>, HWCoreError> {
-        Ok(self.next_queued_event(timeout_ms).await)
+        Ok(self.events.next(timeout_ms).await)
     }
 }
 
@@ -341,13 +340,11 @@ impl BleWorkflowHandle {
         self.progress("PAIRING_SUBMIT_TAG_START", "Submitting pairing tag");
         let progress = self
             .with_slot(async |slot| {
-                let progress =
-                    PairingFlow::submit_pairing_tag(&mut slot.workflow, method, tag).await?;
                 slot.session_ready = false;
-                Ok(progress)
+                PairingFlow::submit_pairing_tag(&mut slot.workflow, method, tag).await
             })
             .await?;
-        self.progress("PAIRING_COMPLETE", &progress.message);
+        self.progress("PAIRING_SUBMIT_TAG_OK", &progress.message);
         Ok(progress)
     }
 
@@ -364,22 +361,13 @@ impl BleWorkflowHandle {
 
     async fn handshake(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
         self.progress("HANDSHAKE_START", "Performing THP handshake");
-        let needs_pairing = self
-            .with_slot(async |slot| {
-                slot.session_ready = false;
-                slot.workflow.handshake(try_to_unlock).await?;
-                let state = slot.workflow.state();
-                Ok(state.phase() == Phase::Pairing && !state.is_paired())
-            })
-            .await?;
+        // Callers follow a pairing handshake with pairing_start, which emits the pairing prompt.
+        self.with_slot(async |slot| {
+            slot.session_ready = false;
+            Ok(slot.workflow.handshake(try_to_unlock).await?)
+        })
+        .await?;
         self.progress("HANDSHAKE_OK", "THP handshake complete");
-        if needs_pairing {
-            self.push(
-                WorkflowEventKind::PairingPrompt,
-                "PAIRING_REQUIRED",
-                "Pairing interaction is required",
-            );
-        }
         Ok(())
     }
 }

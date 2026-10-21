@@ -75,7 +75,7 @@ impl BleDiscoveredDevice {
         try_to_unlock: bool,
         retry_policy: Option<SessionRetryPolicy>,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        let storage: Arc<dyn ThpStorage> = Arc::new(ForeignStorage(storage));
+        let storage = ForeignStorage::shared(storage);
         self.connect_ready_workflow(config, Some(storage), try_to_unlock, retry_policy)
             .await
     }
@@ -98,6 +98,6 @@ impl BleDiscoveredDevice {
             SessionBootstrapOptions::from_ffi(try_to_unlock, retry_policy),
         )
         .await?;
-        Ok(Arc::new(BleWorkflowHandle::ready(workflow).await))
+        Ok(Arc::new(BleWorkflowHandle::ready(workflow)))
     }
 }

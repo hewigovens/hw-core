@@ -29,10 +29,6 @@ pub struct SessionState {
 }
 
 pub(crate) trait SessionStateExt: Sized {
-    fn with_prompt(phase: SessionPhase, state: &ThpState) -> Result<Self, HWCoreError> {
-        Self::with_pairing_prompt(phase, state).map(|(session, _)| session)
-    }
-
     /// Also returns the pairing prompt when `phase` needs pairing input, for its event code.
     fn with_pairing_prompt(
         phase: SessionPhase,

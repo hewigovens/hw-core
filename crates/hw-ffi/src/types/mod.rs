@@ -3,8 +3,10 @@ mod bitcoin_sign_tx;
 mod ble_device_info;
 mod button_request;
 mod chain;
+mod chain_metadata;
 mod device_features;
 mod eth_definitions;
+mod ethereum_definitions_source;
 mod host_config;
 mod pairing_progress;
 mod pairing_prompt;
@@ -26,12 +28,12 @@ pub use bitcoin_sign_tx::{
 pub use ble_device_info::BleDeviceInfo;
 pub use button_request::{ButtonRequest, ButtonRequestCode};
 pub use chain::{Chain, ChainConfig, chain_config};
+pub(crate) use chain_metadata::ChainMetadataExt;
 pub use device_features::DeviceFeatures;
-pub(crate) use eth_definitions::ethereum_encoded_network;
 pub use eth_definitions::{
-    EthereumDefinitions, EthereumDefinitionsSource, EthereumDisplayFormatDefinition,
-    EthereumTokenDefinition,
+    EthereumDefinitions, EthereumDisplayFormatDefinition, EthereumTokenDefinition,
 };
+pub use ethereum_definitions_source::EthereumDefinitionsSource;
 pub use host_config::{HostConfig, KnownCredential, PairingMethod, host_config_new};
 pub use pairing_progress::{PairingProgress, PairingProgressKind};
 pub use pairing_prompt::{PairingPrompt, SessionHandshakeState};

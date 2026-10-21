@@ -5,7 +5,6 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
-import java.io.File
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -19,6 +18,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
+import java.io.File
 import org.json.JSONObject
 import uniffi.hwcore.*
 
@@ -435,11 +435,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         log("Host configured: $hostName / $DEFAULT_APP_NAME")
     }
 
-    /**
-     * The pairing snapshot holds the host key and credentials, so it lives in noBackupFilesDir,
-     * outside Auto Backup. Earlier versions kept it in filesDir: move that copy over, and delete
-     * it even if the move fails so it stops being backed up (the app then pairs again).
-     */
+    // Keeps the pairing snapshot out of Auto Backup, moving (or deleting) a legacy filesDir copy.
     private fun hostStorageFile(context: Context): File {
         val target = context.noBackupFilesDir.resolve(HOST_STORAGE_FILE)
         val legacy = context.filesDir.resolve(HOST_STORAGE_FILE)

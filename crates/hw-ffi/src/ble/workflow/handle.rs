@@ -21,34 +21,37 @@ pub(super) struct WorkflowSlot {
 pub struct BleWorkflowHandle {
     pub(super) slot: AsyncMutex<WorkflowSlot>,
     pub(super) operation: OperationGate,
-    events: Arc<EventQueue>,
+    pub(super) events: Arc<EventQueue>,
 }
 
 impl BleWorkflowHandle {
-    pub(crate) fn new(mut workflow: ThpWorkflow<BleBackend>) -> Self {
+    pub(crate) fn new(workflow: ThpWorkflow<BleBackend>) -> Self {
+        Self::with_session_ready(workflow, false)
+    }
+
+    /// Wraps a workflow that already has a session and announces it as ready.
+    pub(crate) fn ready(workflow: ThpWorkflow<BleBackend>) -> Self {
+        let handle = Self::with_session_ready(workflow, true);
+        handle.push_session_ready();
+        handle
+    }
+
+    fn with_session_ready(mut workflow: ThpWorkflow<BleBackend>, session_ready: bool) -> Self {
         let events = Arc::new(EventQueue::default());
         let sink_events = events.clone();
         workflow
             .backend_mut()
             .set_event_sink(Some(Arc::new(move |event| {
-                sink_events.push(ButtonRequest::from_device_event(event).into());
+                sink_events.push(ButtonRequest::from(event).into());
             })));
         Self {
             operation: OperationGate::new(workflow.backend().cancel_handle()),
             slot: AsyncMutex::new(WorkflowSlot {
                 workflow,
-                session_ready: false,
+                session_ready,
             }),
             events,
         }
-    }
-
-    /// Wraps a workflow that already has a session and announces it as ready.
-    pub(crate) async fn ready(workflow: ThpWorkflow<BleBackend>) -> Self {
-        let handle = Self::new(workflow);
-        handle.slot.lock().await.session_ready = true;
-        handle.push_session_ready();
-        handle
     }
 
     /// Runs `op` under the workflow lock and reports its failure as an error event.
@@ -85,10 +88,6 @@ impl BleWorkflowHandle {
         result
     }
 
-    pub(super) async fn next_queued_event(&self, timeout_ms: Option<u64>) -> Option<WorkflowEvent> {
-        self.events.next(timeout_ms).await
-    }
-
     pub(super) fn push(&self, kind: WorkflowEventKind, code: &str, message: &str) {
         self.events.push(WorkflowEvent::new(kind, code, message));
     }
@@ -110,12 +109,10 @@ impl BleWorkflowHandle {
         state: &SessionState,
         prompt: Option<&PairingPrompt>,
     ) {
-        match (&state.phase, prompt) {
-            (SessionPhase::Ready, _) => self.push_session_ready(),
-            (SessionPhase::NeedsPairingCode, Some(prompt)) => {
-                self.push_pairing_prompt(prompt);
-            }
-            _ => {}
+        if matches!(state.phase, SessionPhase::Ready) {
+            self.push_session_ready();
+        } else if let Some(prompt) = prompt {
+            self.push_pairing_prompt(prompt);
         }
     }
 

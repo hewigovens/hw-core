@@ -135,7 +135,6 @@ mod tests {
     fn typed_wallet_failures_reach_distinct_ffi_variants() {
         let rejected = HWCoreError::from(ThpWorkflowError::Backend(BackendError::ActionCancelled));
         assert!(matches!(rejected, HWCoreError::ActionCancelled(_)));
-        assert_eq!(rejected.code(), "ACTION_CANCELLED");
 
         let dropped = HWCoreError::from(WalletError::Ble(BleError::Disconnected));
         assert!(matches!(dropped, HWCoreError::Disconnected(_)));

@@ -74,8 +74,8 @@ impl From<thp::ButtonRequest> for ButtonRequest {
     }
 }
 
-impl ButtonRequest {
-    pub(crate) fn from_device_event(event: DeviceEvent) -> Self {
+impl From<DeviceEvent> for ButtonRequest {
+    fn from(event: DeviceEvent) -> Self {
         match event {
             DeviceEvent::ButtonRequest(request) => request.into(),
         }

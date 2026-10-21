@@ -4,7 +4,7 @@ use trezor_connect::thp::{
     SignMessageRequest as ThpSignMessageRequest, SignMessageResponse as ThpSignMessageResponse,
 };
 
-use super::{Chain, SignatureEncoding, ethereum_encoded_network};
+use super::{Chain, ChainMetadataExt, SignatureEncoding};
 use crate::errors::HWCoreError;
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -40,7 +40,10 @@ impl TryFrom<SignMessageRequest> for ThpSignMessageRequest {
 
     fn try_from(request: SignMessageRequest) -> Result<Self, Self::Error> {
         let path = parse_bip32_path(&request.path)?;
-        let encoded_network = ethereum_encoded_network(request.chain, request.encoded_network)?;
+        let encoded_network =
+            request
+                .chain
+                .only_for(Chain::Ethereum, "encoded_network", request.encoded_network)?;
         Ok(Self::from_message(
             request.chain,
             path,
