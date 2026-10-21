@@ -58,6 +58,32 @@ public struct WalletEvent: Sendable {
     }
 }
 
+// Request and state models used in HWCoreKit's public API, so apps need only `import HWCoreKit`.
+public typealias BitcoinTxInput = HWCoreFFI.BitcoinTxInput
+public typealias BitcoinTxOutput = HWCoreFFI.BitcoinTxOutput
+public typealias BitcoinRefTx = HWCoreFFI.BitcoinRefTx
+public typealias BitcoinRefTxInput = HWCoreFFI.BitcoinRefTxInput
+public typealias BitcoinRefTxOutput = HWCoreFFI.BitcoinRefTxOutput
+public typealias BitcoinMultisig = HWCoreFFI.BitcoinMultisig
+public typealias BitcoinMultisigPubkey = HWCoreFFI.BitcoinMultisigPubkey
+public typealias BitcoinMultisigPubkeysOrder = HWCoreFFI.BitcoinMultisigPubkeysOrder
+public typealias BtcInputScriptType = HWCoreFFI.BtcInputScriptType
+public typealias BtcOutputScriptType = HWCoreFFI.BtcOutputScriptType
+public typealias SolanaTxAdditionalInfo = HWCoreFFI.SolanaTxAdditionalInfo
+public typealias SolanaTxTokenAccountInfo = HWCoreFFI.SolanaTxTokenAccountInfo
+public typealias SignTypedDataRequest = HWCoreFFI.SignTypedDataRequest
+public typealias SignTypedDataResult = HWCoreFFI.SignTypedDataResult
+public typealias GetAddressRequest = HWCoreFFI.GetAddressRequest
+public typealias PairingMethod = HWCoreFFI.PairingMethod
+public typealias PairingPrompt = HWCoreFFI.PairingPrompt
+public typealias PairingProgress = HWCoreFFI.PairingProgress
+public typealias PairingProgressKind = HWCoreFFI.PairingProgressKind
+public typealias SessionState = HWCoreFFI.SessionState
+public typealias SessionPhase = HWCoreFFI.SessionPhase
+public typealias WorkflowEventKind = HWCoreFFI.WorkflowEventKind
+public typealias HostConfig = HWCoreFFI.HostConfig
+public typealias KnownCredential = HWCoreFFI.KnownCredential
+public typealias BleDeviceInfo = HWCoreFFI.BleDeviceInfo
 public typealias HostStorage = HWCoreFFI.HostStorage
 public typealias HostStorageError = HWCoreFFI.HostStorageError
 public typealias ButtonRequest = HWCoreFFI.ButtonRequest
