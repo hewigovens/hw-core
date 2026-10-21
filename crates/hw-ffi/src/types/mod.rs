@@ -1,6 +1,10 @@
 mod address;
+mod bitcoin_sign_tx;
 mod ble_device_info;
+mod button_request;
 mod chain;
+mod device_features;
+mod eth_definitions;
 mod host_config;
 mod pairing_progress;
 mod pairing_prompt;
@@ -10,12 +14,24 @@ mod sign_message;
 mod sign_tx;
 mod sign_typed_data;
 mod signature_encoding;
+mod solana_sign_tx;
 mod uuid;
 mod workflow_event;
 
 pub use address::{AddressResult, GetAddressRequest};
+pub use bitcoin_sign_tx::{
+    BitcoinMultisig, BitcoinMultisigPubkey, BitcoinMultisigPubkeysOrder, BitcoinRefTx,
+    BitcoinRefTxInput, BitcoinRefTxOutput, BitcoinSignTxRequest, BitcoinTxInput, BitcoinTxOutput,
+};
 pub use ble_device_info::BleDeviceInfo;
+pub use button_request::{ButtonRequest, ButtonRequestCode};
 pub use chain::{Chain, ChainConfig, chain_config};
+pub use device_features::DeviceFeatures;
+pub(crate) use eth_definitions::ethereum_encoded_network;
+pub use eth_definitions::{
+    EthereumDefinitions, EthereumDefinitionsSource, EthereumDisplayFormatDefinition,
+    EthereumTokenDefinition,
+};
 pub use host_config::{HostConfig, KnownCredential, PairingMethod, host_config_new};
 pub use pairing_progress::{PairingProgress, PairingProgressKind};
 pub use pairing_prompt::{PairingPrompt, SessionHandshakeState};

@@ -2,6 +2,7 @@ use ble_transport::BleError;
 use hw_wallet::{WalletError, WalletErrorKind};
 use trezor_connect::thp::{BackendError, ThpWorkflowError};
 
+/// FFI error; each variant is a failure class apps can switch on, `detail` is for display.
 #[derive(Debug, uniffi::Error, thiserror::Error, Clone)]
 #[uniffi(flat_error)]
 pub enum HWCoreError {
@@ -17,6 +18,26 @@ pub enum HWCoreError {
     Timeout(String),
     #[error("{0}")]
     Unknown(String),
+    /// Rejected on the device, or PIN entry cancelled.
+    #[error("{0}")]
+    ActionCancelled(String),
+    /// The device is locked and expects PIN entry.
+    #[error("{0}")]
+    DeviceLocked(String),
+    #[error("{0}")]
+    DeviceBusy(String),
+    /// The device must confirm this host's connection.
+    #[error("{0}")]
+    ConnectionConfirmationRequired(String),
+    /// The device no longer knows this host; pair again.
+    #[error("{0}")]
+    PairingRequired(String),
+    /// The BLE link dropped during the operation.
+    #[error("{0}")]
+    Disconnected(String),
+    /// The firmware does not support the request; it may be too old.
+    #[error("{0}")]
+    Unsupported(String),
 }
 
 impl HWCoreError {
@@ -28,6 +49,13 @@ impl HWCoreError {
             Self::Validation(_) => "VALIDATION",
             Self::Timeout(_) => "TIMEOUT",
             Self::Unknown(_) => "UNKNOWN",
+            Self::ActionCancelled(_) => "ACTION_CANCELLED",
+            Self::DeviceLocked(_) => "DEVICE_LOCKED",
+            Self::DeviceBusy(_) => "DEVICE_BUSY",
+            Self::ConnectionConfirmationRequired(_) => "CONNECTION_CONFIRMATION_REQUIRED",
+            Self::PairingRequired(_) => "PAIRING_REQUIRED",
+            Self::Disconnected(_) => "DISCONNECTED",
+            Self::Unsupported(_) => "UNSUPPORTED",
         }
     }
 
@@ -38,7 +66,14 @@ impl HWCoreError {
             | Self::Device(msg)
             | Self::Validation(msg)
             | Self::Timeout(msg)
-            | Self::Unknown(msg) => msg,
+            | Self::Unknown(msg)
+            | Self::ActionCancelled(msg)
+            | Self::DeviceLocked(msg)
+            | Self::DeviceBusy(msg)
+            | Self::ConnectionConfirmationRequired(msg)
+            | Self::PairingRequired(msg)
+            | Self::Disconnected(msg)
+            | Self::Unsupported(msg) => msg,
         }
     }
 
@@ -49,6 +84,15 @@ impl HWCoreError {
             WalletErrorKind::Device => Self::Device(message),
             WalletErrorKind::Validation => Self::Validation(message),
             WalletErrorKind::Timeout => Self::Timeout(message),
+            WalletErrorKind::ActionCancelled => Self::ActionCancelled(message),
+            WalletErrorKind::DeviceLocked => Self::DeviceLocked(message),
+            WalletErrorKind::DeviceBusy => Self::DeviceBusy(message),
+            WalletErrorKind::ConnectionConfirmationRequired => {
+                Self::ConnectionConfirmationRequired(message)
+            }
+            WalletErrorKind::PairingRequired => Self::PairingRequired(message),
+            WalletErrorKind::Disconnected => Self::Disconnected(message),
+            WalletErrorKind::Unsupported => Self::Unsupported(message),
         }
     }
 }
@@ -80,5 +124,30 @@ impl From<ThpWorkflowError> for HWCoreError {
 impl From<WalletError> for HWCoreError {
     fn from(error: WalletError) -> Self {
         Self::from_kind(error.kind(), error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_wallet_failures_reach_distinct_ffi_variants() {
+        let rejected = HWCoreError::from(ThpWorkflowError::Backend(BackendError::ActionCancelled));
+        assert!(matches!(rejected, HWCoreError::ActionCancelled(_)));
+        assert_eq!(rejected.code(), "ACTION_CANCELLED");
+
+        let dropped = HWCoreError::from(WalletError::Ble(BleError::Disconnected));
+        assert!(matches!(dropped, HWCoreError::Disconnected(_)));
+
+        let locked = HWCoreError::from(WalletError::SessionUnavailable {
+            hint: "device is locked. Unlock the Trezor and retry.",
+            source: ThpWorkflowError::Backend(BackendError::PinExpected),
+        });
+        assert!(matches!(locked, HWCoreError::DeviceLocked(_)));
+        assert_eq!(
+            locked.detail(),
+            "device is locked. Unlock the Trezor and retry."
+        );
     }
 }

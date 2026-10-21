@@ -350,6 +350,122 @@ async fn code_entry_submit_tag_completes_after_pairing_start() {
 }
 
 #[tokio::test]
+async fn qr_code_fallback_after_code_entry_start_completes_pairing() {
+    let mut backend = MockBackend::code_entry_flow();
+    backend.create_channel_response.properties.pairing_methods =
+        vec![PairingMethod::CodeEntry, PairingMethod::QrCode];
+    backend
+        .select_responses
+        .push_back(SelectMethodResponse::PairingPreparationsFinished { nfc_data: None });
+    let mut workflow = ThpWorkflow::new(
+        backend,
+        HostConfig {
+            pairing_methods: vec![PairingMethod::CodeEntry, PairingMethod::QrCode],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        },
+    );
+
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    workflow
+        .pairing(None)
+        .await
+        .expect_err("pairing should pause for host interaction");
+    let err = workflow
+        .submit_pairing_tag("c0ffee".into())
+        .await
+        .expect_err("code entry is still selected");
+    assert!(matches!(err, ThpWorkflowError::PairingInteractionRequired));
+
+    let nfc_data = workflow
+        .select_tag_pairing_method(PairingMethod::QrCode)
+        .await
+        .unwrap();
+    assert!(nfc_data.is_none());
+    workflow.submit_pairing_tag("c0ffee".into()).await.unwrap();
+
+    assert_eq!(workflow.state().phase(), Phase::Paired);
+    let (backend, config, _) = workflow.into_parts();
+    assert!(matches!(
+        backend.tag_requests.as_slice(),
+        [PairingTagRequest::QrCode { tag, handshake_hash }]
+            if tag == "c0ffee" && handshake_hash.as_slice() == b"code-entry"
+    ));
+    assert_eq!(config.known_credentials[0].credential, "code-entry-cred");
+}
+
+#[tokio::test]
+async fn nfc_data_is_kept_when_nfc_pairing_pauses_for_the_app() {
+    let mut backend = MockBackend::code_entry_flow();
+    backend.create_channel_response.properties.pairing_methods =
+        vec![PairingMethod::Nfc, PairingMethod::CodeEntry];
+    backend.select_responses.clear();
+    backend
+        .select_responses
+        .push_back(SelectMethodResponse::PairingPreparationsFinished {
+            nfc_data: Some(vec![0x4e, 0x46, 0x43]),
+        });
+    let mut workflow = ThpWorkflow::new(
+        backend,
+        HostConfig {
+            pairing_methods: vec![PairingMethod::Nfc, PairingMethod::CodeEntry],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        },
+    );
+
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    let err = workflow
+        .pairing(None)
+        .await
+        .expect_err("pairing should pause for the NFC tag");
+    assert!(matches!(err, ThpWorkflowError::PairingInteractionRequired));
+    assert_eq!(
+        workflow
+            .state()
+            .handshake_credentials()
+            .and_then(|creds| creds.nfc_data.clone()),
+        Some(vec![0x4e, 0x46, 0x43])
+    );
+}
+
+#[tokio::test]
+async fn tag_pairing_method_must_be_offered_by_device() {
+    let mut workflow = ThpWorkflow::new(
+        MockBackend::code_entry_flow(),
+        HostConfig {
+            pairing_methods: vec![PairingMethod::CodeEntry],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        },
+    );
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+
+    let err = workflow
+        .select_tag_pairing_method(PairingMethod::Nfc)
+        .await
+        .expect_err("device does not offer NFC");
+    assert!(matches!(err, ThpWorkflowError::NoCommonPairingMethod));
+    let err = workflow
+        .select_tag_pairing_method(PairingMethod::CodeEntry)
+        .await
+        .expect_err("code entry is not a tag method");
+    assert!(matches!(
+        err,
+        ThpWorkflowError::Backend(BackendError::UnsupportedPairingMethod)
+    ));
+}
+
+#[tokio::test]
 async fn code_entry_retry_requests_fresh_commitment() {
     let mut backend = MockBackend::code_entry_flow();
     backend
@@ -501,7 +617,7 @@ async fn get_address_requires_paired_phase() {
 }
 
 #[tokio::test]
-async fn get_nonce_requires_paired_phase() {
+async fn device_queries_require_paired_phase() {
     let backend = MockBackend::autopair();
     let mut workflow = ThpWorkflow::new(
         backend,
@@ -519,6 +635,12 @@ async fn get_nonce_requires_paired_phase() {
         .await
         .expect_err("should fail before pairing");
     assert!(matches!(err, ThpWorkflowError::InvalidPhase));
+    let err = workflow
+        .get_features()
+        .await
+        .expect_err("should fail before pairing");
+    assert!(matches!(err, ThpWorkflowError::InvalidPhase));
+    assert_eq!(workflow.backend().counters.get_features_calls, 0);
 }
 
 #[tokio::test]
@@ -640,4 +762,29 @@ async fn solana_sign_message_rejects_malformed_device_public_key() {
         Err(ThpWorkflowError::Backend(BackendError::Device(_)))
     ));
     assert_eq!(backend.counters.sign_message_calls, 0);
+}
+
+#[tokio::test]
+async fn forget_channel_returns_to_handshake_and_reconnects() {
+    let mut workflow = ThpWorkflow::new(
+        MockBackend::autopair(),
+        HostConfig {
+            pairing_methods: vec![PairingMethod::SkipPairing],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        },
+    );
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    assert_eq!(workflow.state().phase(), Phase::Paired);
+
+    workflow.forget_channel();
+    assert_eq!(workflow.state().phase(), Phase::Handshake);
+    assert!(workflow.state().handshake_cache().is_none());
+
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    assert_eq!(workflow.state().phase(), Phase::Paired);
 }

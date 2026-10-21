@@ -6,9 +6,10 @@ use trezor_connect::thp::{
 
 use super::pairing_flow::PairingFlow;
 use super::wallet_requests::WalletRequests;
+use crate::errors::HWCoreError;
 use crate::types::{
-    GetAddressRequest, PairingProgressKind, PairingPrompt, SignMessageRequest, SignTxRequest,
-    SignTypedDataRequest, SignatureEncoding,
+    EthereumDefinitions, EthereumTokenDefinition, GetAddressRequest, PairingProgressKind,
+    PairingPrompt, SignMessageRequest, SignTxRequest, SignTypedDataRequest, SignatureEncoding,
 };
 
 fn default_host_config() -> HostConfig {
@@ -86,6 +87,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             show_on_device: true,
             include_public_key: true,
             chunkify: true,
+            encoded_network: Some(vec![0x0a]),
         })
         .await
         .unwrap();
@@ -113,6 +115,15 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             max_priority_fee: "0x59682f00".into(),
             access_list: Vec::new(),
             chunkify: false,
+            eth_definitions: Some(EthereumDefinitions {
+                encoded_network: Some(vec![0x0b]),
+                tokens: vec![EthereumTokenDefinition {
+                    address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+                    encoded: vec![0x0c],
+                }],
+                ..EthereumDefinitions::default()
+            }),
+            solana_additional_info: None,
         })
         .await
         .unwrap();
@@ -129,6 +140,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             is_hex: false,
             chunkify: true,
             signers: Vec::new(),
+            encoded_network: Some(vec![0x0d]),
         })
         .await
         .unwrap();
@@ -147,6 +159,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             ),
             data_json: None,
             metamask_v4_compat: true,
+            encoded_network: Some(vec![0x0e]),
         })
         .await
         .unwrap();
@@ -160,11 +173,22 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
     assert!(get_address_request.show_display);
     assert!(get_address_request.include_public_key);
     assert!(get_address_request.chunkify);
+    assert_eq!(get_address_request.encoded_network, Some(vec![0x0a]));
 
     let Some(ThpSignTxRequest::Ethereum(sign_request)) = &backend.last_sign_tx_request else {
         panic!("expected an Ethereum sign request");
     };
     assert_eq!(sign_request.chain_id, 1);
+    assert_eq!(sign_request.definitions.encoded_network, Some(vec![0x0b]));
+    assert_eq!(sign_request.definition_catalog.tokens.len(), 1);
+    assert_eq!(
+        sign_request.definition_catalog.tokens[0].address,
+        [0xAA; 20]
+    );
+    assert_eq!(
+        sign_request.definition_catalog.tokens[0].encoded,
+        vec![0x0c]
+    );
     assert_eq!(
         sign_request.path,
         vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0]
@@ -177,8 +201,10 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
     );
     assert_eq!(sign_message_request.message, b"hello from ffi".to_vec());
     assert!(sign_message_request.chunkify);
+    assert_eq!(sign_message_request.encoded_network, Some(vec![0x0d]));
     let sign_typed_data_request = backend.last_sign_typed_data_request.as_ref().unwrap();
     assert_eq!(sign_typed_data_request.chain, Chain::Ethereum);
+    assert_eq!(sign_typed_data_request.encoded_network, Some(vec![0x0e]));
     assert_eq!(
         sign_typed_data_request.path,
         vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0]
@@ -202,6 +228,7 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
             is_hex: false,
             chunkify: false,
             signers: Vec::new(),
+            encoded_network: None,
         })
         .await
         .unwrap();
@@ -210,4 +237,45 @@ async fn typed_address_and_sign_requests_map_to_workflow_calls() {
         "So11111111111111111111111111111111111111112"
     );
     assert_eq!(signed_sol_message.signed_data, Some(vec![0xff; 4]));
+}
+
+#[tokio::test]
+async fn qr_tag_submit_requires_selected_method_and_hex_tag() {
+    let mut backend = MockBackend::code_entry_flow();
+    backend.create_channel_response.properties.pairing_methods =
+        vec![PairingMethod::CodeEntry, PairingMethod::QrCode];
+    backend.select_responses.push_back(
+        trezor_connect::thp::types::SelectMethodResponse::PairingPreparationsFinished {
+            nfc_data: None,
+        },
+    );
+    let mut config = default_host_config();
+    config.pairing_methods = vec![PairingMethod::CodeEntry, PairingMethod::QrCode];
+    let mut workflow = ThpWorkflow::new(backend, config);
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    PairingFlow::start_pairing(&mut workflow).await.unwrap();
+
+    let err =
+        PairingFlow::submit_pairing_tag(&mut workflow, PairingMethod::QrCode, "c0ffee".into())
+            .await
+            .expect_err("QR pairing not selected yet");
+    assert!(matches!(err, HWCoreError::Validation(_)));
+
+    let prompt = PairingFlow::select_pairing_method(&mut workflow, PairingMethod::QrCode)
+        .await
+        .unwrap();
+    assert_eq!(prompt.selected_method, Some(PairingMethod::QrCode));
+    let err =
+        PairingFlow::submit_pairing_tag(&mut workflow, PairingMethod::QrCode, "not-hex".into())
+            .await
+            .expect_err("tag must be hex");
+    assert!(matches!(err, HWCoreError::Validation(_)));
+
+    let progress =
+        PairingFlow::submit_pairing_tag(&mut workflow, PairingMethod::QrCode, " c0ffee ".into())
+            .await
+            .unwrap();
+    assert_eq!(progress.kind, PairingProgressKind::Completed);
+    assert_eq!(workflow.state().phase(), Phase::Paired);
 }

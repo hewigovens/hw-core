@@ -3,7 +3,7 @@ use std::ops::ControlFlow;
 use tracing::debug;
 
 use super::ThpWorkflow;
-use crate::thp::backend::ThpBackend;
+use crate::thp::backend::{BackendError, ThpBackend};
 use crate::thp::error::{Result, ThpWorkflowError};
 use crate::thp::state::{HandshakeCredentials, Phase};
 use crate::thp::types::{
@@ -92,6 +92,72 @@ where
             .await
     }
 
+    /// Switches a started pairing to QR code or NFC, so the device shows its code or waits for NFC.
+    ///
+    /// Call after the pairing request was sent (e.g. when code entry waits for the user). Returns
+    /// the data the app hands to the device over NFC, for `PairingMethod::Nfc`.
+    pub async fn select_tag_pairing_method(
+        &mut self,
+        method: PairingMethod,
+    ) -> Result<Option<Vec<u8>>> {
+        let handshake = self.unpaired_handshake()?;
+        if !matches!(method, PairingMethod::QrCode | PairingMethod::Nfc) {
+            return Err(BackendError::UnsupportedPairingMethod.into());
+        }
+        if !handshake.pairing_methods.contains(&method) {
+            return Err(ThpWorkflowError::NoCommonPairingMethod);
+        }
+        match self.select_pairing_method(method).await? {
+            SelectMethodResponse::PairingPreparationsFinished { nfc_data } => {
+                self.state.update_handshake_credentials(|creds| {
+                    creds.nfc_data = nfc_data.clone();
+                });
+                Ok(nfc_data)
+            }
+            SelectMethodResponse::End => {
+                self.state.set_is_paired(true);
+                self.state.set_phase(Phase::Paired);
+                Ok(None)
+            }
+            SelectMethodResponse::CodeEntryCommitment { .. } => Err(BackendError::Transport(
+                "unexpected code-entry commitment after selecting a tag method".into(),
+            )
+            .into()),
+        }
+    }
+
+    /// Completes QR code or NFC pairing with the tag the app read from the device (hex).
+    pub async fn submit_pairing_tag(&mut self, tag: String) -> Result<()> {
+        let handshake = self.unpaired_handshake()?;
+        let request = self
+            .state
+            .pairing_method()
+            .and_then(|method| {
+                PairingTagRequest::for_tag_method(method, handshake.handshake_hash.clone(), tag)
+            })
+            .ok_or(ThpWorkflowError::PairingInteractionRequired)?;
+        match self.backend.send_pairing_tag(request).await? {
+            PairingTagResponse::Accepted { .. } => {}
+            PairingTagResponse::Retry(reason) => {
+                return Err(BackendError::Device(reason).into());
+            }
+        }
+        self.finalize_pairing_with_credential_request(&handshake)
+            .await
+    }
+
+    /// Handshake credentials of a pairing that still needs a tag.
+    pub(super) fn unpaired_handshake(&self) -> Result<HandshakeCredentials> {
+        self.require_phase(Phase::Pairing)?;
+        if self.state.is_paired() {
+            return Err(ThpWorkflowError::AlreadyPaired);
+        }
+        self.state
+            .handshake_credentials()
+            .cloned()
+            .ok_or(ThpWorkflowError::MissingHandshakeCredentials)
+    }
+
     /// Prompts for a tag of `method`; any other decision asks the loop to select that method.
     pub(super) async fn prompt_for_tag(
         &self,
@@ -146,35 +212,27 @@ where
         method: PairingMethod,
         controller: Option<&dyn PairingController>,
     ) -> Result<PairingStep> {
+        // Store NFC data before prompting: without a controller the prompt returns
+        // PairingInteractionRequired, and the app reads the data from the workflow state.
+        if let Some(data) = &nfc_data {
+            self.state.update_handshake_credentials(|creds| {
+                creds.nfc_data = Some(data.clone());
+            });
+        }
         let prompt = PairingPrompt {
             available_methods: handshake.pairing_methods.clone(),
             selected_method: method,
-            nfc_data: nfc_data.clone().or(handshake.nfc_data.clone()),
+            nfc_data: nfc_data.or(handshake.nfc_data.clone()),
         };
         let tag = match self.prompt_for_tag(controller, prompt).await? {
             ControlFlow::Continue(tag) => tag,
             ControlFlow::Break(step) => return Ok(step),
         };
 
-        if let Some(data) = nfc_data {
-            self.state.update_handshake_credentials(|creds| {
-                creds.nfc_data = Some(data);
-            });
-        }
-
-        let handshake_hash = handshake.handshake_hash.clone();
-        let request = match method {
-            PairingMethod::QrCode => PairingTagRequest::QrCode {
-                handshake_hash,
-                tag,
-            },
-            PairingMethod::Nfc => PairingTagRequest::Nfc {
-                handshake_hash,
-                tag,
-            },
-            PairingMethod::CodeEntry | PairingMethod::SkipPairing => {
-                return Ok(PairingStep::Reprompt);
-            }
+        let Some(request) =
+            PairingTagRequest::for_tag_method(method, handshake.handshake_hash.clone(), tag)
+        else {
+            return Ok(PairingStep::Reprompt);
         };
 
         match self.backend.send_pairing_tag(request).await? {

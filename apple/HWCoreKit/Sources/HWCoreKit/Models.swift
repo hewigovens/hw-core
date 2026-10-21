@@ -5,6 +5,8 @@ public struct HWCoreConfig: Sendable {
     public var hostName: String
     public var appName: String
     public var storagePath: String?
+    /// App-owned store for the pairing snapshot (e.g. the Keychain); takes precedence over `storagePath`.
+    public var hostStorage: HostStorage?
     public var pairingMethods: [PairingMethod]
     public var sessionRetryPolicy: SessionRetryPolicy
 
@@ -12,12 +14,14 @@ public struct HWCoreConfig: Sendable {
         hostName: String,
         appName: String,
         storagePath: String? = nil,
+        hostStorage: HostStorage? = nil,
         pairingMethods: [PairingMethod] = [.codeEntry],
         sessionRetryPolicy: SessionRetryPolicy = sessionRetryPolicyDefault()
     ) {
         self.hostName = hostName
         self.appName = appName
         self.storagePath = storagePath
+        self.hostStorage = hostStorage
         self.pairingMethods = pairingMethods
         self.sessionRetryPolicy = sessionRetryPolicy
     }
@@ -43,14 +47,48 @@ public struct WalletEvent: Sendable {
     public let kind: WorkflowEventKind
     public let code: String
     public let message: String
+    /// The prompt the device is showing; set only for `.buttonRequest` events.
+    public let buttonRequest: ButtonRequest?
 
     init(raw: WorkflowEvent) {
         kind = raw.kind
         code = raw.code
         message = raw.message
+        buttonRequest = raw.buttonRequest
     }
 }
 
+// Request and state models used in HWCoreKit's public API, so apps need only `import HWCoreKit`.
+public typealias BitcoinTxInput = HWCoreFFI.BitcoinTxInput
+public typealias BitcoinTxOutput = HWCoreFFI.BitcoinTxOutput
+public typealias BitcoinRefTx = HWCoreFFI.BitcoinRefTx
+public typealias BitcoinRefTxInput = HWCoreFFI.BitcoinRefTxInput
+public typealias BitcoinRefTxOutput = HWCoreFFI.BitcoinRefTxOutput
+public typealias BitcoinMultisig = HWCoreFFI.BitcoinMultisig
+public typealias BitcoinMultisigPubkey = HWCoreFFI.BitcoinMultisigPubkey
+public typealias BitcoinMultisigPubkeysOrder = HWCoreFFI.BitcoinMultisigPubkeysOrder
+public typealias BtcInputScriptType = HWCoreFFI.BtcInputScriptType
+public typealias BtcOutputScriptType = HWCoreFFI.BtcOutputScriptType
+public typealias SolanaTxAdditionalInfo = HWCoreFFI.SolanaTxAdditionalInfo
+public typealias SolanaTxTokenAccountInfo = HWCoreFFI.SolanaTxTokenAccountInfo
+public typealias SignTypedDataRequest = HWCoreFFI.SignTypedDataRequest
+public typealias SignTypedDataResult = HWCoreFFI.SignTypedDataResult
+public typealias GetAddressRequest = HWCoreFFI.GetAddressRequest
+public typealias PairingMethod = HWCoreFFI.PairingMethod
+public typealias PairingPrompt = HWCoreFFI.PairingPrompt
+public typealias PairingProgress = HWCoreFFI.PairingProgress
+public typealias PairingProgressKind = HWCoreFFI.PairingProgressKind
+public typealias SessionState = HWCoreFFI.SessionState
+public typealias SessionPhase = HWCoreFFI.SessionPhase
+public typealias WorkflowEventKind = HWCoreFFI.WorkflowEventKind
+public typealias HostConfig = HWCoreFFI.HostConfig
+public typealias KnownCredential = HWCoreFFI.KnownCredential
+public typealias BleDeviceInfo = HWCoreFFI.BleDeviceInfo
+public typealias HostStorage = HWCoreFFI.HostStorage
+public typealias HostStorageError = HWCoreFFI.HostStorageError
+public typealias ButtonRequest = HWCoreFFI.ButtonRequest
+public typealias ButtonRequestCode = HWCoreFFI.ButtonRequestCode
+public typealias DeviceFeatures = HWCoreFFI.DeviceFeatures
 public typealias SessionHandshakeState = HWCoreFFI.SessionHandshakeState
 public typealias Chain = HWCoreFFI.Chain
 public typealias ChainConfig = HWCoreFFI.ChainConfig
@@ -61,8 +99,13 @@ public typealias SignatureEncoding = HWCoreFFI.SignatureEncoding
 public typealias MessageSignatureEncoding = SignatureEncoding
 public typealias SignMessageRequest = HWCoreFFI.SignMessageRequest
 public typealias SignMessageResult = HWCoreFFI.SignMessageResult
+public typealias BitcoinSignTxRequest = HWCoreFFI.BitcoinSignTxRequest
 public typealias SignTxRequest = HWCoreFFI.SignTxRequest
 public typealias SignTxResult = HWCoreFFI.SignTxResult
+public typealias EthereumDefinitions = HWCoreFFI.EthereumDefinitions
+public typealias EthereumTokenDefinition = HWCoreFFI.EthereumTokenDefinition
+public typealias EthereumDisplayFormatDefinition = HWCoreFFI.EthereumDisplayFormatDefinition
+public typealias EthereumDefinitionsSource = HWCoreFFI.EthereumDefinitionsSource
 
 public extension Chain {
     var defaultPath: String {
@@ -82,7 +125,8 @@ public extension SignTxRequest {
         maxFeePerGas: String,
         maxPriorityFee: String,
         accessList: [AccessListEntry] = [],
-        chunkify: Bool = false
+        chunkify: Bool = false,
+        definitions: EthereumDefinitions? = nil
     ) -> SignTxRequest {
         SignTxRequest(
             chain: .ethereum,
@@ -96,14 +140,16 @@ public extension SignTxRequest {
             maxFeePerGas: maxFeePerGas,
             maxPriorityFee: maxPriorityFee,
             accessList: accessList,
-            chunkify: chunkify
+            chunkify: chunkify,
+            ethDefinitions: definitions
         )
     }
 
     static func solana(
         path: String = Chain.solana.defaultPath,
         serializedTxHex: String,
-        chunkify: Bool = false
+        chunkify: Bool = false,
+        additionalInfo: SolanaTxAdditionalInfo? = nil
     ) -> SignTxRequest {
         SignTxRequest(
             chain: .solana,
@@ -117,7 +163,8 @@ public extension SignTxRequest {
             maxFeePerGas: "0x0",
             maxPriorityFee: "0x0",
             accessList: [],
-            chunkify: chunkify
+            chunkify: chunkify,
+            solanaAdditionalInfo: additionalInfo
         )
     }
 
@@ -146,14 +193,16 @@ public extension SignMessageRequest {
         path: String = Chain.ethereum.defaultPath,
         message: String,
         isHex: Bool = false,
-        chunkify: Bool = false
+        chunkify: Bool = false,
+        encodedNetwork: Data? = nil
     ) -> SignMessageRequest {
         SignMessageRequest(
             chain: .ethereum,
             path: path,
             message: message,
             isHex: isHex,
-            chunkify: chunkify
+            chunkify: chunkify,
+            encodedNetwork: encodedNetwork
         )
     }
 

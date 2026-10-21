@@ -92,6 +92,7 @@ async fn sign_sol_tx_uses_solana_chain() {
     let request = SolanaSignTx {
         path: path.clone(),
         serialized_tx: vec![0x01, 0x02, 0x03],
+        additional_info: None,
     };
     let response = workflow.sign_tx(request.into()).await.unwrap();
 

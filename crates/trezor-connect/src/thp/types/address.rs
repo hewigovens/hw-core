@@ -48,6 +48,11 @@ impl GetAddressRequest {
         self.include_public_key = value;
         self
     }
+
+    pub fn with_encoded_network(mut self, encoded_network: Option<Vec<u8>>) -> Self {
+        self.encoded_network = encoded_network;
+        self
+    }
 }
 
 #[derive(Debug, Clone)]

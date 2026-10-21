@@ -6,8 +6,12 @@ use crate::thp::backend::BackendError;
 use crate::thp::proto::ProtoMappingError;
 
 pub(super) const MESSAGE_TYPE_FAILURE: u16 = 3;
+const FAILURE_UNEXPECTED_MESSAGE: i32 = 1;
+const FAILURE_ACTION_CANCELLED: i32 = 4;
 const FAILURE_PIN_EXPECTED: i32 = 5;
+const FAILURE_PIN_CANCELLED: i32 = 6;
 const FAILURE_BUSY: i32 = 15;
+const FAILURE_IN_PROGRESS: i32 = 19;
 const FAILURE_FIRMWARE_ERROR: i32 = 99;
 
 #[derive(Clone, PartialEq, Message)]
@@ -25,8 +29,10 @@ impl BackendError {
             return Self::Device("firmware reported failure".into());
         };
         match msg.code {
+            Some(FAILURE_UNEXPECTED_MESSAGE) => Self::UnexpectedMessage,
+            Some(FAILURE_ACTION_CANCELLED | FAILURE_PIN_CANCELLED) => Self::ActionCancelled,
             Some(FAILURE_PIN_EXPECTED) => Self::PinExpected,
-            Some(FAILURE_BUSY) => Self::DeviceBusy,
+            Some(FAILURE_BUSY | FAILURE_IN_PROGRESS) => Self::DeviceBusy,
             Some(FAILURE_FIRMWARE_ERROR) => Self::DeviceFirmwareError,
             Some(code) => Self::DeviceError {
                 code: code as u32,
@@ -85,7 +91,11 @@ impl From<ProtoMappingError> for BackendError {
 
 impl From<BleError> for BackendError {
     fn from(error: BleError) -> Self {
-        Self::Transport(error.to_string())
+        match error {
+            BleError::Timeout(_) => Self::TransportTimeout,
+            BleError::NotificationStreamClosed | BleError::Disconnected => Self::Disconnected,
+            other => Self::Transport(other.to_string()),
+        }
     }
 }
 
@@ -120,12 +130,36 @@ mod tests {
             BackendError::from_failure(&payload)
         };
 
+        assert!(matches!(failure(1), BackendError::UnexpectedMessage));
+        assert!(matches!(failure(4), BackendError::ActionCancelled));
         assert!(matches!(failure(5), BackendError::PinExpected));
+        assert!(matches!(failure(6), BackendError::ActionCancelled));
         assert!(matches!(failure(15), BackendError::DeviceBusy));
+        assert!(matches!(failure(19), BackendError::DeviceBusy));
         assert!(matches!(failure(99), BackendError::DeviceFirmwareError));
         assert!(matches!(
             failure(5 + 256),
             BackendError::DeviceError { code: 261, .. }
+        ));
+    }
+
+    #[test]
+    fn ble_errors_keep_timeout_and_disconnect_meaning() {
+        assert!(matches!(
+            BackendError::from(BleError::Timeout(std::time::Duration::from_secs(1))),
+            BackendError::TransportTimeout
+        ));
+        assert!(matches!(
+            BackendError::from(BleError::NotificationStreamClosed),
+            BackendError::Disconnected
+        ));
+        assert!(matches!(
+            BackendError::from(BleError::Disconnected),
+            BackendError::Disconnected
+        ));
+        assert!(matches!(
+            BackendError::from(BleError::AdapterUnavailable),
+            BackendError::Transport(_)
         ));
     }
 }

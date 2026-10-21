@@ -57,12 +57,24 @@ where
         &self.config
     }
 
+    pub fn backend(&self) -> &B {
+        &self.backend
+    }
+
     pub fn backend_mut(&mut self) -> &mut B {
         &mut self.backend
     }
 
     pub fn into_parts(self) -> (B, HostConfig, ThpState) {
         (self.backend, self.config, self.state)
+    }
+
+    /// Returns to the handshake phase after the backend dropped its channel (a receive timeout
+    /// or disconnect), so the next bootstrap opens a new channel instead of reusing the session.
+    /// Pairing credentials in the host config are kept.
+    pub fn forget_channel(&mut self) {
+        self.state.reset();
+        self.channel_try_to_unlock = None;
     }
 
     pub async fn abort(&mut self) -> Result<()> {

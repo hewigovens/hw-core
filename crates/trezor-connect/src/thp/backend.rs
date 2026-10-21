@@ -11,6 +11,8 @@ pub enum BackendError {
     TransportBusy,
     #[error("transport error: {0}")]
     Transport(String),
+    #[error("device disconnected")]
+    Disconnected,
     #[error("device is locked")]
     DeviceLocked,
     #[error("device busy")]
@@ -21,6 +23,10 @@ pub enum BackendError {
     DeviceFirmwareError,
     #[error("session requires connection confirmation")]
     SessionConfirmationRequired,
+    #[error("action cancelled on device")]
+    ActionCancelled,
+    #[error("device does not support this request")]
+    UnexpectedMessage,
     #[error("device error: code={code}, {message}")]
     DeviceError { code: u32, message: String },
     #[error("device error: {0}")]
@@ -81,6 +87,8 @@ pub trait ThpBackend: Send {
     async fn get_public_key(&mut self, chain: Chain, path: Vec<u32>) -> BackendResult<String>;
 
     async fn get_nonce(&mut self) -> BackendResult<Vec<u8>>;
+
+    async fn get_features(&mut self) -> BackendResult<DeviceFeatures>;
 
     async fn sign_message(
         &mut self,

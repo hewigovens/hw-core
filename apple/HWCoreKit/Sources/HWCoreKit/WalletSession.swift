@@ -112,6 +112,39 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
+    /// Switches a started pairing to QR code or NFC; for NFC, hand `nfcData` to the device.
+    public func selectPairingMethod(_ method: PairingMethod, timeout: TimeInterval? = nil) async throws -> PairingPrompt {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "selectPairingMethod") {
+                try await self.workflow.pairingSelectMethod(method: method)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
+    /// Completes QR code pairing with the hex data scanned from the Trezor screen.
+    public func submitPairingQrTag(_ tag: String, timeout: TimeInterval? = nil) async throws -> PairingProgress {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "submitPairingQrTag") {
+                try await self.workflow.pairingSubmitQrTag(tag: tag)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
+    /// Completes NFC pairing with the hex tag read from the Trezor over NFC.
+    public func submitPairingNfcTag(_ tag: String, timeout: TimeInterval? = nil) async throws -> PairingProgress {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "submitPairingNfcTag") {
+                try await self.workflow.pairingSubmitNfcTag(tag: tag)
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
     public func confirmPairedConnection(timeout: TimeInterval? = nil) async throws -> PairingProgress {
         do {
             return try await withTimeout(seconds: timeout, operation: "confirmPairedConnection") {
@@ -148,6 +181,7 @@ public final class WalletSession: @unchecked Sendable {
         showOnDevice: Bool = true,
         includePublicKey: Bool = false,
         chunkify: Bool = false,
+        encodedNetwork: Data? = nil,
         timeout: TimeInterval? = nil
     ) async throws -> AddressResult {
         do {
@@ -159,9 +193,21 @@ public final class WalletSession: @unchecked Sendable {
                         path: resolvedPath,
                         showOnDevice: showOnDevice,
                         includePublicKey: includePublicKey,
-                        chunkify: chunkify
+                        chunkify: chunkify,
+                        encodedNetwork: encodedNetwork
                     )
                 )
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
+    /// Device id, label, model, firmware version and passphrase settings.
+    public func getFeatures(timeout: TimeInterval? = nil) async throws -> DeviceFeatures {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "getFeatures") {
+                try await self.workflow.getFeatures()
             }
         } catch {
             throw mapError(error)
@@ -172,6 +218,20 @@ public final class WalletSession: @unchecked Sendable {
         do {
             return try await withTimeout(seconds: timeout, operation: "getNonce") {
                 try await self.workflow.getNonce()
+            }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
+    /// Signs a Bitcoin transaction from typed inputs, outputs and reference transactions.
+    public func signBitcoinTx(
+        _ request: BitcoinSignTxRequest,
+        timeout: TimeInterval? = nil
+    ) async throws -> SignTxResult {
+        do {
+            return try await withTimeout(seconds: timeout, operation: "signBitcoinTx") {
+                try await self.workflow.signBitcoinTx(request: request)
             }
         } catch {
             throw mapError(error)
@@ -202,6 +262,11 @@ public final class WalletSession: @unchecked Sendable {
         } catch {
             throw mapError(error)
         }
+    }
+
+    /// Cancels the prompt the Trezor is showing; the running call throws `ActionCancelled`.
+    public func cancel() {
+        workflow.cancel()
     }
 
     public func disconnect(timeout: TimeInterval? = 5) async {

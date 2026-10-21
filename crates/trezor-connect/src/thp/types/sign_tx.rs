@@ -2,6 +2,8 @@ use hw_chain::Chain;
 
 use super::{BtcSignTx, EthSignTx, EthTxSignature, SolanaSignTx};
 
+// Built once per signing and moved, never stored in bulk, so boxing the variants buys nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum SignTxRequest {
     Ethereum(EthSignTx),

@@ -8,7 +8,7 @@ Each crate boundary has its own `thiserror` enum. Errors flow outward:
 BackendError (trezor-connect)
   → ThpWorkflowError (trezor-connect)
     → WalletError (hw-wallet)
-      → HWCoreError (hw-ffi, flattened to string for FFI)
+      → HWCoreError (hw-ffi, flat typed variants mirroring WalletErrorKind)
 ```
 
 The CLI top level uses `anyhow::Result`.

@@ -1,12 +1,13 @@
 use super::backend::BleBackend;
 use super::bitcoin::{BitcoinTxRequestHandling, BitcoinTxSigner};
+use super::ethereum::{EthereumTxRequestHandling, EthereumTxSigner};
 use crate::thp::backend::{BackendError, BackendResult};
 use crate::thp::proto::{
-    BitcoinTxRequest, DecodedBitcoinTxRequest, DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE,
-    EthereumTxAck, EthereumTxRequest, EthereumTypedDataValueAck, SolanaTxSignature, WireMessage,
+    BitcoinTxRequest, DecodedBitcoinTxRequest, DecodedTypedDataResponse, EthereumTypedDataValueAck,
+    SolanaTxSignature, WireMessage,
 };
 use crate::thp::types::{
-    BtcSignTx, Eip712TypedData, EthSignTx, EthTxSignature, SignTxResponse, SignTypedDataResponse,
+    BtcSignTx, Eip712TypedData, EthSignTx, SignTxResponse, SignTypedDataResponse,
 };
 
 impl BleBackend {
@@ -38,38 +39,16 @@ impl BleBackend {
         mut message_type: u16,
         mut payload: Vec<u8>,
     ) -> BackendResult<SignTxResponse> {
-        let data = tx.data.as_slice();
-        let mut data_offset = tx.initial_chunk_len();
+        let mut signer = EthereumTxSigner::new(tx);
         loop {
-            if message_type != EthereumTxRequest::MESSAGE_TYPE {
-                return Err(BackendError::unexpected_signing_message(
-                    message_type,
-                    "Ethereum",
-                ));
+            match signer.handle(message_type, &payload)? {
+                EthereumTxRequestHandling::Ack(ack) => {
+                    (message_type, payload) = self.request(ack).await?;
+                }
+                EthereumTxRequestHandling::Finished(signature) => {
+                    return Ok(SignTxResponse::Ethereum(signature));
+                }
             }
-            let tx_request = EthereumTxRequest::from_message(message_type, &payload)?;
-            if let (Some(v), Some(r), Some(s)) = (
-                tx_request.signature_v,
-                tx_request.signature_r,
-                tx_request.signature_s,
-            ) {
-                return Ok(SignTxResponse::Ethereum(EthTxSignature { v, r, s }));
-            }
-            let Some(requested_len) = tx_request.data_length else {
-                return Err(BackendError::Transport(
-                    "EthereumTxRequest has neither signature nor data_length".into(),
-                ));
-            };
-            let requested_len = requested_len as usize;
-            if requested_len > 0 && data_offset >= data.len() {
-                return Err(BackendError::Transport(
-                    "device requested additional tx data beyond payload length".into(),
-                ));
-            }
-            let end = (data_offset + requested_len.min(ETH_DATA_CHUNK_SIZE)).min(data.len());
-            let ack = EthereumTxAck::new(&data[data_offset..end]).to_message();
-            data_offset = end;
-            (message_type, payload) = self.request(ack).await?;
         }
     }
 

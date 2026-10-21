@@ -1,5 +1,10 @@
 use k256::ecdsa::SigningKey;
-use trezor_connect::thp::{EthSignTx, EthTxSignature};
+use trezor_connect::thp::{
+    EthDefinitionCatalog, EthDefinitions, EthDisplayFormatDefinition, EthSignTx,
+    EthTokenDefinition, EthTxSignature,
+};
+
+use crate::WalletError;
 
 use super::*;
 
@@ -7,6 +12,8 @@ const ETH_PARSE_MINIMAL: &str =
     include_str!("../../../../tests/data/ethereum/eth_parse_minimal.json");
 const ETH_BUILD_SIGN_REQUEST: &str =
     include_str!("../../../../tests/data/ethereum/eth_build_sign_request.json");
+const ETH_SIGN_WITH_DEFINITIONS: &str =
+    include_str!("../../../../tests/data/ethereum/eth_sign_with_definitions.json");
 
 #[test]
 fn parse_tx_json_minimal() {
@@ -25,6 +32,63 @@ fn into_sign_tx_decodes_json_quantities() {
     assert_eq!(request.chain_id, 1);
     assert_eq!(request.nonce, vec![1]);
     assert_eq!(request.gas_limit, vec![0x52, 0x08]);
+}
+
+#[test]
+fn into_sign_tx_maps_definitions_and_catalog() {
+    let tx = TxInput::from_json(ETH_SIGN_WITH_DEFINITIONS).unwrap();
+    let request = tx.into_sign_tx(Vec::new()).unwrap();
+
+    assert_eq!(
+        request.definitions,
+        EthDefinitions {
+            encoded_network: Some(b"trzd0".to_vec()),
+            encoded_token: Some(vec![1, 2]),
+            encoded_display_format: None,
+        }
+    );
+    let usdt = ::hex::decode("dac17f958d2ee523a2206206994597c13d831ec7").unwrap();
+    assert_eq!(
+        request.definition_catalog,
+        EthDefinitionCatalog {
+            tokens: vec![EthTokenDefinition {
+                address: [0xAA; 20],
+                encoded: vec![3, 4],
+            }],
+            display_formats: vec![EthDisplayFormatDefinition {
+                address: usdt.try_into().unwrap(),
+                func_sig: [0xa9, 0x05, 0x9c, 0xbb],
+                encoded: vec![5, 6],
+            }],
+        }
+    );
+
+    let minimal = TxInput::from_json(ETH_BUILD_SIGN_REQUEST)
+        .unwrap()
+        .into_sign_tx(Vec::new())
+        .unwrap();
+    assert!(minimal.definitions.is_empty());
+    assert!(minimal.definition_catalog.is_empty());
+}
+
+#[test]
+fn into_sign_tx_rejects_malformed_definitions() {
+    for definitions in [
+        r#"{"tokens": [{"address": "0xaa", "encoded": "0x01"}]}"#,
+        r#"{"display_formats": [{"address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "func_sig": "0x01", "encoded": "0x01"}]}"#,
+    ] {
+        let json = format!(r#"{{"to": "0xdead", "definitions": {definitions}}}"#);
+        let tx = TxInput::from_json(&json).unwrap();
+        assert!(matches!(
+            tx.into_sign_tx(Vec::new()),
+            Err(WalletError::Signing(_))
+        ));
+    }
+    let json = r#"{"to": "0xdead", "definitions": {"encoded_network": "0xzz"}}"#;
+    assert!(matches!(
+        TxInput::from_json(json),
+        Err(WalletError::Signing(_))
+    ));
 }
 
 #[test]

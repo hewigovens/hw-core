@@ -47,6 +47,11 @@ impl SignTypedDataRequest {
     pub fn ethereum_typed_data(path: Vec<u32>, typed_data: Eip712TypedData) -> Self {
         Self::ethereum_payload(path, SignTypedDataPayload::TypedData(typed_data))
     }
+
+    pub fn with_encoded_network(mut self, encoded_network: Option<Vec<u8>>) -> Self {
+        self.encoded_network = encoded_network;
+        self
+    }
 }
 
 #[derive(Debug, Clone)]

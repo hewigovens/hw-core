@@ -2,7 +2,7 @@ use trezor_connect::thp::{Phase, ThpBackend, ThpWorkflow, ThpWorkflowError};
 
 use super::code_entry_controller::CodeEntryPairingController;
 use crate::errors::HWCoreError;
-use crate::types::{PairingProgress, PairingPrompt};
+use crate::types::{PairingMethod, PairingProgress, PairingPrompt};
 
 /// FFI pairing steps that validate the workflow phase before driving `ThpWorkflow::pairing`.
 #[allow(async_fn_in_trait)]
@@ -10,6 +10,15 @@ pub(super) trait PairingFlow {
     async fn start_pairing(&mut self) -> Result<PairingPrompt, HWCoreError>;
     async fn confirm_paired_connection(&mut self) -> Result<PairingProgress, HWCoreError>;
     async fn submit_pairing_code(&mut self, code: String) -> Result<PairingProgress, HWCoreError>;
+    async fn select_pairing_method(
+        &mut self,
+        method: PairingMethod,
+    ) -> Result<PairingPrompt, HWCoreError>;
+    async fn submit_pairing_tag(
+        &mut self,
+        method: PairingMethod,
+        tag: String,
+    ) -> Result<PairingProgress, HWCoreError>;
 }
 
 impl<B> PairingFlow for ThpWorkflow<B>
@@ -75,6 +84,34 @@ where
             Err(err) => return Err(err.into()),
         }
 
+        Ok(PairingProgress::completed("Pairing completed"))
+    }
+
+    async fn select_pairing_method(
+        &mut self,
+        method: PairingMethod,
+    ) -> Result<PairingPrompt, HWCoreError> {
+        self.select_tag_pairing_method(method).await?;
+        PairingPrompt::try_from(self.state())
+    }
+
+    async fn submit_pairing_tag(
+        &mut self,
+        method: PairingMethod,
+        tag: String,
+    ) -> Result<PairingProgress, HWCoreError> {
+        if self.state().pairing_method() != Some(method) {
+            return Err(HWCoreError::Validation(format!(
+                "select {method:?} pairing with pairing_select_method before submitting its tag"
+            )));
+        }
+        let tag = tag.trim();
+        if tag.is_empty() || hex::decode(tag).is_err() {
+            return Err(HWCoreError::Validation(
+                "pairing tag must be a non-empty hex string".to_string(),
+            ));
+        }
+        self.submit_pairing_tag(tag.to_string()).await?;
         Ok(PairingProgress::completed("Pairing completed"))
     }
 }

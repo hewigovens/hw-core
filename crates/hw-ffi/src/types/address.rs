@@ -3,7 +3,7 @@ use trezor_connect::thp::{
     GetAddressRequest as ThpGetAddressRequest, GetAddressResponse as ThpGetAddressResponse,
 };
 
-use super::Chain;
+use super::{Chain, ethereum_encoded_network};
 use crate::errors::HWCoreError;
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -13,6 +13,9 @@ pub struct GetAddressRequest {
     pub show_on_device: bool,
     pub include_public_key: bool,
     pub chunkify: bool,
+    /// Ethereum only: signed network definition for chains the firmware does not know.
+    #[uniffi(default = None)]
+    pub encoded_network: Option<Vec<u8>>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -32,7 +35,7 @@ impl TryFrom<GetAddressRequest> for ThpGetAddressRequest {
             path: parse_bip32_path(&request.path)?,
             show_display: request.show_on_device,
             chunkify: request.chunkify,
-            encoded_network: None,
+            encoded_network: ethereum_encoded_network(request.chain, request.encoded_network)?,
             include_public_key: request.include_public_key,
         })
     }

@@ -1,0 +1,22 @@
+{
+  "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+  "chain_id": 8453,
+  "data": "0xa9059cbb",
+  "definitions": {
+    "encoded_network": "0x74727a6430",
+    "encoded_token": "0x0102",
+    "tokens": [
+      {
+        "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "encoded": "0x0304"
+      }
+    ],
+    "display_formats": [
+      {
+        "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "func_sig": "0xa9059cbb",
+        "encoded": "0x0506"
+      }
+    ]
+  }
+}

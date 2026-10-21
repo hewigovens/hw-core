@@ -29,16 +29,28 @@ pub struct SessionState {
 }
 
 pub(crate) trait SessionStateExt: Sized {
-    fn with_prompt(phase: SessionPhase, state: &ThpState) -> Result<Self, HWCoreError>;
+    fn with_prompt(phase: SessionPhase, state: &ThpState) -> Result<Self, HWCoreError> {
+        Self::with_pairing_prompt(phase, state).map(|(session, _)| session)
+    }
+
+    /// Also returns the pairing prompt when `phase` needs pairing input, for its event code.
+    fn with_pairing_prompt(
+        phase: SessionPhase,
+        state: &ThpState,
+    ) -> Result<(Self, Option<PairingPrompt>), HWCoreError>;
 }
 
 impl SessionStateExt for SessionState {
-    fn with_prompt(phase: SessionPhase, state: &ThpState) -> Result<Self, HWCoreError> {
-        let prompt_message = if matches!(phase, SessionPhase::NeedsPairingCode) {
-            Some(PairingPrompt::try_from(state)?.message)
+    fn with_pairing_prompt(
+        phase: SessionPhase,
+        state: &ThpState,
+    ) -> Result<(Self, Option<PairingPrompt>), HWCoreError> {
+        let prompt = if matches!(phase, SessionPhase::NeedsPairingCode) {
+            Some(PairingPrompt::try_from(state)?)
         } else {
             None
         };
-        Ok(Self::new(phase, prompt_message))
+        let message = prompt.as_ref().map(|prompt| prompt.message.clone());
+        Ok((Self::new(phase, message), prompt))
     }
 }

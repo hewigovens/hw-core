@@ -1,37 +1,53 @@
-use std::collections::VecDeque;
-use std::time::Duration;
+use std::sync::Arc;
 
-use tokio::sync::{Mutex as AsyncMutex, Notify};
-use tokio::time::timeout;
+use tokio::sync::Mutex as AsyncMutex;
 use trezor_connect::ble::BleBackend;
 use trezor_connect::thp::ThpWorkflow;
 
+use super::event_queue::EventQueue;
+use super::operation_gate::OperationGate;
 use crate::errors::HWCoreError;
-use crate::types::{SessionPhase, SessionState, WorkflowEvent, WorkflowEventKind};
+use crate::types::{
+    ButtonRequest, PairingPrompt, SessionPhase, SessionState, WorkflowEvent, WorkflowEventKind,
+};
+
+/// The workflow and whether it holds a wallet session, locked together so they never disagree.
+pub(super) struct WorkflowSlot {
+    pub(super) workflow: ThpWorkflow<BleBackend>,
+    pub(super) session_ready: bool,
+}
 
 #[derive(uniffi::Object)]
 pub struct BleWorkflowHandle {
-    pub(super) workflow: AsyncMutex<ThpWorkflow<BleBackend>>,
-    pub(super) session_ready: AsyncMutex<bool>,
-    events: AsyncMutex<VecDeque<WorkflowEvent>>,
-    notify: Notify,
+    pub(super) slot: AsyncMutex<WorkflowSlot>,
+    pub(super) operation: OperationGate,
+    events: Arc<EventQueue>,
 }
 
 impl BleWorkflowHandle {
-    pub(crate) fn new(workflow: ThpWorkflow<BleBackend>) -> Self {
+    pub(crate) fn new(mut workflow: ThpWorkflow<BleBackend>) -> Self {
+        let events = Arc::new(EventQueue::default());
+        let sink_events = events.clone();
+        workflow
+            .backend_mut()
+            .set_event_sink(Some(Arc::new(move |event| {
+                sink_events.push(ButtonRequest::from_device_event(event).into());
+            })));
         Self {
-            workflow: AsyncMutex::new(workflow),
-            session_ready: AsyncMutex::new(false),
-            events: AsyncMutex::new(VecDeque::new()),
-            notify: Notify::new(),
+            operation: OperationGate::new(workflow.backend().cancel_handle()),
+            slot: AsyncMutex::new(WorkflowSlot {
+                workflow,
+                session_ready: false,
+            }),
+            events,
         }
     }
 
     /// Wraps a workflow that already has a session and announces it as ready.
     pub(crate) async fn ready(workflow: ThpWorkflow<BleBackend>) -> Self {
         let handle = Self::new(workflow);
-        *handle.session_ready.lock().await = true;
-        handle.push_session_ready().await;
+        handle.slot.lock().await.session_ready = true;
+        handle.push_session_ready();
         handle
     }
 
@@ -40,81 +56,74 @@ impl BleWorkflowHandle {
         &self,
         op: impl AsyncFnOnce(&mut ThpWorkflow<BleBackend>) -> Result<T, HWCoreError>,
     ) -> Result<T, HWCoreError> {
+        self.with_slot(async |slot| op(&mut slot.workflow).await)
+            .await
+    }
+
+    /// Like [`Self::with_workflow`], with access to the session-ready flag under the same lock.
+    pub(super) async fn with_slot<T>(
+        &self,
+        op: impl AsyncFnOnce(&mut WorkflowSlot) -> Result<T, HWCoreError>,
+    ) -> Result<T, HWCoreError> {
         let result = {
-            let mut workflow = self.workflow.lock().await;
-            op(&mut workflow).await
+            let mut slot = self.slot.lock().await;
+            let _operation = self.operation.begin();
+            let result = op(&mut slot).await;
+            if matches!(
+                result,
+                Err(HWCoreError::Timeout(_) | HWCoreError::Disconnected(_))
+            ) {
+                // The backend retired its channel; the next connect_ready must redo the handshake.
+                slot.workflow.forget_channel();
+                slot.session_ready = false;
+            }
+            result
         };
         if let Err(err) = &result {
-            self.push_event(err.into()).await;
+            self.events.push(err.into());
         }
         result
     }
 
     pub(super) async fn next_queued_event(&self, timeout_ms: Option<u64>) -> Option<WorkflowEvent> {
-        loop {
-            if let Some(event) = self.events.lock().await.pop_front() {
-                return Some(event);
-            }
-
-            let notified = self.notify.notified();
-            if let Some(timeout_ms) = timeout_ms {
-                if timeout(Duration::from_millis(timeout_ms), notified)
-                    .await
-                    .is_err()
-                {
-                    return None;
-                }
-            } else {
-                notified.await;
-            }
-        }
+        self.events.next(timeout_ms).await
     }
 
-    async fn push_event(&self, event: WorkflowEvent) {
-        let mut events = self.events.lock().await;
-        events.push_back(event);
-        self.notify.notify_waiters();
+    pub(super) fn push(&self, kind: WorkflowEventKind, code: &str, message: &str) {
+        self.events.push(WorkflowEvent::new(kind, code, message));
     }
 
-    pub(super) async fn push(&self, kind: WorkflowEventKind, code: &str, message: &str) {
-        self.push_event(WorkflowEvent::new(kind, code, message))
-            .await;
+    pub(super) fn progress(&self, code: &str, message: &str) {
+        self.push(WorkflowEventKind::Progress, code, message);
     }
 
-    pub(super) async fn progress(&self, code: &str, message: &str) {
-        self.push(WorkflowEventKind::Progress, code, message).await;
-    }
-
-    pub(super) async fn confirmation_possible(&self, message: &str) {
-        self.push(
-            WorkflowEventKind::ButtonRequest,
-            "DEVICE_CONFIRMATION_POSSIBLE",
-            message,
-        )
-        .await;
-    }
-
-    async fn push_session_ready(&self) {
+    fn push_session_ready(&self) {
         self.push(
             WorkflowEventKind::Ready,
             "SESSION_READY",
             "BLE workflow is authenticated and session-ready",
-        )
-        .await;
+        );
     }
 
-    pub(super) async fn push_session_state_event(&self, state: &SessionState) {
-        match (&state.phase, &state.prompt_message) {
-            (SessionPhase::Ready, _) => self.push_session_ready().await,
-            (SessionPhase::NeedsPairingCode, Some(message)) => {
-                self.push(
-                    WorkflowEventKind::PairingPrompt,
-                    "PAIRING_CODE_REQUIRED",
-                    message,
-                )
-                .await;
+    pub(super) fn push_session_state_event(
+        &self,
+        state: &SessionState,
+        prompt: Option<&PairingPrompt>,
+    ) {
+        match (&state.phase, prompt) {
+            (SessionPhase::Ready, _) => self.push_session_ready(),
+            (SessionPhase::NeedsPairingCode, Some(prompt)) => {
+                self.push_pairing_prompt(prompt);
             }
             _ => {}
         }
+    }
+
+    pub(super) fn push_pairing_prompt(&self, prompt: &PairingPrompt) {
+        self.push(
+            WorkflowEventKind::PairingPrompt,
+            prompt.event_code(),
+            &prompt.message,
+        );
     }
 }

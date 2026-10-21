@@ -7,7 +7,7 @@ use super::backend::{BackendError, BackendResult, ThpBackend};
 use super::types::{
     CodeEntryChallengeRequest, CodeEntryChallengeResponse, CreateChannelRequest,
     CreateChannelResponse, CreateSessionRequest, CreateSessionResponse, CredentialRequest,
-    CredentialResponse, EthTxSignature, GetAddressRequest, GetAddressResponse,
+    CredentialResponse, DeviceFeatures, EthTxSignature, GetAddressRequest, GetAddressResponse,
     HandshakeCompletionState, HandshakeRequest, HandshakeResponse, KnownCredential, PairingMethod,
     PairingRequest, PairingRequestApproved, PairingTagRequest, PairingTagResponse,
     SelectMethodRequest, SelectMethodResponse, SignMessageRequest, SignMessageResponse,
@@ -21,6 +21,7 @@ pub struct MockCounters {
     pub get_address_calls: usize,
     pub get_public_key_calls: usize,
     pub get_nonce_calls: usize,
+    pub get_features_calls: usize,
     pub sign_message_calls: usize,
     pub sign_typed_data_calls: usize,
     pub sign_tx_calls: usize,
@@ -313,6 +314,21 @@ impl ThpBackend for MockBackend {
     async fn get_nonce(&mut self) -> BackendResult<Vec<u8>> {
         self.counters.get_nonce_calls += 1;
         Ok(vec![0xAA; 32])
+    }
+
+    async fn get_features(&mut self) -> BackendResult<DeviceFeatures> {
+        self.counters.get_features_calls += 1;
+        Ok(DeviceFeatures {
+            vendor: Some("trezor.io".into()),
+            major_version: 2,
+            minor_version: 9,
+            patch_version: 0,
+            device_id: Some("MOCKDEVICEID".into()),
+            internal_model: Some("T3W1".into()),
+            initialized: true,
+            unlocked: true,
+            ..DeviceFeatures::default()
+        })
     }
 
     async fn sign_message(

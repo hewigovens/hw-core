@@ -18,6 +18,9 @@ pub struct SignTypedDataRequest {
     pub data_json: Option<String>,
     #[uniffi(default = true)]
     pub metamask_v4_compat: bool,
+    /// Signed network definition for chains the firmware does not know.
+    #[uniffi(default = None)]
+    pub encoded_network: Option<Vec<u8>>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -50,7 +53,8 @@ impl TryFrom<SignTypedDataRequest> for ThpSignTypedDataRequest {
             domain_separator_hash.as_deref(),
             message_hash.as_deref(),
             request.metamask_v4_compat,
-        )?)
+        )?
+        .with_encoded_network(request.encoded_network))
     }
 }
 

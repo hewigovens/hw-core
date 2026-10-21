@@ -1,9 +1,9 @@
-use trezor_connect::thp::{SignTxRequest as ThpSignTxRequest, ThpBackend, ThpWorkflow};
+use trezor_connect::thp::{BtcSignTx, SignTxRequest as ThpSignTxRequest, ThpBackend, ThpWorkflow};
 
 use crate::errors::HWCoreError;
 use crate::types::{
-    AddressResult, GetAddressRequest, SignMessageRequest, SignMessageResult, SignTxRequest,
-    SignTxResult, SignTypedDataRequest, SignTypedDataResult,
+    AddressResult, BitcoinSignTxRequest, GetAddressRequest, SignMessageRequest, SignMessageResult,
+    SignTxRequest, SignTxResult, SignTypedDataRequest, SignTypedDataResult,
 };
 
 /// Wallet requests that take and return FFI records.
@@ -17,6 +17,10 @@ pub(super) trait WalletRequests {
     async fn request_tx_signature(
         &mut self,
         request: SignTxRequest,
+    ) -> Result<SignTxResult, HWCoreError>;
+    async fn request_bitcoin_tx_signature(
+        &mut self,
+        request: BitcoinSignTxRequest,
     ) -> Result<SignTxResult, HWCoreError>;
     async fn request_message_signature(
         &mut self,
@@ -48,9 +52,15 @@ where
         &mut self,
         request: SignTxRequest,
     ) -> Result<SignTxResult, HWCoreError> {
-        let request = ThpSignTxRequest::try_from(request)?;
-        let response = self.sign_tx(request.clone()).await?;
-        Ok(SignTxResult::new(&request, response))
+        self.request_thp_tx_signature(request.try_into()?).await
+    }
+
+    async fn request_bitcoin_tx_signature(
+        &mut self,
+        request: BitcoinSignTxRequest,
+    ) -> Result<SignTxResult, HWCoreError> {
+        let tx = BtcSignTx::try_from(request)?;
+        self.request_thp_tx_signature(tx.into()).await
     }
 
     async fn request_message_signature(
@@ -65,5 +75,25 @@ where
         request: SignTypedDataRequest,
     ) -> Result<SignTypedDataResult, HWCoreError> {
         self.sign_typed_data(request.try_into()?).await?.try_into()
+    }
+}
+
+trait TxSignature {
+    async fn request_thp_tx_signature(
+        &mut self,
+        request: ThpSignTxRequest,
+    ) -> Result<SignTxResult, HWCoreError>;
+}
+
+impl<B> TxSignature for ThpWorkflow<B>
+where
+    B: ThpBackend + Send,
+{
+    async fn request_thp_tx_signature(
+        &mut self,
+        request: ThpSignTxRequest,
+    ) -> Result<SignTxResult, HWCoreError> {
+        let response = self.sign_tx(request.clone()).await?;
+        Ok(SignTxResult::new(&request, response))
     }
 }

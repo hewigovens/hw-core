@@ -25,8 +25,7 @@ impl ThpStorage for FileStorage {
     }
 
     async fn persist(&self, snapshot: &HostSnapshot) -> Result<(), StorageError> {
-        let data = serde_json::to_vec_pretty(snapshot)?;
-        platform::atomic_write(&self.path, &data)?;
+        platform::atomic_write(&self.path, &snapshot.to_json()?)?;
         Ok(())
     }
 }
