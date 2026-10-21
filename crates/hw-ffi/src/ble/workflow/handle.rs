@@ -11,10 +11,15 @@ use crate::types::{
     ButtonRequest, PairingPrompt, SessionPhase, SessionState, WorkflowEvent, WorkflowEventKind,
 };
 
+/// The workflow and whether it holds a wallet session, locked together so they never disagree.
+pub(super) struct WorkflowSlot {
+    pub(super) workflow: ThpWorkflow<BleBackend>,
+    pub(super) session_ready: bool,
+}
+
 #[derive(uniffi::Object)]
 pub struct BleWorkflowHandle {
-    pub(super) workflow: AsyncMutex<ThpWorkflow<BleBackend>>,
-    pub(super) session_ready: AsyncMutex<bool>,
+    pub(super) slot: AsyncMutex<WorkflowSlot>,
     pub(super) operation: OperationGate,
     events: Arc<EventQueue>,
 }
@@ -30,8 +35,10 @@ impl BleWorkflowHandle {
             })));
         Self {
             operation: OperationGate::new(workflow.backend().cancel_handle()),
-            workflow: AsyncMutex::new(workflow),
-            session_ready: AsyncMutex::new(false),
+            slot: AsyncMutex::new(WorkflowSlot {
+                workflow,
+                session_ready: false,
+            }),
             events,
         }
     }
@@ -39,7 +46,7 @@ impl BleWorkflowHandle {
     /// Wraps a workflow that already has a session and announces it as ready.
     pub(crate) async fn ready(workflow: ThpWorkflow<BleBackend>) -> Self {
         let handle = Self::new(workflow);
-        *handle.session_ready.lock().await = true;
+        handle.slot.lock().await.session_ready = true;
         handle.push_session_ready();
         handle
     }
@@ -49,17 +56,26 @@ impl BleWorkflowHandle {
         &self,
         op: impl AsyncFnOnce(&mut ThpWorkflow<BleBackend>) -> Result<T, HWCoreError>,
     ) -> Result<T, HWCoreError> {
+        self.with_slot(async |slot| op(&mut slot.workflow).await)
+            .await
+    }
+
+    /// Like [`Self::with_workflow`], with access to the session-ready flag under the same lock.
+    pub(super) async fn with_slot<T>(
+        &self,
+        op: impl AsyncFnOnce(&mut WorkflowSlot) -> Result<T, HWCoreError>,
+    ) -> Result<T, HWCoreError> {
         let result = {
-            let mut workflow = self.workflow.lock().await;
+            let mut slot = self.slot.lock().await;
             let _operation = self.operation.begin();
-            let result = op(&mut workflow).await;
+            let result = op(&mut slot).await;
             if matches!(
                 result,
                 Err(HWCoreError::Timeout(_) | HWCoreError::Disconnected(_))
             ) {
                 // The backend retired its channel; the next connect_ready must redo the handshake.
-                workflow.forget_channel();
-                *self.session_ready.lock().await = false;
+                slot.workflow.forget_channel();
+                slot.session_ready = false;
             }
             result
         };

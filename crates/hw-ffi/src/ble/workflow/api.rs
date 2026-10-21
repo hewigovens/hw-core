@@ -17,12 +17,10 @@ use crate::types::{
 impl BleWorkflowHandle {
     #[uniffi::method]
     pub async fn session_state(&self) -> Result<SessionState, HWCoreError> {
-        // Read readiness under the workflow lock: with_workflow resets both together on channel loss.
-        let workflow = self.workflow.lock().await;
-        let ready = *self.session_ready.lock().await;
+        let slot = self.slot.lock().await;
         SessionState::with_prompt(
-            SessionPhase::from_state(workflow.state(), ready),
-            workflow.state(),
+            SessionPhase::from_state(slot.workflow.state(), slot.session_ready),
+            slot.workflow.state(),
         )
     }
 
@@ -39,16 +37,16 @@ impl BleWorkflowHandle {
     ) -> Result<SessionState, HWCoreError> {
         self.progress("PAIR_ONLY_START", "Advancing workflow to paired state");
         let options = SessionBootstrapOptions::from_ffi(try_to_unlock, retry_policy);
-        let result = self
-            .with_workflow(async |workflow| {
-                let phase = workflow
+        let (state, prompt) = self
+            .with_slot(async |slot| {
+                slot.session_ready = false;
+                let phase = slot
+                    .workflow
                     .advance_session_bootstrap(false, BootstrapTarget::Paired, &options)
                     .await?;
-                SessionState::with_pairing_prompt(phase, workflow.state())
+                SessionState::with_pairing_prompt(phase, slot.workflow.state())
             })
-            .await;
-        *self.session_ready.lock().await = false;
-        let (state, prompt) = result?;
+            .await?;
         self.push_session_state_event(&state, prompt.as_ref());
         Ok(state)
     }
@@ -68,18 +66,23 @@ impl BleWorkflowHandle {
             "CONNECT_READY_START",
             "Advancing workflow to session-ready state",
         );
-        let ready = *self.session_ready.lock().await;
         let options = SessionBootstrapOptions::from_ffi(try_to_unlock, retry_policy);
-        let state = self
-            .with_workflow(async |workflow| {
-                let phase = workflow
-                    .advance_session_bootstrap(ready, BootstrapTarget::Session, &options)
+        let (state, prompt) = self
+            .with_slot(async |slot| {
+                let phase = slot
+                    .workflow
+                    .advance_session_bootstrap(
+                        slot.session_ready,
+                        BootstrapTarget::Session,
+                        &options,
+                    )
                     .await?;
-                SessionState::with_pairing_prompt(phase, workflow.state())
+                let (state, prompt) =
+                    SessionState::with_pairing_prompt(phase, slot.workflow.state())?;
+                slot.session_ready = matches!(state.phase, SessionPhase::Ready);
+                Ok((state, prompt))
             })
             .await?;
-        let (state, prompt) = state;
-        *self.session_ready.lock().await = matches!(state.phase, SessionPhase::Ready);
         self.push_session_state_event(&state, prompt.as_ref());
         Ok(state)
     }
@@ -92,7 +95,7 @@ impl BleWorkflowHandle {
         self.create_channel().await?;
         self.handshake(try_to_unlock).await?;
 
-        let phase = self.workflow.lock().await.state().phase();
+        let phase = self.slot.lock().await.workflow.state().phase();
         match phase {
             Phase::Paired => Ok(SessionHandshakeState::Ready),
             Phase::Pairing => {
@@ -123,9 +126,12 @@ impl BleWorkflowHandle {
     pub async fn pairing_submit_code(&self, code: String) -> Result<PairingProgress, HWCoreError> {
         self.progress("PAIRING_SUBMIT_CODE_START", "Submitting pairing code");
         let progress = self
-            .with_workflow(async |workflow| workflow.submit_pairing_code(code).await)
+            .with_slot(async |slot| {
+                let progress = slot.workflow.submit_pairing_code(code).await?;
+                slot.session_ready = false;
+                Ok(progress)
+            })
             .await?;
-        *self.session_ready.lock().await = false;
         self.progress("PAIRING_COMPLETE", &progress.message);
         Ok(progress)
     }
@@ -168,9 +174,12 @@ impl BleWorkflowHandle {
             "Confirming paired connection with device",
         );
         let progress = self
-            .with_workflow(async |workflow| workflow.confirm_paired_connection().await)
+            .with_slot(async |slot| {
+                let progress = slot.workflow.confirm_paired_connection().await?;
+                slot.session_ready = false;
+                Ok(progress)
+            })
             .await?;
-        *self.session_ready.lock().await = false;
         self.progress("PAIRING_CONFIRM_CONNECTION_OK", &progress.message);
         Ok(progress)
     }
@@ -183,13 +192,14 @@ impl BleWorkflowHandle {
         derive_cardano: bool,
     ) -> Result<(), HWCoreError> {
         self.progress("CREATE_SESSION_START", "Creating wallet session");
-        self.with_workflow(async |workflow| {
-            Ok(workflow
+        self.with_slot(async |slot| {
+            slot.workflow
                 .create_session(passphrase, on_device, derive_cardano)
-                .await?)
+                .await?;
+            slot.session_ready = true;
+            Ok(())
         })
         .await?;
-        *self.session_ready.lock().await = true;
         self.push(
             WorkflowEventKind::Ready,
             "SESSION_READY",
@@ -307,10 +317,9 @@ impl BleWorkflowHandle {
     /// Tears down the THP channel and disconnects BLE; the next call needs a new handshake.
     #[uniffi::method]
     pub async fn abort(&self) -> Result<(), HWCoreError> {
-        let mut workflow = self.workflow.lock().await;
-        workflow.abort().await?;
-        drop(workflow);
-        *self.session_ready.lock().await = false;
+        let mut slot = self.slot.lock().await;
+        slot.session_ready = false;
+        slot.workflow.abort().await?;
         Ok(())
     }
 
@@ -331,20 +340,24 @@ impl BleWorkflowHandle {
     ) -> Result<PairingProgress, HWCoreError> {
         self.progress("PAIRING_SUBMIT_TAG_START", "Submitting pairing tag");
         let progress = self
-            .with_workflow(async |workflow| {
-                PairingFlow::submit_pairing_tag(workflow, method, tag).await
+            .with_slot(async |slot| {
+                let progress =
+                    PairingFlow::submit_pairing_tag(&mut slot.workflow, method, tag).await?;
+                slot.session_ready = false;
+                Ok(progress)
             })
             .await?;
-        *self.session_ready.lock().await = false;
         self.progress("PAIRING_COMPLETE", &progress.message);
         Ok(progress)
     }
 
     async fn create_channel(&self) -> Result<(), HWCoreError> {
         self.progress("CREATE_CHANNEL_START", "Creating THP channel");
-        self.with_workflow(async |workflow| Ok(workflow.create_channel().await?))
-            .await?;
-        *self.session_ready.lock().await = false;
+        self.with_slot(async |slot| {
+            slot.session_ready = false;
+            Ok(slot.workflow.create_channel().await?)
+        })
+        .await?;
         self.progress("CREATE_CHANNEL_OK", "THP channel created");
         Ok(())
     }
@@ -352,12 +365,13 @@ impl BleWorkflowHandle {
     async fn handshake(&self, try_to_unlock: bool) -> Result<(), HWCoreError> {
         self.progress("HANDSHAKE_START", "Performing THP handshake");
         let needs_pairing = self
-            .with_workflow(async |workflow| {
-                workflow.handshake(try_to_unlock).await?;
-                Ok(workflow.state().phase() == Phase::Pairing && !workflow.state().is_paired())
+            .with_slot(async |slot| {
+                slot.session_ready = false;
+                slot.workflow.handshake(try_to_unlock).await?;
+                let state = slot.workflow.state();
+                Ok(state.phase() == Phase::Pairing && !state.is_paired())
             })
             .await?;
-        *self.session_ready.lock().await = false;
         self.progress("HANDSHAKE_OK", "THP handshake complete");
         if needs_pairing {
             self.push(
