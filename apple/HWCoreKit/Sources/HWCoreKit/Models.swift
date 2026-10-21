@@ -84,6 +84,7 @@ public typealias WorkflowEventKind = HWCoreFFI.WorkflowEventKind
 public typealias HostConfig = HWCoreFFI.HostConfig
 public typealias KnownCredential = HWCoreFFI.KnownCredential
 public typealias BleDeviceInfo = HWCoreFFI.BleDeviceInfo
+public typealias HwCoreError = HWCoreFFI.HwCoreError
 public typealias HostStorage = HWCoreFFI.HostStorage
 public typealias HostStorageError = HWCoreFFI.HostStorageError
 public typealias ButtonRequest = HWCoreFFI.ButtonRequest

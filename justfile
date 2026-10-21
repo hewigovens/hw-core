@@ -68,6 +68,10 @@ sample:
     just bindings
     swift run --package-path apple/HWCoreKitSampleApp
 
+# Build target/xcframework/HWCore.xcframework + Swift bindings for apps outside this repo
+xcframework:
+    ./scripts/build-xcframework.sh
+
 generate-apple-projects:
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-ios.yml
     xcodegen generate --spec apple/HWCoreKitSampleApp/project-mac.yml
