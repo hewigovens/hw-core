@@ -212,21 +212,22 @@ where
         method: PairingMethod,
         controller: Option<&dyn PairingController>,
     ) -> Result<PairingStep> {
+        // Store NFC data before prompting: without a controller the prompt returns
+        // PairingInteractionRequired, and the app reads the data from the workflow state.
+        if let Some(data) = &nfc_data {
+            self.state.update_handshake_credentials(|creds| {
+                creds.nfc_data = Some(data.clone());
+            });
+        }
         let prompt = PairingPrompt {
             available_methods: handshake.pairing_methods.clone(),
             selected_method: method,
-            nfc_data: nfc_data.clone().or(handshake.nfc_data.clone()),
+            nfc_data: nfc_data.or(handshake.nfc_data.clone()),
         };
         let tag = match self.prompt_for_tag(controller, prompt).await? {
             ControlFlow::Continue(tag) => tag,
             ControlFlow::Break(step) => return Ok(step),
         };
-
-        if let Some(data) = nfc_data {
-            self.state.update_handshake_credentials(|creds| {
-                creds.nfc_data = Some(data);
-            });
-        }
 
         let Some(request) =
             PairingTagRequest::for_tag_method(method, handshake.handshake_hash.clone(), tag)

@@ -398,6 +398,44 @@ async fn qr_code_fallback_after_code_entry_start_completes_pairing() {
 }
 
 #[tokio::test]
+async fn nfc_data_is_kept_when_nfc_pairing_pauses_for_the_app() {
+    let mut backend = MockBackend::code_entry_flow();
+    backend.create_channel_response.properties.pairing_methods =
+        vec![PairingMethod::Nfc, PairingMethod::CodeEntry];
+    backend.select_responses.clear();
+    backend
+        .select_responses
+        .push_back(SelectMethodResponse::PairingPreparationsFinished {
+            nfc_data: Some(vec![0x4e, 0x46, 0x43]),
+        });
+    let mut workflow = ThpWorkflow::new(
+        backend,
+        HostConfig {
+            pairing_methods: vec![PairingMethod::Nfc, PairingMethod::CodeEntry],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        },
+    );
+
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    let err = workflow
+        .pairing(None)
+        .await
+        .expect_err("pairing should pause for the NFC tag");
+    assert!(matches!(err, ThpWorkflowError::PairingInteractionRequired));
+    assert_eq!(
+        workflow
+            .state()
+            .handshake_credentials()
+            .and_then(|creds| creds.nfc_data.clone()),
+        Some(vec![0x4e, 0x46, 0x43])
+    );
+}
+
+#[tokio::test]
 async fn tag_pairing_method_must_be_offered_by_device() {
     let mut workflow = ThpWorkflow::new(
         MockBackend::code_entry_flow(),
