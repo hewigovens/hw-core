@@ -30,6 +30,7 @@ pub struct BitcoinTxInput {
     pub amount: u64,
     /// `None` uses `0xffffffff`.
     pub sequence: Option<u32>,
+    /// `External` is rejected: it needs metadata this record does not carry.
     pub script_type: BtcInputScriptType,
     /// Required for `SpendMultisig`.
     #[uniffi(default = None)]
@@ -162,6 +163,17 @@ impl TryFrom<BitcoinSignTxRequest> for BtcSignTx {
     type Error = HWCoreError;
 
     fn try_from(request: BitcoinSignTxRequest) -> Result<Self, Self::Error> {
+        // External inputs need a scriptPubKey, signatures and an ownership proof this record does not carry.
+        if request
+            .inputs
+            .iter()
+            .any(|input| input.script_type == BtcInputScriptType::External)
+        {
+            return Err(HWCoreError::Validation(
+                "External inputs are not supported in typed Bitcoin requests; use the JSON sign_tx path"
+                    .into(),
+            ));
+        }
         Ok(BtcSignTx::try_from(TxInput::from(request))?)
     }
 }

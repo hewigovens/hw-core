@@ -241,6 +241,13 @@ fn typed_bitcoin_request_rejects_invalid_shapes_before_signing() {
     ));
 
     let mut request = typed_bitcoin_request();
+    request.inputs[0].script_type = BtcInputScriptType::External;
+    assert!(matches!(
+        BtcSignTx::try_from(request),
+        Err(HWCoreError::Validation(message)) if message.starts_with("External inputs")
+    ));
+
+    let mut request = typed_bitcoin_request();
     request.ref_txs.clear();
     assert!(
         BtcSignTx::try_from(request).is_err(),
