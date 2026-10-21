@@ -53,9 +53,10 @@ build-android-release:
     ./scripts/sync-bindings.sh --android --release
 
 # Publish android/lib with release native libs to ~/.m2 as dev.hewig.hwcore:hwcore:<version>
-android-publish-local:
+# (default: the Rust workspace version; `just android-publish-local 0.2.0-dev` overrides it)
+android-publish-local version="":
     just build-android-release
-    cd android && ./gradlew :lib:publishToMavenLocal --no-daemon
+    cd android && ./gradlew :lib:publishToMavenLocal --no-daemon {{ if version != "" { "-PhwcoreVersion=" + version } else { "" } }}
 
 run-android log_file="target/android-logcat.log":
     just build-android

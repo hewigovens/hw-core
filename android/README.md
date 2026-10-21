@@ -73,7 +73,7 @@ hw-core does not publish artifacts. To use the library from an app outside this 
 just android-publish-local
 ```
 
-This builds release native libraries for `arm64-v8a`, `armeabi-v7a` and `x86_64`, regenerates the Kotlin bindings, and publishes `dev.hewig.hwcore:hwcore:<version>`, where the version is the Rust workspace version (override it with `./gradlew :lib:publishToMavenLocal -PhwcoreVersion=<version>`). The AAR carries the native libraries, the patched btleplug Java classes and consumer R8 rules.
+This builds release native libraries for `arm64-v8a`, `armeabi-v7a` and `x86_64`, regenerates the Kotlin bindings, and publishes `dev.hewig.hwcore:hwcore:<version>`, where the version is the Rust workspace version (override it with `just android-publish-local <version>`, which still rebuilds the native libraries and bindings first). The AAR carries the native libraries, the patched btleplug Java classes and consumer R8 rules.
 
 In the consuming app, add `mavenLocal()` to the repositories in `settings.gradle.kts` and depend on it:
 
