@@ -12,7 +12,8 @@ pub enum SessionPhase {
 
 impl SessionPhase {
     pub fn from_state(state: &ThpState, session_ready: bool) -> Self {
-        if session_ready {
+        // A stale ready flag must not mask a workflow that dropped back to the handshake.
+        if session_ready && state.phase() == Phase::Paired {
             return Self::Ready;
         }
         match state.phase() {

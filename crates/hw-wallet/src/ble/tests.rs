@@ -56,6 +56,13 @@ fn session_phase_transition_sequence_progresses_to_ready() {
         SessionPhase::NeedsSession
     );
     assert_eq!(SessionPhase::from_state(&state, true), SessionPhase::Ready);
+
+    // A stale ready flag after the workflow dropped its channel must not report Ready.
+    state.reset();
+    assert_eq!(
+        SessionPhase::from_state(&state, true),
+        SessionPhase::NeedsChannel
+    );
 }
 
 #[test]

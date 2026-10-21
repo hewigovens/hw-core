@@ -17,8 +17,9 @@ use crate::types::{
 impl BleWorkflowHandle {
     #[uniffi::method]
     pub async fn session_state(&self) -> Result<SessionState, HWCoreError> {
-        let ready = *self.session_ready.lock().await;
+        // Read readiness under the workflow lock: with_workflow resets both together on channel loss.
         let workflow = self.workflow.lock().await;
+        let ready = *self.session_ready.lock().await;
         SessionState::with_prompt(
             SessionPhase::from_state(workflow.state(), ready),
             workflow.state(),
