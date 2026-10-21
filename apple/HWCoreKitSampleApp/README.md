@@ -31,14 +31,8 @@ On first run, macOS should prompt for Bluetooth access.
 `swift run` starts a GUI app and stays attached to the process until you quit the window.
 If the process exits with `SIGABRT`/code `134`, clean the package build artifacts and run again so the embedded `Info.plist` is rebuilt.
 
-If dynamic library loading fails at runtime, set:
-
-```bash
-export DYLD_LIBRARY_PATH="$(pwd)/target/debug"
-```
-
 ## Run (iOS)
-1. From repository root, generate bindings and iOS-simulator Rust FFI:
+1. From repository root, prepare the packaged Apple SDK and simulator project:
    ```bash
    just build-ios
    ```
@@ -54,9 +48,9 @@ just run-ios
 
 Note:
 - The SwiftUI view and view model are shared between macOS and iOS.
-- iOS simulator links statically from `target/ios-sim/debug/libhwcore.a`.
-- iOS devices link statically from `target/aarch64-apple-ios/debug/libhwcore.a`.
-- `just bindings` builds these iOS static libraries automatically on macOS.
+- All Apple destinations link the static `HWCore.xcframework` through SwiftPM.
+- `just bindings` prepares the framework and matching bindings on macOS.
+- `just xcframework` also creates a portable `target/xcframework/HWCoreKit` package.
 
 ## iOS UI Tests
 Run iOS UI smoke tests:

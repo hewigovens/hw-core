@@ -11,22 +11,21 @@ let package = Package(
         .library(name: "HWCoreKit", targets: ["HWCoreKit"]),
     ],
     targets: [
-        .systemLibrary(
-            name: "libhwcore",
-            path: "Sources/libhwcore"
-        ),
+        .binaryTarget(name: "libhwcore", path: "HWCore.xcframework"),
         .target(
             name: "HWCoreFFI",
             dependencies: ["libhwcore"],
-            path: "Sources/HWCoreFFI",
-            linkerSettings: [
-                .unsafeFlags(["-L", "../../target/debug", "-lhwcore"], .when(platforms: [.macOS])),
-            ]
+            path: "Sources/HWCoreFFI"
         ),
         .target(
             name: "HWCoreKit",
             dependencies: ["HWCoreFFI"],
-            path: "Sources/HWCoreKit"
+            path: "Sources/HWCoreKit",
+            linkerSettings: [
+                .linkedFramework("CoreBluetooth"),
+                .linkedFramework("Foundation"),
+                .linkedLibrary("iconv"),
+            ]
         ),
         .testTarget(
             name: "HWCoreKitTests",

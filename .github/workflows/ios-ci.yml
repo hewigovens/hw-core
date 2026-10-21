@@ -33,15 +33,34 @@ jobs:
 
       - name: Generate sample app projects (iOS + macOS)
         run: |
-          brew install xcodegen
-          just bindings
+          brew install xcodegen xcbeautify
+          just xcframework
+          # Exercise a relocated consumer with no Cargo target/ or repository sources.
+          CONSUMER_DIR="$RUNNER_TEMP/hwcore-consumer"
+          mkdir -p "$CONSUMER_DIR/apple"
+          cp -R target/xcframework/HWCoreKit "$CONSUMER_DIR/apple/"
+          cp -R apple/HWCoreKitSampleApp "$CONSUMER_DIR/apple/"
+          cp justfile "$CONSUMER_DIR/"
+          echo "CONSUMER_DIR=$CONSUMER_DIR" >> "$GITHUB_ENV"
+          cd "$CONSUMER_DIR"
           just generate-apple-projects
 
       - name: Run HWCoreKit Swift package tests
+        working-directory: ${{ env.CONSUMER_DIR }}
         run: swift test --package-path apple/HWCoreKit
 
       - name: Run iOS sample app UI smoke tests
+        working-directory: ${{ env.CONSUMER_DIR }}
         run: just smoke-ios-ui
 
+      - name: Build iOS device sample app
+        working-directory: ${{ env.CONSUMER_DIR }}
+        run: |
+          set -o pipefail
+          xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build | xcbeautify
+
       - name: Build macOS sample app
-        run: xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' build | xcbeautify
+        working-directory: ${{ env.CONSUMER_DIR }}
+        run: |
+          set -o pipefail
+          xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppMac.xcodeproj -scheme HWCoreKitSampleAppMac -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build | xcbeautify

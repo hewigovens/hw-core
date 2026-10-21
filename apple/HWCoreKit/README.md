@@ -11,31 +11,19 @@
 - Event stream (`events() -> AsyncStream<WalletEvent>`)
 - Rust-native `HwCoreError` surfaced directly in Swift
 
-## Sync Generated Bindings
-From repo root:
+## Build and Integrate
 
-```bash
-just bindings
-./scripts/sync-bindings.sh --apple
-```
+On a Mac with Xcode and Rust, run `just xcframework` from the repository root.
+This builds the release XCFramework and matching Swift bindings, refreshes this
+local package, and writes a portable package to `target/xcframework/HWCoreKit`.
+Copy that entire generated directory into another app repository and add it as a
+local Swift package dependency. The consumer does not need Rust or this checkout.
 
-## Build Rust FFI for iOS Simulator
-From repo root:
-
-```bash
-./scripts/sync-bindings.sh --apple --ios-sim-only
-```
-
-This produces:
-
-```text
-target/ios-sim/debug/libhwcore.dylib
-```
-
-`HWCoreKit` links this artifact on iOS simulator builds.
-
-## Integrate in App
-Inside this repository, the sample apps add `apple/HWCoreKit` as a local package and link `target/` builds of `libhwcore`. For an app outside this repository, build `HWCore.xcframework` with `just xcframework` and follow the [iOS and macOS integration guide](../../docs/apple-integration.md).
+`Package.swift` uses a local `binaryTarget` and requires no unsafe linker flags.
+Generated artifacts are not committed; build before resolving a fresh checkout.
+Existing `just bindings` and sample app recipes prepare the same package on macOS.
+See the [iOS and macOS integration guide](../../docs/apple-integration.md) for
+platform requirements, Bluetooth permissions, storage and workflow examples.
 
 ## Notes
 - This scaffold is intentionally thin and keeps protocol-heavy logic in Rust.

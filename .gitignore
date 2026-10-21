@@ -18,3 +18,6 @@ gradle-daemon-jvm.properties
 # Local Trezor emulator binaries used during development.
 tests/fixtures/trezor-emu-core-*
 .DS_Store
+
+# Generated Apple binary SDK.
+apple/HWCoreKit/HWCore.xcframework/
