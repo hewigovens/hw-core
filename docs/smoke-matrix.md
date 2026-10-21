@@ -1,6 +1,6 @@
 # hw-core Smoke Matrix
 
-Last updated: 2026-10-07
+Last updated: 2026-10-21
 
 This is the canonical validation matrix for developer-facing surfaces. If a flow
 is not listed here, it is not part of the required smoke gate.
@@ -40,3 +40,23 @@ is not listed here, it is not part of the required smoke gate.
 - Real-device checks still matter for BLE, pairing, reconnect, and signing flows.
 - Emulator coverage is useful for protocol regression testing, but it does not replace the smoke matrix above.
 - CI should mirror this matrix only where runners can support it reliably.
+
+## Device interaction emulator coverage
+
+`emu-integration.yml` and `./scripts/test-emu.sh` run both BLE suites serially
+against the pinned T3W1 core **v2.12.5** fixture, through BlueZ emulation and THP.
+These tests do not validate a newer firmware or a physical Safe 7.
+
+| Flow | Emulator assertion | Physical Safe 7 |
+|---|---|---|
+| `get_features()` | T3W1 model, pinned version, initialized seed, nonempty device ID | Not run |
+| ButtonRequest + confirmation | ETH message signing succeeds through DebugLink YES and emits a typed firmware prompt | Not run |
+| App Cancel + reuse | Stop auto-confirm; await address ButtonRequest; cancel returns ActionCancelled; same workflow stays Ready and reads Features/address without reconnect | Not run |
+| QR/NFC pairing | Not covered; needs a separate automated QR/tag fixture | Not run |
+| ETH/SOL signing metadata added in #136 | Existing message-signing tests do not establish coverage for every new metadata field | Not run |
+
+DebugLink YES is test automation, not a physical button press. App Cancel uses the
+public FFI API and the firmware protocol, not a DebugLink rejection. PIN/passphrase
+prompts, device-side rejection, physical BLE recovery, QR/NFC and newer firmware
+remain explicit validation gaps. Added assertions must pass the emulator CI before
+being treated as validated coverage.

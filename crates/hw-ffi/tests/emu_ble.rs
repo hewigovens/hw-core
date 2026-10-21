@@ -1,6 +1,6 @@
 use hwcore::{
-    BleManagerHandle, Chain, GetAddressRequest, HostConfig, PairingMethod, SessionPhase,
-    SignMessageRequest, WorkflowEventKind,
+    BleManagerHandle, ButtonRequestCode, Chain, GetAddressRequest, HWCoreError, HostConfig,
+    PairingMethod, SessionPhase, SignMessageRequest, WorkflowEventKind,
 };
 
 #[path = "../../../tests/fixtures/emulator_harness.rs"]
@@ -99,6 +99,18 @@ async fn emu_ble_ffi_sign_eth_message() {
     assert!(signed.address.starts_with("0x"));
     assert!(signed.signature_formatted.starts_with("0x"));
     assert_eq!(signed.signature.len(), 65);
+    loop {
+        let event = workflow
+            .next_event(Some(500))
+            .await
+            .expect("read signing event")
+            .expect("successful signing must include a firmware ButtonRequest");
+        if matches!(event.kind, WorkflowEventKind::ButtonRequest) {
+            let button = event.button_request.expect("signing prompt payload");
+            assert_ne!(button.code, ButtonRequestCode::Unknown);
+            break;
+        }
+    }
 }
 
 #[tokio::test]
@@ -152,6 +164,104 @@ async fn emu_ble_ffi_sign_sol_message_with_given_signers() {
             "ff736f6c616e61206f6666636861696e010200d1699dcb1811b50bb0055f13044463128242e37a463b52f6c97a1f6eef88ad66c2f508c9c555cacc9fb26d88e88dd54e210bb5a8bce5687f60d7e75c4cd07f546869732069732061206c6f6e6765722074657374206d65737361676520746861742073686f756c64206265206368756e6b6564206163726f7373206d756c7469706c6520646973706c61792073637265656e73206f6e2074686520646576696365"
         )
     );
+}
+
+#[tokio::test]
+#[ignore = "requires T3W1 emulator binary and Linux D-Bus (see CONTRIBUTING)"]
+async fn emu_ble_ffi_features_cancel_prompt_and_reuse_connection() {
+    let mut harness = EmulatorHarness::start();
+    set_dbus_system_bus_address(harness.dbus_system_bus_address());
+
+    tokio::time::timeout(std::time::Duration::from_secs(90), async {
+        let manager = BleManagerHandle::create()
+            .await
+            .expect("create BLE manager");
+        let device = manager
+            .discover_trezor(8_000)
+            .await
+            .expect("discover emulator device")
+            .into_iter()
+            .next()
+            .expect("expected emulator device");
+        let workflow = device
+            .connect_ready_workflow_with_policy(skip_pairing_host_config(), None, true, None)
+            .await
+            .expect("bootstrap ready workflow");
+
+        let features = workflow.get_features().await.expect("read device features");
+        assert_eq!(features.internal_model.as_deref(), Some("T3W1"));
+        assert_eq!(
+            (
+                features.major_version,
+                features.minor_version,
+                features.patch_version
+            ),
+            (2, 12, 5),
+            "update assertions when upgrading the pinned emulator fixture"
+        );
+        assert!(features.initialized);
+        assert!(features.device_id.as_ref().is_some_and(|id| !id.is_empty()));
+
+        // Kill and reap the periodic YES writer before requesting a cancellable prompt.
+        harness.stop_auto_confirm();
+        let request = GetAddressRequest {
+            chain: Chain::Ethereum,
+            path: ETH_PATH.to_string(),
+            show_on_device: false,
+            include_public_key: false,
+            chunkify: false,
+            encoded_network: None,
+        };
+        let address = workflow
+            .get_address(request.clone())
+            .await
+            .expect("baseline address");
+        let mut displayed = request.clone();
+        displayed.show_on_device = true;
+        let show_address = workflow.get_address(displayed);
+        let cancel_on_prompt = async {
+            loop {
+                let event = workflow
+                    .next_event(Some(10_000))
+                    .await
+                    .expect("read device event")
+                    .expect("firmware must emit ButtonRequest before cancel");
+                if matches!(event.kind, WorkflowEventKind::ButtonRequest) {
+                    let button = event.button_request.expect("device prompt payload");
+                    assert_eq!(button.code, ButtonRequestCode::Address);
+                    workflow.cancel();
+                    break;
+                }
+            }
+        };
+        let (result, ()) = tokio::join!(show_address, cancel_on_prompt);
+        assert!(
+            matches!(result, Err(HWCoreError::ActionCancelled(_))),
+            "{result:?}"
+        );
+        assert!(matches!(
+            workflow
+                .session_state()
+                .await
+                .expect("session after cancel")
+                .phase,
+            SessionPhase::Ready
+        ));
+
+        // No connect_ready call: recovery must use the existing channel and wallet session.
+        let after = workflow
+            .get_features()
+            .await
+            .expect("features after cancel");
+        assert_eq!(after.device_id, features.device_id);
+        let reused = workflow
+            .get_address(request)
+            .await
+            .expect("address after cancel");
+        assert_eq!(reused.address, address.address);
+    })
+    .await
+    .expect("features/cancel/reuse flow timed out");
 }
 
 fn skip_pairing_host_config() -> HostConfig {
