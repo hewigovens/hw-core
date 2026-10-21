@@ -113,12 +113,11 @@ impl BleWorkflowHandle {
             .with_workflow(async |workflow| workflow.start_pairing().await)
             .await?;
 
-        let code = if prompt.requires_connection_confirmation {
-            "PAIRING_CONFIRMATION_REQUIRED"
-        } else {
-            "PAIRING_CODE_REQUIRED"
-        };
-        self.push(WorkflowEventKind::PairingPrompt, code, &prompt.message);
+        self.push(
+            WorkflowEventKind::PairingPrompt,
+            prompt.event_code(),
+            &prompt.message,
+        );
         Ok(prompt)
     }
 

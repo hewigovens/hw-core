@@ -11,8 +11,8 @@ use crate::types::{
     BitcoinMultisig, BitcoinMultisigPubkey, BitcoinMultisigPubkeysOrder, BitcoinRefTx,
     BitcoinRefTxInput, BitcoinRefTxOutput, BitcoinSignTxRequest, BitcoinTxInput, BitcoinTxOutput,
     DeviceFeatures, EthereumDefinitions, EthereumDefinitionsSource,
-    EthereumDisplayFormatDefinition, GetAddressRequest, SignMessageRequest, SignTxRequest,
-    SignTypedDataRequest,
+    EthereumDisplayFormatDefinition, GetAddressRequest, PairingMethod, PairingPrompt,
+    SignMessageRequest, SignTxRequest, SignTypedDataRequest,
 };
 
 const BTC_SIGN_WITH_REF_TXS: &str =
@@ -525,5 +525,37 @@ fn sign_tx_request_rejects_metadata_for_another_chain() {
             matches!(&err, HWCoreError::Validation(message) if message.starts_with(field)),
             "{chain:?}: unexpected error {err:?}"
         );
+    }
+}
+
+#[test]
+fn pairing_prompt_event_code_follows_selected_method() {
+    let prompt = |selected_method, requires_connection_confirmation| PairingPrompt {
+        available_methods: Vec::new(),
+        selected_method,
+        requires_connection_confirmation,
+        message: String::new(),
+        nfc_data: None,
+    };
+    let cases = [
+        (
+            Some(PairingMethod::CodeEntry),
+            false,
+            "PAIRING_CODE_REQUIRED",
+        ),
+        (
+            Some(PairingMethod::QrCode),
+            false,
+            "PAIRING_QR_CODE_REQUIRED",
+        ),
+        (Some(PairingMethod::Nfc), false, "PAIRING_NFC_REQUIRED"),
+        (
+            Some(PairingMethod::Nfc),
+            true,
+            "PAIRING_CONFIRMATION_REQUIRED",
+        ),
+    ];
+    for (method, confirm, code) in cases {
+        assert_eq!(prompt(method, confirm).event_code(), code, "{method:?}");
     }
 }

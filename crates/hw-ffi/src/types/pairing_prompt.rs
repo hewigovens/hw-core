@@ -20,6 +20,22 @@ pub enum SessionHandshakeState {
     ConnectionConfirmationRequired { prompt: PairingPrompt },
 }
 
+impl PairingPrompt {
+    /// `PairingPrompt` event code, so apps that route on it open the right pairing screen.
+    pub(crate) fn event_code(&self) -> &'static str {
+        if self.requires_connection_confirmation {
+            return "PAIRING_CONFIRMATION_REQUIRED";
+        }
+        match self.selected_method {
+            Some(PairingMethod::QrCode) => "PAIRING_QR_CODE_REQUIRED",
+            Some(PairingMethod::Nfc) => "PAIRING_NFC_REQUIRED",
+            Some(PairingMethod::CodeEntry | PairingMethod::SkipPairing) | None => {
+                "PAIRING_CODE_REQUIRED"
+            }
+        }
+    }
+}
+
 impl TryFrom<&ThpState> for PairingPrompt {
     type Error = HWCoreError;
 
