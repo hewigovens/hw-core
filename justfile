@@ -52,6 +52,11 @@ build-android:
 build-android-release:
     ./scripts/sync-bindings.sh --android --release
 
+# Publish android/lib with release native libs to ~/.m2 as dev.hewig.hwcore:hwcore:<version>
+android-publish-local:
+    just build-android-release
+    cd android && ./gradlew :lib:publishToMavenLocal --no-daemon
+
 run-android log_file="target/android-logcat.log":
     just build-android
     cd android && ./gradlew :sample-app:app:installDebug
