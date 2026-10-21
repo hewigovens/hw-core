@@ -61,7 +61,12 @@ Generate Swift/Kotlin bindings:
 just bindings
 ```
 
-Manual generation:
+On macOS this also prepares the release XCFramework-backed Swift package used by
+the existing sample recipes. `just xcframework` builds only the Apple SDK and
+creates a portable package at `target/xcframework/HWCoreKit`; see the
+[Apple integration guide](docs/apple-integration.md).
+
+Manual generation (bindings only; does not prepare the Apple binary package):
 
 ```bash
 cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin

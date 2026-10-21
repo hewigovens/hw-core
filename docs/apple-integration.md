@@ -24,38 +24,32 @@ Deployment targets default to iOS 16.0 and macOS 13.0; override them with `IOS_D
 
 ## 2. Package HWCoreKit for your app
 
-`apple/HWCoreKit/Package.swift` links `target/debug` with unsafe linker flags for development inside this repository, so don't depend on it directly. Instead, vendor a small local package into your app's repository:
+`just xcframework` also writes a complete, portable Swift package to
+`target/xcframework/HWCoreKit` and refreshes `apple/HWCoreKit` for local development.
+Copy the **whole** generated `HWCoreKit` directory into your app repository and add
+it as a local Swift package dependency in Xcode. No Rust toolchain or hw-core
+checkout is needed by that consumer. `Package.swift` uses a local `binaryTarget`
+for `HWCore.xcframework`; its Swift bindings come from that same build.
 
 ```text
 HWCoreKit/
   Package.swift
-  HWCore.xcframework            # from target/xcframework
-  Sources/HWCoreFFI/HWCoreFFI.swift   # from target/xcframework/swift
-  Sources/HWCoreKit/*.swift           # from apple/HWCoreKit/Sources/HWCoreKit
+  HWCore.xcframework
+  Sources/HWCoreFFI/HWCoreFFI.swift
+  Sources/HWCoreKit/*.swift
+  Tests/HWCoreKitTests/*.swift
 ```
 
-```swift
-// swift-tools-version: 5.9
-import PackageDescription
+Import `HWCoreKit`; it re-exports the request, state and error types its API uses.
+Rebuild and replace the whole package when updating hw-core. Generated artifacts
+are ignored by Git: a fresh checkout needs `just xcframework` (or `just bindings`
+on macOS) before resolving the Swift package. There is no remote binary release
+or URL/checksum distribution yet.
 
-let package = Package(
-    name: "HWCoreKit",
-    platforms: [.iOS(.v16), .macOS(.v13)],
-    products: [.library(name: "HWCoreKit", targets: ["HWCoreKit"])],
-    targets: [
-        .binaryTarget(name: "libhwcore", path: "HWCore.xcframework"),
-        .target(name: "HWCoreFFI", dependencies: ["libhwcore"], path: "Sources/HWCoreFFI"),
-        .target(
-            name: "HWCoreKit",
-            dependencies: ["HWCoreFFI"],
-            path: "Sources/HWCoreKit",
-            linkerSettings: [.linkedFramework("CoreBluetooth"), .linkedLibrary("iconv")]
-        ),
-    ]
-)
-```
-
-Add it to your Xcode project as a local package and `import HWCoreKit`; HWCoreKit re-exports the request, state and error types its API uses, so apps don't import `HWCoreFFI` directly. This layout was checked by building it for macOS, the iOS simulator and an iOS device.
+The iOS CI relocates this generated package and the sample app outside the
+checkout, runs Swift package tests and iOS Simulator UI tests, and builds the
+sample for macOS and iOS Device with code signing disabled. Device compilation
+does not exercise physical Bluetooth hardware.
 
 If you embed the crates instead, build your own library for the same five targets and combine them with `xcodebuild -create-xcframework` exactly as the script does. Your Rust library's static archive needs the same system libraries (`-framework CoreBluetooth -framework Foundation -liconv`; `cargo rustc --crate-type staticlib -- --print native-static-libs` lists them). Unlike Android, btleplug needs no initialization call on Apple platforms.
 

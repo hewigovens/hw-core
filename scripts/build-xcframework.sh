@@ -39,3 +39,18 @@ xcodebuild -create-xcframework \
   -output "$OUT/HWCore.xcframework"
 
 echo "Built $OUT/HWCore.xcframework and $OUT/swift/HWCoreFFI.swift"
+
+# Stage a portable package and refresh the in-repo package from the same build.
+PACKAGE="$OUT/HWCoreKit"
+mkdir -p "$PACKAGE/Sources/HWCoreFFI"
+cp "$ROOT_DIR/apple/HWCoreKit/Package.swift" "$PACKAGE/"
+cp "$ROOT_DIR/apple/HWCoreKit/README.md" "$PACKAGE/"
+cp -R "$ROOT_DIR/apple/HWCoreKit/Sources/HWCoreKit" "$PACKAGE/Sources/"
+cp -R "$ROOT_DIR/apple/HWCoreKit/Tests" "$PACKAGE/"
+cp -R "$OUT/HWCore.xcframework" "$PACKAGE/"
+cp "$OUT/swift/HWCoreFFI.swift" "$PACKAGE/Sources/HWCoreFFI/"
+rm -rf "$ROOT_DIR/apple/HWCoreKit/HWCore.xcframework"
+cp -R "$PACKAGE/HWCore.xcframework" "$ROOT_DIR/apple/HWCoreKit/"
+mkdir -p "$ROOT_DIR/apple/HWCoreKit/Sources/HWCoreFFI"
+cp "$PACKAGE/Sources/HWCoreFFI/HWCoreFFI.swift" "$ROOT_DIR/apple/HWCoreKit/Sources/HWCoreFFI/"
+echo "Packaged $PACKAGE (copy this directory into your app repository)"

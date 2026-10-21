@@ -54,7 +54,7 @@ just smoke-ios-ui     # build-for-testing + run iOS UI tests on a simulator (nee
 just test-mac-ui      # build bindings + run macOS sample app UI tests
 ```
 
-CI (`ios-ci.yml`) runs `just bindings`, `just generate-apple-projects`, then `just smoke-ios-ui`; `android-ci.yml` runs `just build-android`.
+CI (`ios-ci.yml`) runs `just xcframework`, relocates the generated package and sample outside the checkout, then runs package tests, simulator UI tests, and macOS/iOS Device builds; `android-ci.yml` runs `just build-android`.
 
 Apple sample app debugging:
 

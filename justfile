@@ -41,8 +41,7 @@ bindings:
     mkdir -p target/bindings/swift target/bindings/kotlin
     cargo run -p hw-ffi --features bindings-cli --bin generate-bindings -- --auto target/bindings/swift target/bindings/kotlin
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        ./scripts/sync-bindings.sh --apple --ios-sim-ffi
-        IPHONEOS_DEPLOYMENT_TARGET="{{ios_deployment_target}}" cargo build -p hw-ffi --target aarch64-apple-ios
+        ./scripts/build-xcframework.sh
     else
         ./scripts/sync-bindings.sh --apple
     fi
@@ -68,7 +67,7 @@ sample:
     just bindings
     swift run --package-path apple/HWCoreKitSampleApp
 
-# Build target/xcframework/HWCore.xcframework + Swift bindings for apps outside this repo
+# Build the XCFramework, matching bindings and portable HWCoreKit package
 xcframework:
     ./scripts/build-xcframework.sh
 
