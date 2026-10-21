@@ -76,9 +76,19 @@ impl BleBackend {
     /// Receives the next message without interpreting a device `Failure`.
     pub(super) async fn receive_raw(&mut self) -> BackendResult<(u16, Vec<u8>)> {
         let channel = self.channel.established()?;
-        self.link
+        let result = self
+            .link
             .receive_message(channel, self.handshake_timeout, &self.prompts)
-            .await
+            .await;
+        // A late reply could still arrive on this channel and be read as the next request's
+        // answer, so a timed-out or dropped channel is retired; the next call needs a new one.
+        if matches!(
+            result,
+            Err(BackendError::TransportTimeout | BackendError::Disconnected)
+        ) {
+            self.reset_channel();
+        }
+        result
     }
 
     pub(super) async fn receive(&mut self) -> BackendResult<(u16, Vec<u8>)> {

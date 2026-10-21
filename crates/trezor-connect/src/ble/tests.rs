@@ -373,3 +373,27 @@ async fn response_already_received_wins_over_late_cancel() {
             .unwrap();
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn prompt_timeout_cancels_and_drains_before_failing() {
+    let mut device = prompting_device();
+    let mut channel = fake_device::open_channel(&mut device).await;
+    let prompts = DevicePrompts::default();
+
+    channel
+        .message_in(SESSION_ID, messages::ThpCreateNewSession::MESSAGE_TYPE, &[])
+        .unwrap();
+    let result = device
+        .receive_message(&mut channel, Duration::from_secs(30), &prompts)
+        .await;
+    assert!(matches!(result, Err(BackendError::TransportTimeout)));
+    assert_eq!(device.received.last(), Some(&Cancel::MESSAGE_TYPE));
+
+    // The cancelled request's Failure was drained, so the next request gets its own answer.
+    channel.message_in(SESSION_ID, 31, &[]).unwrap();
+    let (message_type, _) = device
+        .receive_message(&mut channel, Duration::from_secs(5), &prompts)
+        .await
+        .unwrap();
+    assert_eq!(message_type, MESSAGE_TYPE_SUCCESS);
+}

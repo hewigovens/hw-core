@@ -105,7 +105,9 @@ pub(super) trait PacketLink {
     /// Reads the next device message, announcing and acknowledging any ButtonRequest on the way.
     ///
     /// While the device waits for the user, a cancel request sends `Cancel` on the open channel
-    /// (as Suite does); the device then answers the pending request with a `Failure`.
+    /// (as Suite does); the device then answers the pending request with a `Failure`. A prompt
+    /// left open past `timeout` is cancelled the same way and its answer drained, so the call
+    /// fails with `TransportTimeout` without leaving a late response for the next request.
     async fn receive_message(
         &mut self,
         channel: &mut OpenChannel,
@@ -113,15 +115,19 @@ pub(super) trait PacketLink {
         prompts: &DevicePrompts,
     ) -> BackendResult<(u16, Vec<u8>)> {
         let mut prompting = false;
+        let mut timed_out = false;
         loop {
-            if prompting && !self.await_prompt(channel, timeout, prompts).await? {
-                prompts.cancel.clear();
-                debug!("THP device prompt cancelled; sending Cancel");
-                channel.message_in(SESSION_ID, Cancel::MESSAGE_TYPE, &[])?;
-                prompting = false;
-                continue;
-            }
-            if !prompting {
+            if prompting {
+                let outcome = self.await_prompt(channel, timeout, prompts).await?;
+                if outcome != PromptOutcome::Answered {
+                    prompts.cancel.clear();
+                    timed_out |= outcome == PromptOutcome::TimedOut;
+                    debug!(?outcome, "THP device prompt not answered; sending Cancel");
+                    channel.message_in(SESSION_ID, Cancel::MESSAGE_TYPE, &[])?;
+                    prompting = false;
+                    continue;
+                }
+            } else {
                 self.pump(channel, timeout, |_, result| result.got_message())
                     .await?;
             }
@@ -130,6 +136,9 @@ pub(super) trait PacketLink {
             trace!(message_type, len = payload.len(), "THP receive");
             if message_type != ButtonRequestProto::MESSAGE_TYPE {
                 self.flush(channel).await?;
+                if timed_out {
+                    return Err(BackendError::TransportTimeout);
+                }
                 return Ok((message_type, payload));
             }
             debug!("THP ButtonRequest; sending ButtonAck");
@@ -139,13 +148,13 @@ pub(super) trait PacketLink {
         }
     }
 
-    /// Waits on a device prompt; returns `true` once a message is ready, `false` on cancel.
+    /// Waits on a device prompt until the device answers, the user cancels, or `timeout` passes.
     async fn await_prompt(
         &mut self,
         channel: &mut OpenChannel,
         timeout: Duration,
         prompts: &DevicePrompts,
-    ) -> BackendResult<bool> {
+    ) -> BackendResult<PromptOutcome> {
         // Cancel can only be sent once the device has acknowledged the ButtonAck.
         let mut got_message = false;
         self.pump(channel, timeout, |channel, result| {
@@ -154,16 +163,30 @@ pub(super) trait PacketLink {
         })
         .await?;
         if got_message {
-            return Ok(true);
+            return Ok(PromptOutcome::Answered);
         }
-        self.pump_cancellable(
-            channel,
-            timeout,
-            |_, result| result.got_message(),
-            Some(&prompts.cancel),
-        )
-        .await
+        match self
+            .pump_cancellable(
+                channel,
+                timeout,
+                |_, result| result.got_message(),
+                Some(&prompts.cancel),
+            )
+            .await
+        {
+            Ok(true) => Ok(PromptOutcome::Answered),
+            Ok(false) => Ok(PromptOutcome::Cancelled),
+            Err(BackendError::TransportTimeout) => Ok(PromptOutcome::TimedOut),
+            Err(error) => Err(error),
+        }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PromptOutcome {
+    Answered,
+    Cancelled,
+    TimedOut,
 }
 
 impl PacketLink for BleLink {
