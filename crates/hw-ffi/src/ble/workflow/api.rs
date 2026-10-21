@@ -128,8 +128,10 @@ impl BleWorkflowHandle {
         self.progress("PAIRING_SUBMIT_CODE_START", "Submitting pairing code");
         let progress = self
             .with_slot(async |slot| {
+                let progress = slot.workflow.submit_pairing_code(code).await?;
+                // Only after success: a rejected call on a ready session must keep it ready.
                 slot.session_ready = false;
-                slot.workflow.submit_pairing_code(code).await
+                Ok(progress)
             })
             .await?;
         self.progress("PAIRING_SUBMIT_CODE_OK", &progress.message);
@@ -175,8 +177,9 @@ impl BleWorkflowHandle {
         );
         let progress = self
             .with_slot(async |slot| {
+                let progress = slot.workflow.confirm_paired_connection().await?;
                 slot.session_ready = false;
-                slot.workflow.confirm_paired_connection().await
+                Ok(progress)
             })
             .await?;
         self.progress("PAIRING_CONFIRM_CONNECTION_OK", &progress.message);
@@ -340,8 +343,10 @@ impl BleWorkflowHandle {
         self.progress("PAIRING_SUBMIT_TAG_START", "Submitting pairing tag");
         let progress = self
             .with_slot(async |slot| {
+                let progress =
+                    PairingFlow::submit_pairing_tag(&mut slot.workflow, method, tag).await?;
                 slot.session_ready = false;
-                PairingFlow::submit_pairing_tag(&mut slot.workflow, method, tag).await
+                Ok(progress)
             })
             .await?;
         self.progress("PAIRING_SUBMIT_TAG_OK", &progress.message);
