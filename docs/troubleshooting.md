@@ -28,7 +28,7 @@ How to get logs from each surface, and fixes for failures seen on real devices.
 
 ## Pairing and storage
 
-- **`storage directory must not be writable by group or others`**: hw-core refuses to keep credentials in a directory other users or groups can write to, and checks the file's direct parent. Pass a path inside a dedicated subdirectory (hw-core creates it owner-only), e.g. `filesDir/hwcore/thp-host.json` on Android, not a file directly in a shared directory. Android's `filesDir` itself is group-writable.
+- **`storage directory must not be writable by group or others`**: hw-core refuses to keep credentials in a directory other users or groups can write to, and checks the file's direct parent. Pass a path inside a dedicated subdirectory (hw-core creates it owner-only), e.g. `noBackupFilesDir/hwcore/thp-host.json` on Android (outside Auto Backup), not a file directly in a shared directory. Android's app directories themselves are group-writable.
 - **Pairing fails after a firmware update or device wipe**: the stored credential no longer matches. Re-pair with `cargo run -p hw-cli -- pair --force`, or delete the app's storage file (CLI: `~/.hw-core/thp-host.json`).
 - **Device locked**: connect with `try_to_unlock` (the CLI default) so the Trezor prompts for the PIN; otherwise the handshake fails with `DeviceLocked`.
 

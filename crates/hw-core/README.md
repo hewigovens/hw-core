@@ -1,7 +1,6 @@
 # hw-core
 
-A Rust SDK for hardware wallet communication. The first supported device is
-Trezor Safe 7 over Bluetooth Low Energy (BLE), using the Trezor Host Protocol (THP).
+A Rust SDK for hardware wallet communication. The first supported device is Trezor Safe 7 over Bluetooth Low Energy (BLE), using the Trezor Host Protocol (THP).
 
 ```toml
 [dependencies]
@@ -47,20 +46,12 @@ async fn discover() -> WalletResult<Vec<DiscoveredDevice>> {
 }
 ```
 
-Use `wallet::ble::connect_and_bootstrap_session` to connect and prepare a THP
-session, or `trezor::thp::ThpWorkflow` to drive pairing and session transitions
-with your own UI.
+Use `wallet::ble::connect_and_bootstrap_session` to connect and prepare a THP session, or `trezor::thp::ThpWorkflow` to drive pairing and session transitions with your own UI.
 
 ## Platforms and status
 
-This is an early-stage SDK. macOS and Linux are the supported CLI hosts; native
-Apple and Android apps use the project's separate UniFFI integrations. Linux
-builds require `libdbus-1-dev` and `pkg-config`. BLE access also requires the host
-platform's Bluetooth permissions.
+This is an early-stage SDK. macOS and Linux are the supported CLI hosts; native Apple and Android apps use the project's separate UniFFI integrations. Linux builds require `libdbus-1-dev` and `pkg-config`. BLE access also requires the host platform's Bluetooth permissions. Android apps that build these crates into their own native library must also initialize btleplug and ship its Java classes; see [Embedding hw-core on Android](https://github.com/hewigovens/hw-core/blob/main/docs/android-embedding.md).
 
-See the [project README](https://github.com/hewigovens/hw-core#status) for supported
-operations and known limitations, and the
-[contribution guide](https://github.com/hewigovens/hw-core/blob/main/CONTRIBUTING.md)
-for build, bindings, and emulator setup.
+See the [project README](https://github.com/hewigovens/hw-core#status) for supported operations and known limitations, and the [contribution guide](https://github.com/hewigovens/hw-core/blob/main/CONTRIBUTING.md) for build, bindings, and emulator setup.
 
 Licensed under Apache-2.0.
