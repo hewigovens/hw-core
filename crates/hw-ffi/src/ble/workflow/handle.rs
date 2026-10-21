@@ -50,7 +50,16 @@ impl BleWorkflowHandle {
             let mut workflow = self.workflow.lock().await;
             // A cancel requested while no operation ran must not hit this one.
             self.cancel.clear();
-            op(&mut workflow).await
+            let result = op(&mut workflow).await;
+            if matches!(
+                result,
+                Err(HWCoreError::Timeout(_) | HWCoreError::Disconnected(_))
+            ) {
+                // The backend retired its channel; the next connect_ready must redo the handshake.
+                workflow.forget_channel();
+                *self.session_ready.lock().await = false;
+            }
+            result
         };
         if let Err(err) = &result {
             self.events.push(err.into());

@@ -763,3 +763,28 @@ async fn solana_sign_message_rejects_malformed_device_public_key() {
     ));
     assert_eq!(backend.counters.sign_message_calls, 0);
 }
+
+#[tokio::test]
+async fn forget_channel_returns_to_handshake_and_reconnects() {
+    let mut workflow = ThpWorkflow::new(
+        MockBackend::autopair(),
+        HostConfig {
+            pairing_methods: vec![PairingMethod::SkipPairing],
+            known_credentials: vec![],
+            static_key: None,
+            host_name: "host".into(),
+            app_name: "app".into(),
+        },
+    );
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    assert_eq!(workflow.state().phase(), Phase::Paired);
+
+    workflow.forget_channel();
+    assert_eq!(workflow.state().phase(), Phase::Handshake);
+    assert!(workflow.state().handshake_cache().is_none());
+
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    assert_eq!(workflow.state().phase(), Phase::Paired);
+}
