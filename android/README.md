@@ -2,6 +2,8 @@
 
 Android library and sample app for hw-core, exposing Trezor hardware wallet communication via UniFFI bindings.
 
+Call `System.loadLibrary("hwcore")` before any `uniffi.hwcore` call: the bindings load the library through JNA, which does not run its `JNI_OnLoad`, and that hook initializes btleplug. To build hw-core's Rust crates into your own native library instead of using this one, see [Embedding hw-core on Android](../docs/android-embedding.md).
+
 ## Structure
 
 ```

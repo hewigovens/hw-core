@@ -72,7 +72,7 @@ For documentation-only changes, check the diff, local links, and command referen
 
 ## Other Notes
 
-- **Build times**: Initial build takes several minutes; incremental builds are fast with sccache
+- **Build times**: Initial build takes several minutes; [mbx](https://github.com/jdx/mr-boxington) shares compiled work across workspaces and CI (`mbx setup` once locally, then plain `cargo`)
 - **Linux BLE**: Requires `sudo apt-get install -y libdbus-1-dev pkg-config`
 - **Pairing state**: Stored at `~/.hw-core/thp-host.json`; use `pair --force` to reset
 - **License**: Apache-2.0
