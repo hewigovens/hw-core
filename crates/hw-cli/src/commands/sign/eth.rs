@@ -13,7 +13,7 @@ use crate::output::{PrintResponse, print_hex_field, print_labeled_value, print_r
 pub struct SignEthArgs {
     #[arg(long)]
     pub path: String,
-    /// Tx JSON or file path; optional `definitions` holds signed hex blobs, see tests/data/ethereum/eth_sign_with_definitions.json.
+    /// Tx JSON or @file. Optional `definitions`: hex `encoded_network`, `encoded_token`, `encoded_display_format`, plus `tokens` [{address, encoded}] and `display_formats` [{address, func_sig, encoded}].
     #[arg(long)]
     pub tx: String,
     #[command(flatten)]

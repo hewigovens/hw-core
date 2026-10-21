@@ -5,20 +5,20 @@ use super::wire::wire_messages;
 use crate::thp::types::{ButtonRequest, ButtonRequestCode};
 
 #[derive(Clone, PartialEq, Message)]
-pub struct ButtonRequestProto {
+pub(crate) struct ButtonRequestProto {
     #[prost(int32, optional, tag = "1")]
-    pub code: Option<i32>,
+    pub(crate) code: Option<i32>,
     #[prost(uint32, optional, tag = "2")]
-    pub pages: Option<u32>,
+    pub(crate) pages: Option<u32>,
     #[prost(string, optional, tag = "4")]
-    pub name: Option<String>,
+    pub(crate) name: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Message)]
-pub struct ButtonAck {}
+pub(crate) struct ButtonAck {}
 
 #[derive(Clone, PartialEq, Message)]
-pub struct Cancel {}
+pub(crate) struct Cancel {}
 
 wire_messages! {
     Cancel = 20,

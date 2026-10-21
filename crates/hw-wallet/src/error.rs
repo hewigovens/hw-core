@@ -95,6 +95,7 @@ impl From<&ThpWorkflowError> for WalletErrorKind {
             | ThpWorkflowError::NoCommonPairingMethod
             | ThpWorkflowError::PairingAborted
             | ThpWorkflowError::PairingController(_)
+            | ThpWorkflowError::UnexpectedPairingResponse
             | ThpWorkflowError::Storage(_) => Self::Workflow,
         }
     }
@@ -109,7 +110,7 @@ impl From<&BackendError> for WalletErrorKind {
             BackendError::DeviceLocked | BackendError::PinExpected => Self::DeviceLocked,
             BackendError::DeviceBusy | BackendError::TransportBusy => Self::DeviceBusy,
             BackendError::SessionConfirmationRequired => Self::ConnectionConfirmationRequired,
-            BackendError::UnexpectedMessage => Self::Unsupported,
+            BackendError::UnsupportedRequest => Self::Unsupported,
             BackendError::Device(_)
             | BackendError::DeviceFirmwareError
             | BackendError::DeviceError { .. } => Self::Device,
@@ -153,6 +154,7 @@ mod tests {
             (BackendError::PinExpected, WalletErrorKind::DeviceLocked),
             (BackendError::DeviceLocked, WalletErrorKind::DeviceLocked),
             (BackendError::DeviceBusy, WalletErrorKind::DeviceBusy),
+            (BackendError::TransportBusy, WalletErrorKind::DeviceBusy),
             (
                 BackendError::SessionConfirmationRequired,
                 WalletErrorKind::ConnectionConfirmationRequired,
@@ -160,7 +162,7 @@ mod tests {
             (BackendError::Disconnected, WalletErrorKind::Disconnected),
             (BackendError::TransportTimeout, WalletErrorKind::Timeout),
             (
-                BackendError::UnexpectedMessage,
+                BackendError::UnsupportedRequest,
                 WalletErrorKind::Unsupported,
             ),
         ];

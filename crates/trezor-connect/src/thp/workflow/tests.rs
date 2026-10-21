@@ -9,6 +9,16 @@ use crate::thp::types::*;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
+fn host_config(pairing_methods: Vec<PairingMethod>) -> HostConfig {
+    HostConfig {
+        pairing_methods,
+        known_credentials: vec![],
+        static_key: None,
+        host_name: "host".into(),
+        app_name: "app".into(),
+    }
+}
+
 struct TestController;
 
 #[async_trait::async_trait]
@@ -85,16 +95,7 @@ impl ThpStorage for InMemoryStorage {
 #[tokio::test]
 async fn autopair_flow_sets_paired_state() {
     let backend = MockBackend::autopair();
-    let mut workflow = ThpWorkflow::new(
-        backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::SkipPairing],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
-    );
+    let mut workflow = ThpWorkflow::new(backend, host_config(vec![PairingMethod::SkipPairing]));
 
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();
@@ -112,13 +113,7 @@ async fn autopair_flow_sets_paired_state() {
 async fn create_session_sends_nfkd_normalized_passphrase() {
     let mut workflow = ThpWorkflow::new(
         MockBackend::autopair(),
-        HostConfig {
-            pairing_methods: vec![PairingMethod::SkipPairing],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
+        host_config(vec![PairingMethod::SkipPairing]),
     );
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();
@@ -140,16 +135,7 @@ async fn create_session_sends_nfkd_normalized_passphrase() {
 async fn pairing_flow_with_controller() {
     let backend = MockBackend::pairing_flow();
     let controller = TestController;
-    let mut workflow = ThpWorkflow::new(
-        backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::QrCode],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
-    );
+    let mut workflow = ThpWorkflow::new(backend, host_config(vec![PairingMethod::QrCode]));
 
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();
@@ -194,16 +180,7 @@ async fn pairing_request_replaces_curly_single_quotes_in_names() {
 #[tokio::test]
 async fn paired_handshake_requires_connection_confirmation_flow() {
     let backend = MockBackend::paired_connection_flow();
-    let mut workflow = ThpWorkflow::new(
-        backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::CodeEntry],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
-    );
+    let mut workflow = ThpWorkflow::new(backend, host_config(vec![PairingMethod::CodeEntry]));
 
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();
@@ -240,16 +217,7 @@ async fn paired_handshake_requires_connection_confirmation_flow() {
 async fn code_entry_pairing_populates_cpace_inputs_before_tag() {
     let backend = MockBackend::code_entry_flow();
     let controller = CodeEntryController;
-    let mut workflow = ThpWorkflow::new(
-        backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::CodeEntry],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
-    );
+    let mut workflow = ThpWorkflow::new(backend, host_config(vec![PairingMethod::CodeEntry]));
 
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();
@@ -288,16 +256,7 @@ async fn code_entry_pairing_populates_cpace_inputs_before_tag() {
 #[tokio::test]
 async fn code_entry_pairing_without_controller_primes_device_prompt() {
     let backend = MockBackend::code_entry_flow();
-    let mut workflow = ThpWorkflow::new(
-        backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::CodeEntry],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
-    );
+    let mut workflow = ThpWorkflow::new(backend, host_config(vec![PairingMethod::CodeEntry]));
 
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();
@@ -323,16 +282,7 @@ async fn code_entry_pairing_without_controller_primes_device_prompt() {
 #[tokio::test]
 async fn code_entry_submit_tag_completes_after_pairing_start() {
     let backend = MockBackend::code_entry_flow();
-    let mut workflow = ThpWorkflow::new(
-        backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::CodeEntry],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
-    );
+    let mut workflow = ThpWorkflow::new(backend, host_config(vec![PairingMethod::CodeEntry]));
 
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();
@@ -359,13 +309,7 @@ async fn qr_code_fallback_after_code_entry_start_completes_pairing() {
         .push_back(SelectMethodResponse::PairingPreparationsFinished { nfc_data: None });
     let mut workflow = ThpWorkflow::new(
         backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::CodeEntry, PairingMethod::QrCode],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
+        host_config(vec![PairingMethod::CodeEntry, PairingMethod::QrCode]),
     );
 
     workflow.create_channel().await.unwrap();
@@ -410,13 +354,7 @@ async fn nfc_data_is_kept_when_nfc_pairing_pauses_for_the_app() {
         });
     let mut workflow = ThpWorkflow::new(
         backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::Nfc, PairingMethod::CodeEntry],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
+        host_config(vec![PairingMethod::Nfc, PairingMethod::CodeEntry]),
     );
 
     workflow.create_channel().await.unwrap();
@@ -439,13 +377,7 @@ async fn nfc_data_is_kept_when_nfc_pairing_pauses_for_the_app() {
 async fn tag_pairing_method_must_be_offered_by_device() {
     let mut workflow = ThpWorkflow::new(
         MockBackend::code_entry_flow(),
-        HostConfig {
-            pairing_methods: vec![PairingMethod::CodeEntry],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
+        host_config(vec![PairingMethod::CodeEntry]),
     );
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();
@@ -479,16 +411,7 @@ async fn code_entry_retry_requests_fresh_commitment() {
         PairingTagResponse::Accepted { secret: vec![9, 9] },
     ]);
     let controller = CodeEntryController;
-    let mut workflow = ThpWorkflow::new(
-        backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::CodeEntry],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
-    );
+    let mut workflow = ThpWorkflow::new(backend, host_config(vec![PairingMethod::CodeEntry]));
 
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();
@@ -521,13 +444,7 @@ async fn with_storage_loads_existing_host_snapshot() {
         ..HostSnapshot::default()
     };
     let storage = Arc::new(InMemoryStorage::new(initial_snapshot.clone()));
-    let config = HostConfig {
-        pairing_methods: vec![PairingMethod::SkipPairing],
-        known_credentials: vec![],
-        static_key: None,
-        host_name: "host".into(),
-        app_name: "app".into(),
-    };
+    let config = host_config(vec![PairingMethod::SkipPairing]);
 
     let workflow = ThpWorkflow::with_storage(backend, config, storage)
         .await
@@ -592,16 +509,7 @@ async fn handshake_persists_host_state_to_storage() {
 #[tokio::test]
 async fn get_address_requires_paired_phase() {
     let backend = MockBackend::autopair();
-    let mut workflow = ThpWorkflow::new(
-        backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::SkipPairing],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
-    );
+    let mut workflow = ThpWorkflow::new(backend, host_config(vec![PairingMethod::SkipPairing]));
 
     let err = workflow
         .get_address(GetAddressRequest::ethereum(vec![
@@ -619,16 +527,7 @@ async fn get_address_requires_paired_phase() {
 #[tokio::test]
 async fn device_queries_require_paired_phase() {
     let backend = MockBackend::autopair();
-    let mut workflow = ThpWorkflow::new(
-        backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::SkipPairing],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
-    );
+    let mut workflow = ThpWorkflow::new(backend, host_config(vec![PairingMethod::SkipPairing]));
 
     let err = workflow
         .get_nonce()
@@ -646,16 +545,7 @@ async fn device_queries_require_paired_phase() {
 #[tokio::test]
 async fn sign_tx_requires_paired_phase() {
     let backend = MockBackend::autopair();
-    let mut workflow = ThpWorkflow::new(
-        backend,
-        HostConfig {
-            pairing_methods: vec![PairingMethod::SkipPairing],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
-    );
+    let mut workflow = ThpWorkflow::new(backend, host_config(vec![PairingMethod::SkipPairing]));
 
     let request = EthSignTx::new(vec![0x8000_002c, 0x8000_003c, 0x8000_0000, 0, 0], 1)
         .with_to("0xdead".into());
@@ -668,13 +558,7 @@ async fn sign_tx_requires_paired_phase() {
 
 #[tokio::test]
 async fn handshake_reallocates_channel_only_when_unlock_flag_differs() {
-    let config = HostConfig {
-        pairing_methods: vec![PairingMethod::SkipPairing],
-        known_credentials: vec![],
-        static_key: None,
-        host_name: "host".into(),
-        app_name: "app".into(),
-    };
+    let config = host_config(vec![PairingMethod::SkipPairing]);
 
     let mut workflow = ThpWorkflow::new(MockBackend::autopair(), config.clone());
     workflow.create_channel().await.unwrap();
@@ -768,13 +652,7 @@ async fn solana_sign_message_rejects_malformed_device_public_key() {
 async fn forget_channel_returns_to_handshake_and_reconnects() {
     let mut workflow = ThpWorkflow::new(
         MockBackend::autopair(),
-        HostConfig {
-            pairing_methods: vec![PairingMethod::SkipPairing],
-            known_credentials: vec![],
-            static_key: None,
-            host_name: "host".into(),
-            app_name: "app".into(),
-        },
+        host_config(vec![PairingMethod::SkipPairing]),
     );
     workflow.create_channel().await.unwrap();
     workflow.handshake(false).await.unwrap();

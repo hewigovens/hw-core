@@ -65,8 +65,7 @@ where
             let step = match &response {
                 SelectMethodResponse::End => {
                     // Firmware already exited pairing context; no end_request needed.
-                    self.state.set_is_paired(true);
-                    self.state.set_phase(Phase::Paired);
+                    self.state.mark_paired();
                     return Ok(());
                 }
                 SelectMethodResponse::CodeEntryCommitment { commitment } => {
@@ -115,14 +114,12 @@ where
                 Ok(nfc_data)
             }
             SelectMethodResponse::End => {
-                self.state.set_is_paired(true);
-                self.state.set_phase(Phase::Paired);
+                self.state.mark_paired();
                 Ok(None)
             }
-            SelectMethodResponse::CodeEntryCommitment { .. } => Err(BackendError::Transport(
-                "unexpected code-entry commitment after selecting a tag method".into(),
-            )
-            .into()),
+            SelectMethodResponse::CodeEntryCommitment { .. } => {
+                Err(ThpWorkflowError::UnexpectedPairingResponse)
+            }
         }
     }
 
@@ -187,8 +184,7 @@ where
         handshake: &HandshakeCredentials,
     ) -> Result<()> {
         self.request_credential(handshake).await?;
-        self.state.set_is_paired(true);
-        self.state.set_phase(Phase::Paired);
+        self.state.mark_paired();
         self.backend.end_request().await?;
         self.persist_host_state().await?;
         Ok(())

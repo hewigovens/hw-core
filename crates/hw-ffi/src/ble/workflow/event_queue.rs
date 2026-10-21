@@ -61,7 +61,7 @@ mod tests {
             pages: Some(3),
             name: Some("confirm_output".into()),
         });
-        queue.push(ButtonRequest::from_device_event(event).into());
+        queue.push(ButtonRequest::from(event).into());
 
         let event = waiter.await.unwrap().expect("queued event");
         assert!(matches!(event.kind, WorkflowEventKind::ButtonRequest));

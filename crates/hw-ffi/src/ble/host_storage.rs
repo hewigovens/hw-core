@@ -34,7 +34,13 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for HostStorageError {
 }
 
 /// Adapts an app [`HostStorage`] to the workflow's [`ThpStorage`].
-pub(super) struct ForeignStorage(pub(super) Arc<dyn HostStorage>);
+pub(super) struct ForeignStorage(Arc<dyn HostStorage>);
+
+impl ForeignStorage {
+    pub(super) fn shared(storage: Arc<dyn HostStorage>) -> Arc<dyn ThpStorage> {
+        Arc::new(Self(storage))
+    }
+}
 
 #[async_trait]
 impl ThpStorage for ForeignStorage {

@@ -5,39 +5,39 @@ use super::{ProtoMappingError, WireMessage};
 use crate::thp::types::DeviceFeatures;
 
 #[derive(Clone, PartialEq, Message)]
-pub struct GetFeatures {}
+pub(crate) struct GetFeatures {}
 
 /// Subset of firmware `Features` that hosts use to identify and gate devices.
 #[derive(Clone, PartialEq, Message)]
-pub struct FeaturesProto {
+pub(crate) struct FeaturesProto {
     #[prost(string, optional, tag = "1")]
-    pub vendor: Option<String>,
+    pub(crate) vendor: Option<String>,
     #[prost(uint32, optional, tag = "2")]
-    pub major_version: Option<u32>,
+    pub(crate) major_version: Option<u32>,
     #[prost(uint32, optional, tag = "3")]
-    pub minor_version: Option<u32>,
+    pub(crate) minor_version: Option<u32>,
     #[prost(uint32, optional, tag = "4")]
-    pub patch_version: Option<u32>,
+    pub(crate) patch_version: Option<u32>,
     #[prost(bool, optional, tag = "5")]
-    pub bootloader_mode: Option<bool>,
+    pub(crate) bootloader_mode: Option<bool>,
     #[prost(string, optional, tag = "6")]
-    pub device_id: Option<String>,
+    pub(crate) device_id: Option<String>,
     #[prost(bool, optional, tag = "7")]
-    pub pin_protection: Option<bool>,
+    pub(crate) pin_protection: Option<bool>,
     #[prost(bool, optional, tag = "8")]
-    pub passphrase_protection: Option<bool>,
+    pub(crate) passphrase_protection: Option<bool>,
     #[prost(string, optional, tag = "10")]
-    pub label: Option<String>,
+    pub(crate) label: Option<String>,
     #[prost(bool, optional, tag = "12")]
-    pub initialized: Option<bool>,
+    pub(crate) initialized: Option<bool>,
     #[prost(bool, optional, tag = "16")]
-    pub unlocked: Option<bool>,
+    pub(crate) unlocked: Option<bool>,
     #[prost(string, optional, tag = "21")]
-    pub model: Option<String>,
+    pub(crate) model: Option<String>,
     #[prost(bool, optional, tag = "36")]
-    pub passphrase_always_on_device: Option<bool>,
+    pub(crate) passphrase_always_on_device: Option<bool>,
     #[prost(string, optional, tag = "44")]
-    pub internal_model: Option<String>,
+    pub(crate) internal_model: Option<String>,
 }
 
 wire_messages! {
@@ -91,7 +91,7 @@ mod tests {
         }
         .encode_to_vec();
 
-        let features = DeviceFeatures::decode(17, &payload).unwrap();
+        let features = DeviceFeatures::decode(FeaturesProto::MESSAGE_TYPE, &payload).unwrap();
         assert_eq!(features.device_id.as_deref(), Some("ABCDEF0123"));
         assert_eq!(features.internal_model.as_deref(), Some("T3W1"));
         assert!(features.passphrase_protection);
@@ -112,15 +112,17 @@ mod tests {
             patch_version: Some(0),
             ..FeaturesProto::default()
         };
-        for field in ["major_version", "minor_version", "patch_version"] {
+        type ClearField = fn(&mut FeaturesProto);
+        let cases: [(&str, ClearField); 3] = [
+            ("major_version", |proto| proto.major_version = None),
+            ("minor_version", |proto| proto.minor_version = None),
+            ("patch_version", |proto| proto.patch_version = None),
+        ];
+        for (field, clear) in cases {
             let mut proto = complete.clone();
-            match field {
-                "major_version" => proto.major_version = None,
-                "minor_version" => proto.minor_version = None,
-                _ => proto.patch_version = None,
-            }
+            clear(&mut proto);
             assert!(matches!(
-                DeviceFeatures::decode(17, &proto.encode_to_vec()),
+                DeviceFeatures::decode(FeaturesProto::MESSAGE_TYPE, &proto.encode_to_vec()),
                 Err(ProtoMappingError::MissingField(missing)) if missing == field
             ));
         }

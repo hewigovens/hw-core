@@ -15,18 +15,18 @@ pub(crate) struct EthereumDefinitions {
 
 /// Firmware asks for the token at `token_address`, or the display format of `func_sig` on it.
 #[derive(Clone, PartialEq, Message)]
-pub struct EthereumDefinitionRequest {
+pub(crate) struct EthereumDefinitionRequest {
     #[prost(uint64, required, tag = "1")]
-    pub chain_id: u64,
+    pub(crate) chain_id: u64,
     #[prost(bytes = "vec", required, tag = "2")]
-    pub token_address: Vec<u8>,
+    pub(crate) token_address: Vec<u8>,
     #[prost(bytes = "vec", optional, tag = "3")]
-    pub func_sig: Option<Vec<u8>>,
+    pub(crate) func_sig: Option<Vec<u8>>,
 }
 
 /// `definitions` stays unset when the host has nothing matching the request.
 #[derive(Clone, PartialEq, Message)]
-pub struct EthereumDefinitionAck {
+pub(crate) struct EthereumDefinitionAck {
     #[prost(message, optional, tag = "1")]
     pub(crate) definitions: Option<EthereumDefinitions>,
 }

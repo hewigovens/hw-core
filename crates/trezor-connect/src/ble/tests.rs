@@ -1,18 +1,18 @@
-use std::time::Duration;
-
-use trezor_thp::channel::MAX_RETRANSMISSION_COUNT;
-
 use std::sync::Arc;
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use prost::Message;
+use trezor_thp::channel::MAX_RETRANSMISSION_COUNT;
 
 use super::device_prompts::DevicePrompts;
-use super::errors::MESSAGE_TYPE_FAILURE;
+use super::errors::{FAILURE_ACTION_CANCELLED, FailureProto, MESSAGE_TYPE_FAILURE};
 use super::link::{PacketLink, SESSION_ID};
 use crate::thp::backend::BackendError;
 use crate::thp::messages;
-use crate::thp::proto::{ButtonAck, ButtonRequestProto, Cancel, MESSAGE_TYPE_SUCCESS, WireMessage};
+use crate::thp::proto::{
+    ButtonAck, ButtonRequestProto, Cancel, GetNonce, MESSAGE_TYPE_SUCCESS, WireMessage,
+};
 use crate::thp::types::{ButtonRequest, ButtonRequestCode, DeviceEvent};
 
 mod fake_device {
@@ -232,20 +232,26 @@ async fn repeated_transport_busy_stops_at_retry_limit() {
     assert_eq!(channel.sending_retry(), Some(MAX_RETRANSMISSION_COUNT - 1));
 }
 
-const FAILURE_ACTION_CANCELLED: &[u8] = &[0x08, 0x04];
+const BUTTON_REQUEST_SIGN_TX: i32 = 8;
+
+fn action_cancelled_failure() -> Vec<u8> {
+    FailureProto {
+        code: Some(FAILURE_ACTION_CANCELLED),
+        message: None,
+    }
+    .encode_to_vec()
+}
 
 /// Device that prompts for every request and answers `Cancel` with `Failure(ActionCancelled)`.
 fn prompting_device() -> fake_device::FakeDevice {
     let mut device = fake_device::FakeDevice::new();
     device.respond = Box::new(|message_type| match message_type {
         t if t == ButtonAck::MESSAGE_TYPE => None,
-        t if t == Cancel::MESSAGE_TYPE => {
-            Some((MESSAGE_TYPE_FAILURE, FAILURE_ACTION_CANCELLED.to_vec()))
-        }
+        t if t == Cancel::MESSAGE_TYPE => Some((MESSAGE_TYPE_FAILURE, action_cancelled_failure())),
         t if t == messages::ThpCreateNewSession::MESSAGE_TYPE => Some((
             ButtonRequestProto::MESSAGE_TYPE,
             ButtonRequestProto {
-                code: Some(8),
+                code: Some(BUTTON_REQUEST_SIGN_TX),
                 pages: None,
                 name: Some("confirm_tx".into()),
             }
@@ -300,7 +306,9 @@ async fn cancel_during_prompt_sends_cancel_and_keeps_channel_open() {
     );
     assert!(!cancel.is_requested(), "cancel request must be consumed");
 
-    channel.message_in(SESSION_ID, 31, &[]).unwrap();
+    channel
+        .message_in(SESSION_ID, GetNonce::MESSAGE_TYPE, &[])
+        .unwrap();
     let (message_type, _) = device
         .receive_message(&mut channel, Duration::from_secs(5), &prompts)
         .await
@@ -312,7 +320,7 @@ async fn cancel_during_prompt_sends_cancel_and_keeps_channel_open() {
             messages::ThpCreateNewSession::MESSAGE_TYPE,
             ButtonAck::MESSAGE_TYPE,
             Cancel::MESSAGE_TYPE,
-            31,
+            GetNonce::MESSAGE_TYPE,
         ]
     );
 }
@@ -390,7 +398,9 @@ async fn prompt_timeout_cancels_and_drains_before_failing() {
     assert_eq!(device.received.last(), Some(&Cancel::MESSAGE_TYPE));
 
     // The cancelled request's Failure was drained, so the next request gets its own answer.
-    channel.message_in(SESSION_ID, 31, &[]).unwrap();
+    channel
+        .message_in(SESSION_ID, GetNonce::MESSAGE_TYPE, &[])
+        .unwrap();
     let (message_type, _) = device
         .receive_message(&mut channel, Duration::from_secs(5), &prompts)
         .await

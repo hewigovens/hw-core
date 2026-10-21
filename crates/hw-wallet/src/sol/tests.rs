@@ -121,9 +121,7 @@ fn additional_info_input_maps_token_accounts_and_hex_definition() {
     for (name, json, expected) in cases {
         let input = TxAdditionalInfoInput::from_json(&json)
             .unwrap_or_else(|err| panic!("{name} should parse: {err}"));
-        let info = SolanaTxAdditionalInfo::try_from(input)
-            .unwrap_or_else(|err| panic!("{name} should map: {err}"));
-        assert_eq!(info, expected, "{name}");
+        assert_eq!(SolanaTxAdditionalInfo::from(input), expected, "{name}");
     }
 }
 
@@ -138,9 +136,7 @@ fn additional_info_input_rejects_malformed_input() {
         ("non-hex definition", r#"{"encoded_token": "zz"}"#),
     ];
     for (name, json) in cases {
-        let err = TxAdditionalInfoInput::from_json(json)
-            .and_then(SolanaTxAdditionalInfo::try_from)
-            .unwrap_err();
+        let err = TxAdditionalInfoInput::from_json(json).unwrap_err();
         assert_eq!(err.kind(), WalletErrorKind::Validation, "{name}");
     }
 }

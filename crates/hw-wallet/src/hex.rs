@@ -1,4 +1,21 @@
+use serde::{Deserialize, Deserializer};
+
 use crate::{WalletError, WalletResult};
+
+/// Serde `deserialize_with` for a hex string field.
+pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+    decode(&String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+}
+
+/// Serde `deserialize_with` for an optional hex string field.
+pub fn deserialize_optional<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<u8>>, D::Error> {
+    Option::<String>::deserialize(deserializer)?
+        .map(|value| decode(&value))
+        .transpose()
+        .map_err(serde::de::Error::custom)
+}
 
 pub fn decode(value: &str) -> WalletResult<Vec<u8>> {
     let stripped = value.strip_prefix("0x").unwrap_or(value);

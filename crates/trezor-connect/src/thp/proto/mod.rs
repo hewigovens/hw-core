@@ -17,15 +17,15 @@ pub use bitcoin::{
     BitcoinTxAck, BitcoinTxAckPaymentRequest, BitcoinTxRequest, BitcoinTxRequestType,
     DecodedBitcoinTxRequest, TxAck,
 };
-pub use button_request::{ButtonAck, ButtonRequestProto, Cancel};
+pub(crate) use button_request::{ButtonAck, ButtonRequestProto, Cancel};
 pub use error::ProtoMappingError;
 pub use ethereum::{
-    DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE, EthereumDataTypeProto, EthereumDefinitionAck,
-    EthereumDefinitionRequest, EthereumFieldType, EthereumStructMember, EthereumTxAck,
-    EthereumTxRequest, EthereumTypedDataStructAck, EthereumTypedDataStructRequest,
-    EthereumTypedDataValueAck, EthereumTypedDataValueRequest,
+    DecodedTypedDataResponse, ETH_DATA_CHUNK_SIZE, EthereumDataTypeProto, EthereumFieldType,
+    EthereumStructMember, EthereumTxAck, EthereumTxRequest, EthereumTypedDataStructAck,
+    EthereumTypedDataStructRequest, EthereumTypedDataValueAck, EthereumTypedDataValueRequest,
 };
-pub use features::{FeaturesProto, GetFeatures};
+pub(crate) use ethereum::{EthereumDefinitionAck, EthereumDefinitionRequest};
+pub(crate) use features::GetFeatures;
 pub use pairing::ParsedTagResponse;
 #[cfg(test)]
 pub(crate) use session::MESSAGE_TYPE_SUCCESS;

@@ -53,7 +53,7 @@ impl BleSessionHandle {
         config: HostConfig,
         storage: Arc<dyn HostStorage>,
     ) -> Result<Arc<BleWorkflowHandle>, HWCoreError> {
-        self.workflow_from_session(config, Some(Arc::new(ForeignStorage(storage))))
+        self.workflow_from_session(config, Some(ForeignStorage::shared(storage)))
             .await
     }
 }

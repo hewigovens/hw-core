@@ -3,7 +3,7 @@ use trezor_connect::thp::{
     GetAddressRequest as ThpGetAddressRequest, GetAddressResponse as ThpGetAddressResponse,
 };
 
-use super::{Chain, ethereum_encoded_network};
+use super::{Chain, ChainMetadataExt};
 use crate::errors::HWCoreError;
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -35,7 +35,11 @@ impl TryFrom<GetAddressRequest> for ThpGetAddressRequest {
             path: parse_bip32_path(&request.path)?,
             show_display: request.show_on_device,
             chunkify: request.chunkify,
-            encoded_network: ethereum_encoded_network(request.chain, request.encoded_network)?,
+            encoded_network: request.chain.only_for(
+                Chain::Ethereum,
+                "encoded_network",
+                request.encoded_network,
+            )?,
             include_public_key: request.include_public_key,
         })
     }

@@ -30,8 +30,7 @@ impl SolanaSignTxExt for SolanaSignTx {
     }
 }
 
-// Mirrors Suite's isV1Transaction: v1 (SIMD-0385) puts the message first, so byte 0 is decisive.
-// Suite's @solana/kit decoder also throws for versions above 1, so only legacy and v0 pass.
+// Mirrors Suite's isV1Transaction (byte 0 decides, per SIMD-0385); like @solana/kit, only legacy and v0 pass.
 fn unsupported_tx_version(serialized_tx: &[u8]) -> Option<u8> {
     let first = *serialized_tx.first()?;
     let version = first & !VERSION_PREFIX_MASK;
