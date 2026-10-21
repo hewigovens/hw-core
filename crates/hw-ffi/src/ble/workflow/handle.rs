@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex as AsyncMutex;
 use trezor_connect::ble::BleBackend;
-use trezor_connect::thp::{CancelHandle, ThpWorkflow};
+use trezor_connect::thp::ThpWorkflow;
 
 use super::event_queue::EventQueue;
+use super::operation_gate::OperationGate;
 use crate::errors::HWCoreError;
 use crate::types::{
     ButtonRequest, PairingPrompt, SessionPhase, SessionState, WorkflowEvent, WorkflowEventKind,
@@ -14,7 +15,7 @@ use crate::types::{
 pub struct BleWorkflowHandle {
     pub(super) workflow: AsyncMutex<ThpWorkflow<BleBackend>>,
     pub(super) session_ready: AsyncMutex<bool>,
-    pub(super) cancel: CancelHandle,
+    pub(super) operation: OperationGate,
     events: Arc<EventQueue>,
 }
 
@@ -28,7 +29,7 @@ impl BleWorkflowHandle {
                 sink_events.push(ButtonRequest::from_device_event(event).into());
             })));
         Self {
-            cancel: workflow.backend().cancel_handle(),
+            operation: OperationGate::new(workflow.backend().cancel_handle()),
             workflow: AsyncMutex::new(workflow),
             session_ready: AsyncMutex::new(false),
             events,
@@ -50,8 +51,7 @@ impl BleWorkflowHandle {
     ) -> Result<T, HWCoreError> {
         let result = {
             let mut workflow = self.workflow.lock().await;
-            // A cancel requested while no operation ran must not hit this one.
-            self.cancel.clear();
+            let _operation = self.operation.begin();
             let result = op(&mut workflow).await;
             if matches!(
                 result,

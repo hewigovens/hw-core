@@ -2,6 +2,7 @@ mod api;
 mod code_entry_controller;
 mod event_queue;
 mod handle;
+mod operation_gate;
 mod pairing_flow;
 mod wallet_requests;
 

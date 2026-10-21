@@ -301,9 +301,7 @@ impl BleWorkflowHandle {
     /// to its home screen. Does nothing when no request is running.
     #[uniffi::method]
     pub fn cancel(&self) {
-        if self.workflow.try_lock().is_err() {
-            self.cancel.cancel();
-        }
+        self.operation.request_cancel();
     }
 
     /// Tears down the THP channel and disconnects BLE; the next call needs a new handshake.
