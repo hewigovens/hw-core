@@ -104,6 +104,8 @@ smoke-ios-ui:
         exit 1
     fi
     xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
+    # Wait for the simulator to finish booting; XCUI launches time out on a half-booted device.
+    xcrun simctl bootstatus "$SIM_DEVICE_ID" -b
     xcodebuild -project apple/HWCoreKitSampleApp/HWCoreKitSampleAppiOS.xcodeproj -scheme HWCoreKitSampleAppiOS -destination "id=$SIM_DEVICE_ID" test-without-building | xcbeautify
 
 test-ios-ui:
