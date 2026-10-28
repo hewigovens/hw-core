@@ -49,8 +49,22 @@ final class HWCoreKitSampleAppiOSUITests: XCTestCase {
 
         let app = XCUIApplication()
         app.launch()
+        waitForBootstrapOrBluetoothPermission(app)
         dismissBluetoothPermissionIfNeeded(app)
         return app
+    }
+
+    // Bootstrap's BLE init shows the Bluetooth alert at an unpredictable time, swallowing taps made meanwhile.
+    private func waitForBootstrapOrBluetoothPermission(_ app: XCUIApplication) {
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        let status = app.descendants(matching: .any)["status.text"]
+        let ready = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                alert.exists || (status.exists && (status.value as? String).map { $0 != "Idle" } == true)
+            },
+            object: nil
+        )
+        _ = XCTWaiter.wait(for: [ready], timeout: 30)
     }
 
     private func dismissBluetoothPermissionIfNeeded(_ app: XCUIApplication) {
