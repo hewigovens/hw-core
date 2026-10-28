@@ -49,8 +49,24 @@ final class HWCoreKitSampleAppiOSUITests: XCTestCase {
 
         let app = XCUIApplication()
         app.launch()
+        waitForBootstrapOrBluetoothPermission(app)
         dismissBluetoothPermissionIfNeeded(app)
         return app
+    }
+
+    /// Bootstrap creates the BLE manager, which raises the Bluetooth permission alert on a fresh
+    /// simulator at an unpredictable time after launch. A tap that lands while the alert appears
+    /// is swallowed, so wait until the alert is up or bootstrap has left the "Idle" status.
+    private func waitForBootstrapOrBluetoothPermission(_ app: XCUIApplication) {
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        let status = app.descendants(matching: .any)["status.text"]
+        let ready = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                alert.exists || (status.exists && (status.value as? String).map { $0 != "Idle" } == true)
+            },
+            object: nil
+        )
+        _ = XCTWaiter.wait(for: [ready], timeout: 30)
     }
 
     private func dismissBluetoothPermissionIfNeeded(_ app: XCUIApplication) {

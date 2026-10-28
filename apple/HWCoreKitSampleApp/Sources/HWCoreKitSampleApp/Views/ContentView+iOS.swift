@@ -124,6 +124,7 @@ struct MobileContentView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .accessibilityLabel("Status")
+                    .accessibilityValue(viewModel.status)
                     .accessibilityIdentifier("status.text")
 
                 VStack(alignment: .leading, spacing: 6) {
