@@ -20,7 +20,7 @@ jobs:
         with:
           toolchain: stable
       - name: Restore cargo cache
-        uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
+        uses: Swatinem/rust-cache@v2.9.3
         with:
           shared-key: "ci-rust"
       - name: Install cargo-audit
