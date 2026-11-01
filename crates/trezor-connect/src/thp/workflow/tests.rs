@@ -132,6 +132,31 @@ async fn create_session_sends_nfkd_normalized_passphrase() {
 }
 
 #[tokio::test]
+async fn create_session_withholds_passphrase_until_paired() {
+    let mut workflow = ThpWorkflow::new(
+        MockBackend::code_entry_flow(),
+        host_config(vec![PairingMethod::CodeEntry]),
+    );
+
+    let err = workflow
+        .create_session(Some("secret".into()), false, false)
+        .await
+        .expect_err("no channel yet");
+    assert!(matches!(err, ThpWorkflowError::InvalidPhase));
+
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+    assert_eq!(workflow.state().phase(), Phase::Pairing);
+    let err = workflow
+        .create_session(Some("secret".into()), false, false)
+        .await
+        .expect_err("peer is unauthenticated until pairing completes");
+    assert!(matches!(err, ThpWorkflowError::InvalidPhase));
+
+    assert!(workflow.backend().session_passphrases.is_empty());
+}
+
+#[tokio::test]
 async fn pairing_flow_with_controller() {
     let backend = MockBackend::pairing_flow();
     let controller = TestController;
@@ -504,6 +529,52 @@ async fn handshake_persists_host_state_to_storage() {
     workflow.create_channel().await.expect("create channel");
     workflow.handshake(false).await.expect("handshake");
     assert_eq!(workflow.host_config().static_key, Some(static_key));
+}
+
+#[tokio::test]
+async fn paired_state_without_presented_credential_is_rejected() {
+    for paired_peer in [
+        MockBackend::paired_connection_flow(),
+        MockBackend::autopair(),
+    ] {
+        let storage = Arc::new(InMemoryStorage::new(HostSnapshot::default()));
+        let backend = MockBackend {
+            selected_credential: None,
+            ..paired_peer
+        };
+        let mut workflow = ThpWorkflow::with_storage(backend, host_config(vec![]), storage.clone())
+            .await
+            .unwrap();
+        workflow.create_channel().await.unwrap();
+
+        let err = workflow
+            .handshake(false)
+            .await
+            .expect_err("unauthenticated peer must not be treated as paired");
+
+        assert!(matches!(err, ThpWorkflowError::PairedWithoutCredential));
+        assert_eq!(workflow.state().phase(), Phase::Handshake);
+        assert!(!workflow.state().is_paired());
+        assert!(!workflow.state().has_channel());
+        assert_eq!(storage.persist_calls(), 0);
+    }
+}
+
+#[tokio::test]
+async fn unmatched_credentials_survive_a_requires_pairing_handshake() {
+    let backend = MockBackend::code_entry_flow();
+    let mut config = host_config(vec![PairingMethod::CodeEntry]);
+    config.known_credentials = vec![KnownCredential {
+        credential: "real-device".into(),
+        trezor_static_public_key: Some(vec![0x77; 32]),
+        autoconnect: false,
+    }];
+    let mut workflow = ThpWorkflow::new(backend, config);
+
+    workflow.create_channel().await.unwrap();
+    workflow.handshake(false).await.unwrap();
+
+    assert_eq!(workflow.host_config().known_credentials.len(), 1);
 }
 
 #[tokio::test]

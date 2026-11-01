@@ -96,6 +96,7 @@ impl From<&ThpWorkflowError> for WalletErrorKind {
             | ThpWorkflowError::PairingAborted
             | ThpWorkflowError::PairingController(_)
             | ThpWorkflowError::UnexpectedPairingResponse
+            | ThpWorkflowError::PairedWithoutCredential
             | ThpWorkflowError::Storage(_) => Self::Workflow,
         }
     }

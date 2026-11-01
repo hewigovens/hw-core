@@ -1,7 +1,7 @@
 use unicode_normalization::UnicodeNormalization;
 
 use super::ThpWorkflow;
-use crate::thp::backend::ThpBackend;
+use crate::thp::backend::{BackendError, ThpBackend};
 use crate::thp::error::Result;
 use crate::thp::state::Phase;
 use crate::thp::types::{
@@ -18,6 +18,10 @@ where
         on_device: bool,
         derive_cardano: bool,
     ) -> Result<()> {
+        if self.state.phase() == Phase::Pairing && self.state.is_paired() {
+            return Err(BackendError::SessionConfirmationRequired.into());
+        }
+        self.require_phase(Phase::Paired)?;
         self.backend
             .create_new_session(CreateSessionRequest {
                 passphrase: passphrase.map(|p| p.nfkd().collect()),

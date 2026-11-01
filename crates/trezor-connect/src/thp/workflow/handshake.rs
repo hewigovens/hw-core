@@ -71,6 +71,14 @@ where
         self.channel_try_to_unlock = None;
 
         let selected_credential = response.selected_credential;
+        // Only a presented credential proves the peer is the device paired with this host; without
+        // one the spec requires STATE_UNPAIRED, so anything else is an unauthenticated peer.
+        if selected_credential.is_none()
+            && response.state != HandshakeCompletionState::RequiresPairing
+        {
+            self.forget_channel();
+            return Err(ThpWorkflowError::PairedWithoutCredential);
+        }
         if let Some(method) = pairing_methods.first().copied() {
             self.state.set_pairing_method(method);
         }
