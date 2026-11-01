@@ -23,6 +23,13 @@ fn parse_tx_json_minimal() {
 }
 
 #[test]
+fn omitted_tx_data_is_empty_calldata() {
+    let tx = TxInput::from_json(ETH_PARSE_MINIMAL).unwrap();
+    let request = tx.into_sign_tx(vec![0x8000_002c]).unwrap();
+    assert!(request.data.is_empty());
+}
+
+#[test]
 fn into_sign_tx_decodes_json_quantities() {
     let tx = TxInput::from_json(ETH_BUILD_SIGN_REQUEST).unwrap();
 

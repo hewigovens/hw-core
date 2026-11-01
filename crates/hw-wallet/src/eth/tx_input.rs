@@ -16,7 +16,7 @@ pub struct TxInput {
     pub gas_limit: String,
     #[serde(default = "default_chain_id")]
     pub chain_id: u64,
-    #[serde(default = "default_hex_zero")]
+    #[serde(default)]
     pub data: String,
     #[serde(default = "default_hex_zero")]
     pub max_fee_per_gas: String,
