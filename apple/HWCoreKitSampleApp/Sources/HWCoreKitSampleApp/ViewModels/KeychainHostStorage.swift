@@ -49,8 +49,8 @@ final class KeychainHostStorage: HostStorage, @unchecked Sendable {
         guard fileManager.fileExists(atPath: path) else {
             return false
         }
-        if try load() == nil, let snapshot = fileManager.contents(atPath: path) {
-            try persist(snapshot: snapshot)
+        if try load() == nil {
+            try persist(snapshot: Data(contentsOf: URL(fileURLWithPath: path)))
         }
         try fileManager.removeItem(atPath: path)
         return true
