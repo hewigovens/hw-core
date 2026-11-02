@@ -374,7 +374,7 @@ checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
 
 [[package]]
 name = "ble-transport"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "btleplug",
  "futures",
@@ -1289,11 +1289,11 @@ dependencies = [
 
 [[package]]
 name = "hw-chain"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "hw-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1313,7 +1313,7 @@ dependencies = [
 
 [[package]]
 name = "hw-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ble-transport",
  "hw-chain",
@@ -1323,7 +1323,7 @@ dependencies = [
 
 [[package]]
 name = "hw-ffi"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1349,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "hw-wallet"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64",
  "ble-transport",
@@ -2673,7 +2673,7 @@ dependencies = [
 
 [[package]]
 name = "thp-proto"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "prost",
  "prost-build",
@@ -2879,7 +2879,7 @@ dependencies = [
 
 [[package]]
 name = "trezor-connect"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "ble-transport",
