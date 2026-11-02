@@ -50,7 +50,7 @@ cargo run -p hw-cli -- -vv sign-message sol --message "hello"
 
 Notes:
 
-- Pairing state is stored at `~/.hw-core/thp-host.json`
+- The CLI stores pairing state in the OS credential store (macOS Keychain or Linux Secret Service). Without one it warns and uses `~/.hw-core/thp-host.json`; `--storage-path` selects a file explicitly
 - Use `pair --force` to reset credential flow
 
 ## FFI bindings

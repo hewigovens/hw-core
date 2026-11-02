@@ -27,6 +27,8 @@ pub enum ThpWorkflowError {
     Storage(#[from] StorageError),
     #[error("device sent a pairing response that does not match the selected method")]
     UnexpectedPairingResponse,
+    #[error("device reported a paired state although no pairing credential was presented")]
+    PairedWithoutCredential,
 }
 
 pub type Result<T> = std::result::Result<T, ThpWorkflowError>;

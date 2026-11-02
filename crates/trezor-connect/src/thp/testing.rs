@@ -33,7 +33,6 @@ pub struct MockBackend {
     pub handshake_hash: Vec<u8>,
     pub selected_credential: Option<KnownCredential>,
     pub credential_response: Option<CredentialResponse>,
-    pub require_end_before_session: bool,
     pub select_responses: VecDeque<SelectMethodResponse>,
     pub code_entry_challenge_response: Option<CodeEntryChallengeResponse>,
     pub tag_responses: VecDeque<PairingTagResponse>,
@@ -77,7 +76,6 @@ impl MockBackend {
             handshake_hash: handshake_hash.to_vec(),
             selected_credential: None,
             credential_response: None,
-            require_end_before_session: false,
             select_responses: VecDeque::new(),
             code_entry_challenge_response: None,
             tag_responses: VecDeque::new(),
@@ -133,7 +131,6 @@ impl MockBackend {
                 credential: "refreshed-cred".into(),
                 autoconnect: false,
             }),
-            require_end_before_session: true,
             ..Self::new(
                 4,
                 PairingMethod::CodeEntry,
@@ -279,9 +276,6 @@ impl ThpBackend for MockBackend {
     ) -> BackendResult<CreateSessionResponse> {
         self.counters.create_session_calls += 1;
         self.session_passphrases.push(request.passphrase);
-        if self.require_end_before_session && !self.end_called {
-            return Err(BackendError::SessionConfirmationRequired);
-        }
         self.session_responses
             .pop_front()
             .unwrap_or(Ok(CreateSessionResponse))

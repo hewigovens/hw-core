@@ -71,6 +71,13 @@ where
         self.channel_try_to_unlock = None;
 
         let selected_credential = response.selected_credential;
+        // Only a presented credential authenticates the peer; otherwise the spec requires unpaired.
+        if selected_credential.is_none()
+            && response.state != HandshakeCompletionState::RequiresPairing
+        {
+            self.forget_channel();
+            return Err(ThpWorkflowError::PairedWithoutCredential);
+        }
         if let Some(method) = pairing_methods.first().copied() {
             self.state.set_pairing_method(method);
         }

@@ -107,7 +107,7 @@ cargo run -p hw-cli -- address --chain eth
 cargo run -p hw-cli -- sign-message eth --message "hello"
 ```
 
-Pairing state is stored at `~/.hw-core/thp-host.json`. Add `-vv` for protocol logs. `just --list` shows the build, test and sample-app recipes; see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, bindings, and the T3W1 emulator integration tests. If something fails on a device, start with [docs/troubleshooting.md](docs/troubleshooting.md).
+The CLI stores pairing state in the OS credential store (macOS Keychain or Linux Secret Service) and moves an existing `~/.hw-core/thp-host.json` there. If no store is available it warns and keeps that plaintext file; `--storage-path` always uses the given file. Add `-vv` for protocol logs. `just --list` shows the build, test and sample-app recipes; see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, bindings, and the T3W1 emulator integration tests. If something fails on a device, start with [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Workspace layout
 

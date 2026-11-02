@@ -21,15 +21,10 @@ impl PairArgs {
             self.connect.timeout_secs, self.connect.thp_timeout_secs, self.force
         );
 
-        let storage_path = self.connect.storage_path();
-        if self.force && storage_path.exists() {
-            std::fs::remove_file(&storage_path).with_context(|| {
-                format!(
-                    "failed to clear existing pairing storage at {}",
-                    storage_path.display()
-                )
-            })?;
-            println!("Cleared saved pairing state: {}", storage_path.display());
+        // Selected without importing, so a reset still works when the old file is unreadable.
+        let host_store = self.connect.select_host_store().await;
+        if self.force && host_store.clear().await? {
+            println!("Cleared saved pairing state: {host_store}");
         }
 
         let mut workflow = self
@@ -81,7 +76,7 @@ impl PairArgs {
             "Known credentials: {}",
             workflow.host_config().known_credentials.len()
         );
-        println!("Saved host state to: {}", storage_path.display());
+        println!("Saved host state to: {host_store}");
 
         Ok(())
     }

@@ -74,6 +74,6 @@ For documentation-only changes, check the diff, local links, and command referen
 
 - **Build times**: Initial build takes several minutes; [mbx](https://github.com/jdx/mr-boxington) shares compiled work across workspaces and CI (`mbx setup` once locally, then plain `cargo`)
 - **Linux BLE**: Requires `sudo apt-get install -y libdbus-1-dev pkg-config`
-- **Pairing state**: Stored at `~/.hw-core/thp-host.json`; use `pair --force` to reset
+- **Pairing state**: The CLI stores it in the OS credential store (macOS Keychain or Linux Secret Service), falling back to `~/.hw-core/thp-host.json` with a warning, or the path given by `--storage-path`; use `pair --force` to reset
 - **License**: Apache-2.0
 - **Development status**: See [docs/roadmap.md](docs/roadmap.md) and [GitHub issues](https://github.com/hewigovens/hw-core/issues)
