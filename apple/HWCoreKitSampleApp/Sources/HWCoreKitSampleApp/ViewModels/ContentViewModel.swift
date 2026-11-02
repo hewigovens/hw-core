@@ -54,7 +54,7 @@ final class ContentViewModel: ObservableObject {
     private var sessionState: SessionState?
     private var eventTask: Task<Void, Never>?
     private var pendingPairingFlow: PendingPairingFlow?
-    private var storagePath: String?
+    private let hostStorage = KeychainHostStorage()
     private var pendingRecoveryDeviceID: String?
     private var shouldRecoverOnActive = false
     private let defaults = UserDefaults.standard
@@ -419,10 +419,11 @@ final class ContentViewModel: ObservableObject {
         }
 
         do {
-            let path = defaultStoragePath()
-            storagePath = path
-            appendLog("storage path: \(path)")
-            if let snapshot = loadStorageSnapshotSummary(path: path) {
+            let legacyPath = legacyStoragePath()
+            if try hostStorage.importLegacyFile(atPath: legacyPath) {
+                appendLog("moved pairing storage to Keychain from \(legacyPath)")
+            }
+            if let snapshot = loadStorageSnapshotSummary() {
                 appendLog(
                     "storage snapshot: schema=\(snapshot.schemaVersion) static_key=\(snapshot.hasStaticKey) known_credentials=\(snapshot.knownCredentialCount)"
                 )
@@ -436,7 +437,7 @@ final class ContentViewModel: ObservableObject {
                 config: HWCoreConfig(
                     hostName: defaultHostName(),
                     appName: "hw-core/ios",
-                    storagePath: path
+                    hostStorage: hostStorage
                 )
             )
             status = "HWCoreKit initialized"
@@ -1095,15 +1096,8 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func clearPairingStorage() throws {
-        guard let storagePath else {
-            return
-        }
-        let path = NSString(string: storagePath).expandingTildeInPath
-        let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: path) {
-            try fileManager.removeItem(atPath: path)
-            appendLog("cleared pairing storage: \(path)")
-        }
+        try hostStorage.clear()
+        appendLog("cleared pairing storage")
     }
 
     private func rememberedDeviceID() -> String? {
@@ -1153,7 +1147,7 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    private func defaultStoragePath() -> String {
+    private func legacyStoragePath() -> String {
         #if os(iOS)
         let fileManager = FileManager.default
         let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -1176,17 +1170,19 @@ final class ContentViewModel: ObservableObject {
         #endif
     }
 
-    private func loadStorageSnapshotSummary(path: String) -> StorageSnapshotSummary? {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        guard FileManager.default.fileExists(atPath: expandedPath) else {
+    private func loadStorageSnapshotSummary() -> StorageSnapshotSummary? {
+        let stored: Data?
+        do {
+            stored = try hostStorage.load()
+        } catch {
+            return nil
+        }
+        guard let data = stored else {
             return StorageSnapshotSummary(
                 schemaVersion: 0,
                 hasStaticKey: false,
                 knownCredentialCount: 0
             )
-        }
-        guard let data = FileManager.default.contents(atPath: expandedPath) else {
-            return nil
         }
         guard let object = try? JSONSerialization.jsonObject(with: data),
               let dictionary = object as? [String: Any]

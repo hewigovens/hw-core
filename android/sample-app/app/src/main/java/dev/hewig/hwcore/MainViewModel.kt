@@ -18,7 +18,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
-import java.io.File
 import org.json.JSONObject
 import uniffi.hwcore.*
 
@@ -87,7 +86,8 @@ private const val DEFAULT_APP_NAME = "hw-core/android"
 private const val UI_STATE_SNAPSHOT_FILE = "sample-ui-state.json"
 private const val UI_STATE_SAVED_KEY = "sample_ui_state_json"
 private const val REMEMBERED_DEVICE_FILE = "remembered-device-id.txt"
-private const val HOST_STORAGE_FILE = "hwcore/thp-host.json"
+private const val HOST_STORAGE_FILE = "hwcore/thp-host.bin"
+private const val PLAINTEXT_HOST_STORAGE_FILE = "hwcore/thp-host.json"
 private const val MAX_LOG_ENTRIES = 500
 
 private const val DEFAULT_SOLANA_TX_HEX =
@@ -394,7 +394,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     private var workflowEventsJob: Job? = null
     private var pendingPairingFlow: PendingPairingFlow? = null
     private var hostConfig: HostConfig? = null
-    private var storagePath: String? = null
+    private var hostStorage: HostStorage? = null
     private var appContext: Context? = null
     private var rememberedDeviceId: String? = null
     private var shouldAutoReconnect = false
@@ -431,38 +431,31 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
         val hostName = defaultHostName(context)
         hostConfig = hostConfigNew(hostName, DEFAULT_APP_NAME)
-        storagePath = hostStorageFile(context).absolutePath
+        hostStorage = KeystoreHostStorage(context.noBackupFilesDir.resolve(HOST_STORAGE_FILE)).also {
+            importPlaintextSnapshots(context, it)
+        }
         log("Host configured: $hostName / $DEFAULT_APP_NAME")
     }
 
-    // Keeps the pairing snapshot out of Auto Backup, moving (or deleting) a legacy filesDir copy.
-    private fun hostStorageFile(context: Context): File {
-        val target = context.noBackupFilesDir.resolve(HOST_STORAGE_FILE)
-        val legacy = context.filesDir.resolve(HOST_STORAGE_FILE)
-        if (!legacy.exists()) {
-            return target
-        }
-        val moved = !target.exists() && runCatching {
-            val dir = target.parentFile ?: return@runCatching false
-            // hw-core refuses a credentials directory that group or others can write to.
-            (dir.isDirectory || dir.mkdirs()) && dir.restrictToOwner() && legacy.renameTo(target)
-        }.getOrDefault(false)
-        val removed = moved || legacy.delete()
-        legacy.parentFile?.delete()
-        log(
-            when {
-                moved -> "Moved pairing snapshot out of Auto Backup"
-                removed -> "Removed backed-up pairing snapshot"
-                else -> "WARNING: pairing snapshot still in Auto Backup; delete ${legacy.absolutePath}"
+    // Moves snapshots written by file-based versions into the Keystore-backed store. The
+    // noBackupFilesDir copy is the newer one; filesDir was also included in Auto Backup.
+    private fun importPlaintextSnapshots(context: Context, storage: HostStorage) {
+        listOf(context.noBackupFilesDir, context.filesDir)
+            .map { it.resolve(PLAINTEXT_HOST_STORAGE_FILE) }
+            .filter { it.exists() }
+            .forEach { file ->
+                val imported = runCatching {
+                    if (storage.load() == null) {
+                        storage.persist(file.readBytes())
+                    }
+                }
+                if (imported.isSuccess && file.delete()) {
+                    log("Moved pairing snapshot to the Android Keystore")
+                } else {
+                    log("WARNING: plaintext pairing snapshot remains at ${file.absolutePath}")
+                }
             }
-        )
-        return target
     }
-
-    private fun File.restrictToOwner(): Boolean =
-        setReadable(false, false) && setReadable(true, true) &&
-            setWritable(false, false) && setWritable(true, true) &&
-            setExecutable(false, false) && setExecutable(true, true)
 
     // -- Logging helpers --
 
@@ -919,7 +912,10 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         log("Connecting to ${info.name ?: info.id}...")
 
         val session = device.connect()
-        val wf = session.intoWorkflowWithStorage(currentHostConfig(), storagePath)
+        val wf = session.intoWorkflowWithHostStorage(
+            currentHostConfig(),
+            checkNotNull(hostStorage) { "host storage not configured" },
+        )
         workflow = wf
         startWorkflowEventsPump(wf)
         ui = ui.copy(hasWorkflow = true)
