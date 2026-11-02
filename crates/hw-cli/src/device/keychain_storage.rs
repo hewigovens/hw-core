@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unreadable_default_file_is_kept() {
+    async fn unreadable_default_file_is_kept_until_cleared() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state").join("thp-host.json");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -186,5 +186,7 @@ mod tests {
 
         assert!(keychain.import_default_file().await.is_err());
         assert!(path.exists());
+        assert!(keychain.clear().await.unwrap());
+        assert!(!path.exists());
     }
 }

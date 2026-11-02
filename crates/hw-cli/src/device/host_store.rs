@@ -16,25 +16,31 @@ pub enum HostStore {
 
 impl HostStore {
     /// Prefers the OS credential store unless `explicit_path` selects a file.
-    pub async fn resolve(explicit_path: Option<&Path>) -> Result<Self> {
+    pub async fn select(explicit_path: Option<&Path>) -> Self {
         if let Some(path) = explicit_path {
-            return Ok(Self::File(path.to_path_buf()));
+            return Self::File(path.to_path_buf());
         }
         let default_path = Self::default_path();
         match KeychainStorage::open(default_path.clone()).await {
-            Ok(keychain) => {
-                keychain.import_default_file().await?;
-                Ok(Self::Keychain(Arc::new(keychain)))
-            }
+            Ok(keychain) => Self::Keychain(Arc::new(keychain)),
             Err(err) => {
                 eprintln!(
                     "warning: OS credential store unavailable ({err}); pairing secrets will be \
                      stored unencrypted in {}",
                     default_path.display()
                 );
-                Ok(Self::File(default_path))
+                Self::File(default_path)
             }
         }
+    }
+
+    /// Selects the store and moves an existing default file into the OS credential store.
+    pub async fn resolve(explicit_path: Option<&Path>) -> Result<Self> {
+        let store = Self::select(explicit_path).await;
+        if let Self::Keychain(keychain) = &store {
+            keychain.import_default_file().await?;
+        }
+        Ok(store)
     }
 
     fn default_path() -> PathBuf {

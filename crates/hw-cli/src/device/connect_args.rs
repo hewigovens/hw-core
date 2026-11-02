@@ -37,8 +37,8 @@ pub struct ConnectArgs {
 }
 
 impl ConnectArgs {
-    pub async fn host_store(&self) -> Result<HostStore> {
-        HostStore::resolve(self.storage_path.as_deref()).await
+    pub async fn select_host_store(&self) -> HostStore {
+        HostStore::select(self.storage_path.as_deref()).await
     }
 
     fn host_config(&self, skip_pairing: bool) -> HostConfig {
@@ -124,7 +124,9 @@ impl ConnectArgs {
             backend.handshake_timeout()
         );
 
-        let storage = self.host_store().await?.thp_storage();
+        let storage = HostStore::resolve(self.storage_path.as_deref())
+            .await?
+            .thp_storage();
         let workflow = ThpWorkflow::with_storage(backend, self.host_config(skip_pairing), storage)
             .await
             .context("workflow setup failed")?;

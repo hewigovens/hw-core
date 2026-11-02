@@ -21,7 +21,8 @@ impl PairArgs {
             self.connect.timeout_secs, self.connect.thp_timeout_secs, self.force
         );
 
-        let host_store = self.connect.host_store().await?;
+        // Selected without importing, so a reset still works when the old file is unreadable.
+        let host_store = self.connect.select_host_store().await;
         if self.force && host_store.clear().await? {
             println!("Cleared saved pairing state: {host_store}");
         }
