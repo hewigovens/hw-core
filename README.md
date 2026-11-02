@@ -91,7 +91,7 @@ For Rust applications, add the `hw-core` facade crate:
 
 ```toml
 [dependencies]
-hw-core = "0.1.1"
+hw-core = "0.1.2"
 ```
 
 It exposes `hw_core::wallet` for shared wallet orchestration,

@@ -4,7 +4,7 @@ A Rust SDK for hardware wallet communication. The first supported device is Trez
 
 ```toml
 [dependencies]
-hw-core = "0.1.1"
+hw-core = "0.1.2"
 ```
 
 ## Rust API

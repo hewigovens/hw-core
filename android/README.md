@@ -79,7 +79,7 @@ In the consuming app, add `mavenLocal()` to the repositories in `settings.gradle
 
 ```kotlin
 dependencies {
-    implementation("dev.hewig.hwcore:hwcore:0.1.1")
+    implementation("dev.hewig.hwcore:hwcore:0.1.2")
 }
 ```
 
