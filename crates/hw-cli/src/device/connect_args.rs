@@ -1,6 +1,4 @@
-use std::env;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -14,9 +12,9 @@ use hw_wallet::ble::{
 use tokio::time::timeout;
 use tracing::{debug, info};
 use trezor_connect::ble::BleBackend;
-use trezor_connect::thp::{FileStorage, HostConfig, PairingMethod, ThpWorkflow};
+use trezor_connect::thp::{HostConfig, PairingMethod, ThpWorkflow};
 
-use crate::device::DeviceList;
+use crate::device::{DeviceList, HostStore};
 use crate::pairing::CliPairingController;
 
 const DEFAULT_PEER_REMOVED_HINT: &str =
@@ -39,14 +37,8 @@ pub struct ConnectArgs {
 }
 
 impl ConnectArgs {
-    pub fn storage_path(&self) -> PathBuf {
-        self.storage_path.clone().unwrap_or_else(|| {
-            let home = env::var_os("HOME")
-                .or_else(|| env::var_os("USERPROFILE"))
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."));
-            home.join(".hw-core").join("thp-host.json")
-        })
+    pub async fn host_store(&self) -> Result<HostStore> {
+        HostStore::resolve(self.storage_path.as_deref()).await
     }
 
     fn host_config(&self, skip_pairing: bool) -> HostConfig {
@@ -132,7 +124,7 @@ impl ConnectArgs {
             backend.handshake_timeout()
         );
 
-        let storage = Arc::new(FileStorage::new(self.storage_path()));
+        let storage = self.host_store().await?.thp_storage();
         let workflow = ThpWorkflow::with_storage(backend, self.host_config(skip_pairing), storage)
             .await
             .context("workflow setup failed")?;
