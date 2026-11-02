@@ -14,7 +14,7 @@ use super::host_store::remove_if_present;
 const KEYCHAIN_SERVICE: &str = "hw-core";
 const KEYCHAIN_ACCOUNT: &str = "thp-host";
 
-/// Keeps the snapshot in the macOS Keychain, Windows Credential Manager or Secret Service.
+/// Keeps the snapshot in the macOS Keychain or Linux Secret Service.
 pub struct KeychainStorage {
     entry: Arc<Entry>,
     default_file: PathBuf,
