@@ -14,11 +14,11 @@ ble-transport = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
 hw-wallet = { workspace = true }
+keyring = "4.2.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 trezor-connect = { workspace = true, features = ["ble"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-keyring = "4.2.0"
 whoami = "2.1.1"
 
 [dev-dependencies]

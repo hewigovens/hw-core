@@ -437,8 +437,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         log("Host configured: $hostName / $DEFAULT_APP_NAME")
     }
 
-    // Moves snapshots written by file-based versions into the Keystore-backed store. The
-    // noBackupFilesDir copy is the newer one; filesDir was also included in Auto Backup.
+    // noBackupFilesDir comes first because its copy is newer than the legacy filesDir one.
     private fun importPlaintextSnapshots(context: Context, storage: HostStorage) {
         listOf(context.noBackupFilesDir, context.filesDir)
             .map { it.resolve(PLAINTEXT_HOST_STORAGE_FILE) }

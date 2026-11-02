@@ -30,7 +30,6 @@ impl WorkflowErrorExt for ThpWorkflowError {
                     | BackendError::PinExpected
                     | BackendError::DeviceFirmwareError
                     | BackendError::TransportBusy
-                    | BackendError::SessionConfirmationRequired
             )
         )
     }

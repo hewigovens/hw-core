@@ -17,13 +17,11 @@ pub fn deserialize_optional<'de, D: Deserializer<'de>>(
         .map_err(serde::de::Error::custom)
 }
 
-/// Decodes byte data, rejecting odd-length input rather than guessing at the missing nibble.
 pub fn decode(value: &str) -> WalletResult<Vec<u8>> {
     decode_digits(value.strip_prefix("0x").unwrap_or(value))
 }
 
-/// Decodes a big-endian integer. Quantities such as `0x0` may have an odd digit count, so unlike
-/// [`decode`] this pads them.
+/// Pads odd digit counts, which are valid for quantities such as `0x0` but not for byte data.
 pub fn decode_quantity(value: &str) -> WalletResult<Vec<u8>> {
     let digits = value.strip_prefix("0x").unwrap_or(value);
     let bytes = if digits.len().is_multiple_of(2) {

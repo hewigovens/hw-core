@@ -19,11 +19,7 @@ private const val CIPHER = "AES/GCM/NoPadding"
 private const val IV_BYTES = 12
 private const val TAG_BITS = 128
 
-/**
- * Keeps the pairing snapshot, which holds the host's THP private key, encrypted on disk under a
- * key that never leaves the Android Keystore. Pass a file outside Auto Backup: the Keystore key
- * does not transfer, so a restored copy could not be decrypted anyway.
- */
+/** Keep [file] outside Auto Backup: the Keystore key does not transfer to a restored device. */
 class KeystoreHostStorage(file: File) : HostStorage {
     private val file = AtomicFile(file)
 

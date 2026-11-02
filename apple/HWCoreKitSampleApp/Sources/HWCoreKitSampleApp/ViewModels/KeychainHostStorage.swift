@@ -43,8 +43,7 @@ final class KeychainHostStorage: HostStorage, @unchecked Sendable {
         }
     }
 
-    /// Moves a snapshot left by a file-based version into the Keychain and deletes the file.
-    /// Returns whether a file was removed.
+    /// Returns whether a file-based snapshot was found and removed.
     func importLegacyFile(atPath path: String) throws -> Bool {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: path) else {

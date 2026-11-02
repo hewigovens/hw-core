@@ -71,8 +71,7 @@ where
         self.channel_try_to_unlock = None;
 
         let selected_credential = response.selected_credential;
-        // Only a presented credential proves the peer is the device paired with this host; without
-        // one the spec requires STATE_UNPAIRED, so anything else is an unauthenticated peer.
+        // Only a presented credential authenticates the peer; otherwise the spec requires unpaired.
         if selected_credential.is_none()
             && response.state != HandshakeCompletionState::RequiresPairing
         {
