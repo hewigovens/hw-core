@@ -643,7 +643,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 status = effectiveStatus,
                 phaseSummary = effectivePhase,
                 log = logsSnapshot(),
-                selectedChain = if (restoredVendor.isLedger && restoredChain == Chain.BITCOIN) Chain.ETHEREUM else restoredChain,
+                selectedChain = restoredChain,
                 addressPathInput = json.optString("addressPathInput", DEFAULT_ETH_PATH),
                 showAddressOnDevice = json.optBoolean("showAddressOnDevice", true),
                 includeAddressPublicKey = json.optBoolean("includeAddressPublicKey", false),
@@ -1329,7 +1329,6 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     fun updateTypedDataJson(value: String) { ui = ui.copy(typedDataJson = value) }
 
     fun selectChain(chain: Chain) {
-        if (ui.vendor.isLedger && chain == Chain.BITCOIN) return
         val nextAddressPath = chainDefaultPath(chain)
         ui = ui.copy(
             selectedChain = chain,

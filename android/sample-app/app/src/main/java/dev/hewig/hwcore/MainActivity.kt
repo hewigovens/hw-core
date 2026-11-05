@@ -338,7 +338,7 @@ fun MainScreen(
                         label = { Text(vendor.label) },
                     )
                 }
-                if (ui.vendor.isLedger) Text("Open Ethereum or Solana on Ledger to match the selected chain. BTC and Trezor pairing controls are unavailable.")
+                if (ui.vendor.isLedger) Text("Open the Ethereum, Solana, or Bitcoin app on Ledger to match the selected chain.")
             }
         }
 
@@ -480,7 +480,7 @@ fun MainScreen(
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Chain", style = MaterialTheme.typography.titleMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Chain.values().filter { !ui.vendor.isLedger || it != Chain.BITCOIN }.forEach { chain ->
+                        Chain.values().forEach { chain ->
                             FilterChip(
                                 selected = chain == ui.selectedChain,
                                 onClick = { vm.selectChain(chain) },
@@ -619,14 +619,14 @@ fun MainScreen(
                                 }
                                 OutlinedButton(
                                     onClick = vm::loadBitcoinAdvancedPreset,
-                                    enabled = !ui.isBusy,
+                                    enabled = !ui.isBusy && !ui.vendor.isLedger,
                                     modifier = Modifier.weight(1f),
                                 ) {
                                     Text("Load RBF Preset")
                                 }
                                 OutlinedButton(
                                     onClick = vm::loadBitcoinMultisigPreset,
-                                    enabled = !ui.isBusy,
+                                    enabled = !ui.isBusy && !ui.vendor.isLedger,
                                     modifier = Modifier.weight(1f),
                                 ) {
                                     Text("Load Multisig")
@@ -645,7 +645,7 @@ fun MainScreen(
                                 textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             )
                             Text(
-                                text = "BTC signing accepts basic ref_txs, advanced orig_txs for RBF, and a Suite-style multisig preset for emulator or seeded-device testing. Real Bitcoin payment requests need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in presets.",
+                                text = if (ui.vendor.isLedger) "Ledger signs single-account BIP84 transactions. Supply full ref_txs matching your Ledger account. Built-in presets use test keys; multisig and replacement metadata are unsupported." else "BTC signing accepts basic ref_txs, advanced orig_txs for RBF, and a Suite-style multisig preset for emulator or seeded-device testing. Real Bitcoin payment requests need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in presets.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

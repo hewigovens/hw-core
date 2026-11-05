@@ -49,7 +49,7 @@ final class HWCoreKitSampleAppiOSUITests: XCTestCase {
         XCTAssertTrue(wallet.waitForExistence(timeout: 10))
         wallet.tap()
         app.buttons["Ledger Stax"].tap()
-        XCTAssertFalse(app.buttons["BTC"].exists)
+        XCTAssertTrue(app.buttons["BTC"].exists)
         XCTAssertTrue(app.buttons["SOL"].exists)
         XCTAssertFalse(app.buttons["action.pair_only"].isEnabled)
         wallet.tap()

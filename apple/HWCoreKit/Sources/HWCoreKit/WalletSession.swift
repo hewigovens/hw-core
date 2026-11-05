@@ -259,7 +259,10 @@ public final class WalletSession: @unchecked Sendable {
     ) async throws -> SignTxResult {
         do {
             return try await withTimeout(seconds: timeout, operation: "signBitcoinTx") {
-                try await self.trezorWorkflow().signBitcoinTx(request: request)
+                if case .ledger(let ledger) = self.backend {
+                    return try await ledger.signBitcoinTx(request: request)
+                }
+                return try await self.trezorWorkflow().signBitcoinTx(request: request)
             }
         } catch {
             throw mapError(error)

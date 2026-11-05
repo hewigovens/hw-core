@@ -1,7 +1,7 @@
 use super::{LedgerAppInfo, LedgerEthereumAddress, LedgerEthereumSignature, LedgerSigningResult};
 use crate::HWCoreError;
 use hw_wallet::bip32::parse_bip32_path;
-use hw_wallet::ledger::{LedgerEthereumExt, LedgerSolanaExt, LedgerTypedDataExt};
+use hw_wallet::ledger::{LedgerBitcoinExt, LedgerEthereumExt, LedgerSolanaExt, LedgerTypedDataExt};
 use ledger_connect::{LedgerBleTransport, LedgerClient};
 use tokio::sync::{MappedMutexGuard, Mutex, MutexGuard, watch};
 
@@ -28,6 +28,26 @@ impl LedgerSessionHandle {
         MutexGuard::try_map(slot, Option::as_mut)
             .map_err(|_| HWCoreError::Disconnected("Ledger session closed".into()))
     }
+    async fn sign_bitcoin_request(
+        &self,
+        request: &trezor_connect::thp::BtcSignTx,
+    ) -> Result<crate::SignTxResult, HWCoreError> {
+        let result = self
+            .with_client(async |client| {
+                Ok(client.sign_verified_bitcoin_transaction(request).await?)
+            })
+            .await?;
+        Ok(crate::SignTxResult {
+            chain: crate::Chain::Bitcoin,
+            v: 0,
+            r: result.signatures.last().cloned().unwrap_or_default(),
+            s: vec![],
+            signatures: result.signatures,
+            tx_hash: None,
+            recovered_address: None,
+        })
+    }
+
     async fn with_client<T>(
         &self,
         operation: impl AsyncFnOnce(&mut LedgerClient<LedgerBleTransport>) -> Result<T, HWCoreError>,
@@ -108,14 +128,28 @@ impl LedgerSessionHandle {
         &self,
         request: crate::GetAddressRequest,
     ) -> Result<crate::AddressResult, HWCoreError> {
-        if request.chain == crate::Chain::Bitcoin
-            || request.chunkify
-            || request.encoded_network.is_some()
-        {
+        if request.chunkify || request.encoded_network.is_some() {
             return Err(HWCoreError::Unsupported(
-                "Ledger supports Ethereum and Solana addresses without Trezor display options"
-                    .into(),
+                "Ledger addresses do not support Trezor display options".into(),
             ));
+        }
+        if request.chain == crate::Chain::Bitcoin {
+            let path = parse_bip32_path(&request.path)?;
+            let result = self
+                .with_client(async |client| {
+                    Ok(client
+                        .bitcoin_address(&path, request.show_on_device)
+                        .await?)
+                })
+                .await?;
+            return Ok(crate::AddressResult {
+                chain: crate::Chain::Bitcoin,
+                address: result.address,
+                mac: None,
+                public_key: request
+                    .include_public_key
+                    .then(|| hex::encode(result.public_key)),
+            });
         }
         if request.chain == crate::Chain::Solana {
             let path = parse_bip32_path(&request.path)?;
@@ -151,6 +185,18 @@ impl LedgerSessionHandle {
         &self,
         request: crate::SignTxRequest,
     ) -> Result<crate::SignTxResult, HWCoreError> {
+        if request.chain == crate::Chain::Bitcoin {
+            if request.chunkify {
+                return Err(HWCoreError::Unsupported(
+                    "Ledger does not support chunkify".into(),
+                ));
+            }
+            let raw: trezor_connect::thp::SignTxRequest = request.try_into()?;
+            let trezor_connect::thp::SignTxRequest::Bitcoin(tx) = &raw else {
+                unreachable!()
+            };
+            return self.sign_bitcoin_request(tx).await;
+        }
         if request.chain == crate::Chain::Solana {
             if request.chunkify {
                 return Err(HWCoreError::Unsupported(
@@ -188,15 +234,21 @@ impl LedgerSessionHandle {
         &self,
         request: crate::SignMessageRequest,
     ) -> Result<crate::SignMessageResult, HWCoreError> {
-        if request.chain == crate::Chain::Bitcoin
-            || request.chunkify
+        if request.chunkify
             || request.encoded_network.is_some()
             || (request.chain != crate::Chain::Solana && !request.signers.is_empty())
         {
             return Err(HWCoreError::Unsupported(
-                "Ledger supports Ethereum and Solana messages without Trezor display options"
-                    .into(),
+                "Ledger messages do not support Trezor display options".into(),
             ));
+        }
+        if request.chain == crate::Chain::Bitcoin {
+            let raw = request.try_into()?;
+            return self
+                .with_client(async |client| {
+                    Ok(client.sign_verified_bitcoin_message(&raw).await?.into())
+                })
+                .await;
         }
         if request.chain == crate::Chain::Solana {
             let raw: trezor_connect::thp::SignMessageRequest = request.try_into()?;
@@ -223,6 +275,13 @@ impl LedgerSessionHandle {
             signature_encoding: crate::SignatureEncoding::Hex,
             signed_data: None,
         })
+    }
+
+    pub async fn sign_bitcoin_tx(
+        &self,
+        request: crate::BitcoinSignTxRequest,
+    ) -> Result<crate::SignTxResult, HWCoreError> {
+        self.sign_bitcoin_request(&request.try_into()?).await
     }
 
     pub async fn sign_typed_data(
@@ -255,7 +314,7 @@ mod tests {
             cancellation: watch::channel(0).0,
         };
         for (chain, chunkify, encoded_network) in [
-            (crate::Chain::Bitcoin, false, None),
+            (crate::Chain::Bitcoin, true, None),
             (crate::Chain::Solana, true, None),
             (crate::Chain::Ethereum, true, None),
             (crate::Chain::Ethereum, false, Some(vec![1])),

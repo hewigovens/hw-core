@@ -1,3 +1,7 @@
+mod bitcoin;
+mod bitcoin_account;
+mod bitcoin_transaction;
+pub use bitcoin::{LedgerBitcoinAddress, LedgerBitcoinExt, LedgerBitcoinTxResult};
 mod eip712_field;
 mod prepared_typed_data;
 mod solana;
@@ -12,3 +16,6 @@ pub use signing_result::LedgerSigningResult;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod bitcoin_tests;

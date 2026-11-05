@@ -4,13 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Direct Ledger BLE/APDU client for Ethereum and Solana"
+description = "Direct Ledger BLE/APDU client for Ethereum, Solana, and Bitcoin"
 
 [dependencies]
+async-trait = { workspace = true }
+bitcoin = { workspace = true }
+ledger_bitcoin_client = { workspace = true }
 ble-transport = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["time", "sync"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }

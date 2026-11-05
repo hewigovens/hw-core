@@ -3,9 +3,9 @@ use crate::{ApduTransport, LedgerError};
 use std::collections::VecDeque;
 
 #[derive(Default)]
-struct MockTransport {
-    responses: VecDeque<Vec<u8>>,
-    commands: Vec<Vec<u8>>,
+pub(super) struct MockTransport {
+    pub(super) responses: VecDeque<Vec<u8>>,
+    pub(super) commands: Vec<Vec<u8>>,
 }
 
 impl ApduTransport for MockTransport {

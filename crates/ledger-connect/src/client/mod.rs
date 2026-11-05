@@ -1,3 +1,5 @@
+mod bitcoin;
+mod bitcoin_transport;
 mod solana;
 mod typed_data;
 pub use typed_data::Eip712Command;
@@ -6,3 +8,6 @@ pub use ledger_client::{EthereumAddress, EthereumSignature, LedgerClient};
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod bitcoin_tests;

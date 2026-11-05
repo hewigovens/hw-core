@@ -8,7 +8,7 @@ public enum WalletVendor: String, CaseIterable, Sendable {
     case ledgerFlex = "Ledger Flex"
 
     public var isLedger: Bool { self != .trezor }
-    public var supportedChains: [Chain] { isLedger ? [.ethereum, .solana] : [.ethereum, .bitcoin, .solana] }
+    public var supportedChains: [Chain] { [.ethereum, .bitcoin, .solana] }
     var ledgerModel: LedgerModel? {
         switch self {
         case .trezor: nil

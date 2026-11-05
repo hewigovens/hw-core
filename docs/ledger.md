@@ -9,7 +9,7 @@ outside this implementation.
 ## CLI
 
 Enable Bluetooth on the Ledger, unlock it, and close other apps that are using its BLE
-connection. Accept any OS/device Bluetooth pairing prompt. Open the Ethereum or Solana app before
+connection. Accept any OS/device Bluetooth pairing prompt. Open the Ethereum, Solana, or Bitcoin app before
 requesting an address or signature for that chain; `connect` can inspect the currently running app.
 
 ```sh
@@ -82,9 +82,49 @@ Full JSON supports nested structs, arrays, signed/unsigned integers, addresses, 
 strings, and bytes. Ledger protocol bounds include at most 255 array entries, 65,535 bytes
 per scalar, and 255 bytes per encoded field definition. This implementation also bounds
 nesting and command count. Domain-only signing, non-v4 mode, Trezor display definitions,
-and ERC-7730/filtered clear-signing metadata are unsupported and rejected. Bitcoin remains
-unsupported. Contracts and token transfers may require additional metadata or device
+and ERC-7730/filtered clear-signing metadata are unsupported and rejected. Contracts and token transfers may require additional metadata or device
 settings; generic APDU support does not establish validated clear-signing coverage.
+
+### Bitcoin
+
+```sh
+cargo run -p hw-cli -- ledger bitcoin-address
+cargo run -p hw-cli -- ledger sign-bitcoin-message --message 'Hello from hw-core'
+cargo run -p hw-cli -- ledger sign-bitcoin-transaction --tx @bitcoin.json
+```
+
+The default path is `m/84'/0'/0'/0/0`. Addresses support standard BIP44, BIP49,
+BIP84, and BIP86 single-key accounts. Coin type `1'` selects testnet and requires
+**Bitcoin Test** on the device. The account xpub derives the expected address locally;
+a mismatched device address is rejected.
+
+Message signing supports BIP44/49/84 and returns a verified BIP137 compact signature
+(base64 in the CLI and shared API). Taproot messages are rejected. The shared API also
+accepts hex-encoded message bytes; the CLI accepts UTF-8 text.
+
+Transaction signing accepts the existing Bitcoin JSON (`inputs`, `outputs`, `ref_txs`),
+converts it to a PSBT, and uses Ledger's official Rust wallet-policy client over the
+same direct BLE transport. This first pass supports **single-account BIP84 P2WPKH
+inputs**, external address outputs, and internal `/1/index` P2WPKH change. Every input
+requires a complete matching reference transaction. The host verifies its txid, prevout,
+amount, and derived script, rejects duplicate inputs or outputs exceeding inputs, and
+verifies each SIGHASH_ALL signature before returning it. The CLI and Rust result also
+include the serialized signed transaction and txid; the shared FFI result retains the
+existing per-input DER signature contract, without a sighash byte.
+
+Multisig, mixed accounts, legacy/nested SegWit/Taproot inputs, OP_RETURN, Trezor replacement
+and payment-request metadata are explicitly rejected. No transaction is broadcast.
+`LedgerSessionHandle.sign_bitcoin_tx` and `WalletSession.signBitcoinTx` accept the
+existing typed Bitcoin request. The sample JSON editor routes BTC to the selected vendor;
+the built-in seeded-wallet fixture must be replaced with data for your Ledger account.
+
+On 2026-11-05, Stax with **Bitcoin 2.5.1** passed BIP84 address confirmation,
+message signing, and a single-input P2WPKH self-transfer signing test over BLE.
+The transaction used a fabricated previous transaction, with a 9,000-sat output and
+1,000-sat fee, and was never broadcast. The SDK and an independent Node/OpenSSL verifier
+checked both signatures; the latter also reconstructed the txid and rejected a modified
+message and prevout amount. This validates the CLI/device path, not sample-app signing
+on hardware, testnet, other account purposes, or multisig/Taproot transactions.
 
 ## Rust and Swift/Kotlin
 
@@ -95,7 +135,7 @@ Rust consumers can use `hw_core::ledger` (or `ledger-connect` directly):
 3. Construct `LedgerBleTransport::new(session, timeout)` and `LedgerClient::new(transport)`.
 4. Call `app_info` or `ethereum_address`. Import `hw_core::wallet::ledger::LedgerEthereumExt`
    to use `sign_eip1559(&EthSignTx)` and `sign_verified_message(path, bytes)` for verified signing.
-   `LedgerSolanaExt` and `LedgerTypedDataExt` provide verified Solana and EIP-712 operations.
+   `LedgerSolanaExt`, `LedgerTypedDataExt`, and `LedgerBitcoinExt` provide verified Solana, EIP-712, and Bitcoin operations.
 5. Call `client.into_transport().disconnect().await` when finished.
 
 The UniFFI surface provides `BleManagerHandle.discover_ledger`,
@@ -108,7 +148,7 @@ Existing Trezor workflow APIs are preserved. Custom `BleProfile` struct literals
 need `connection_probe` and `write_with_response` fields.
 
 The handle also accepts the shared `get_address`, `sign_tx`, and `sign_message` request
-records for Ethereum and Solana, plus `sign_typed_data` for Ethereum EIP-712. The shared `SignTxResult.tx_hash` is the **unsigned signing hash**,
+records for Ethereum, Solana, and Bitcoin, plus `sign_typed_data` for Ethereum EIP-712. The shared `SignTxResult.tx_hash` is the **unsigned signing hash**,
 matching Trezor; use `sign_eip1559` for signed transaction bytes and the broadcast transaction
 hash. Ethereum message requests accept UTF-8 or hex and return a verified 65-byte signature.
 Solana signatures are 64 bytes; off-chain results include the exact signed envelope.
@@ -120,13 +160,13 @@ Stax, Nano X, and Flex. Select **Ledger Stax**, open the selected chain app, the
 and **Connect**. The existing **Address**, **Sign**, and **Sign Msg** actions use direct BLE.
 Review the configured request before signing; the samples do not broadcast transactions.
 
-Ledger selection offers ETH and SOL and disables Trezor pairing, nonce, and
+Ledger selection offers ETH, BTC, and SOL and disables Trezor pairing, nonce, and
 chunkify controls. Switching vendor or device disconnects the previous session and clears
 results. **Cancel Request** cancels the host operation; reject any remaining Ledger prompt,
 then scan and reconnect. The OS manages Ledger Bluetooth pairing; no THP code is needed.
 For EIP-712, select ETH and enable **EIP-712 typed data** in the message inputs (under
 **Config** on iOS), edit the JSON, then use **Sign Msg**. The initial JSON is a simple
-`Hello from hw-core` message. BTC and Ledger clear-signing metadata remain unsupported.
+`Hello from hw-core` message. Ledger clear-signing metadata remains unsupported. BTC disables the multisig and RBF presets.
 
 Apple SDK consumers can use `kit.discover(vendor: .ledgerStax)` and `kit.connect(device:)`,
 then the same `WalletSession.getAddress`, `signTx`, `signMessage`, and `signTypedData` methods as Trezor.
@@ -135,7 +175,7 @@ stream, so `events()` completes immediately; the sample shows operation status i
 Android uses the generated `LedgerSessionHandle` directly.
 
 Operations check the active app before sending chain-specific commands. A wrong app
-returns a typed error naming the required Ethereum or Solana app. A timed-out, cancelled, or
+returns a typed error naming the required chain app. A timed-out, cancelled, or
 incomplete exchange retires the session: disconnect and rescan before retrying. FFI rejects
 concurrent requests as busy instead of queueing an unexpected signing prompt.
 
@@ -143,7 +183,7 @@ concurrent requests as busy instead of queueing an unexpected signing prompt.
 
 Rust workspace tests and formatting/lint pass (the seven Trezor emulator tests remain
 ignored). The five Apple SDK tests, two macOS sample UI tests, and four iOS simulator UI
-tests pass; the Android APK builds. UI checks cover Ledger selection, Solana inputs, EIP-712 JSON mode, unsupported controls,
+tests pass; the Android APK builds. UI checks cover Ledger selection, BTC availability and unsupported presets, Solana inputs, EIP-712 JSON mode, unsupported controls,
 and restoring Trezor controls. macOS UI tests pass when run separately from iOS automation;
 an earlier concurrent run failed at initial window discovery. No Android device/emulator was
 available for a runtime check. The sample app's latest Stax scan found no device, so sample-app signing remains a physical-device
@@ -210,3 +250,5 @@ Protocol references:
 - [Trezor OCMS envelope](https://github.com/trezor/trezor-firmware/blob/main/core/src/apps/solana/offchain_message.py)
 - [Ethereum 1.13.0 raw-review setting](https://github.com/LedgerHQ/app-ethereum/blob/1.13.0/src_nbgl/ui_home.c)
 - [Ethereum 1.13.0 unfiltered review gate](https://github.com/LedgerHQ/app-ethereum/blob/1.13.0/src_features/signMessageEIP712/ui_logic.c)
+
+- [Ledger Bitcoin integration and official Rust client](https://github.com/LedgerHQ/app-bitcoin)

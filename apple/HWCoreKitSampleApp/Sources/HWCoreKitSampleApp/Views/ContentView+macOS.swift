@@ -49,15 +49,13 @@ struct MacContentView: View {
                 .disabled(viewModel.isBusy)
                 .accessibilityIdentifier("picker.wallet")
                 if viewModel.selectedVendor.isLedger {
-                    Text("Open Ethereum or Solana on Ledger to match the selected chain. BTC and Trezor pairing controls are unavailable.")
+                    Text("Open the Ethereum, Solana, or Bitcoin app on Ledger to match the selected chain.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Picker("Chain", selection: $viewModel.selectedChain) {
-                    Text("ETH").tag(Chain.ethereum)
-                    if !viewModel.selectedVendor.isLedger {
-                        Text("BTC").tag(Chain.bitcoin)
+                    ForEach(viewModel.selectedVendor.supportedChains, id: \.self) { chain in
+                        Text(viewModel.chainLabel(chain)).tag(chain)
                     }
-                    Text("SOL").tag(Chain.solana)
                 }
                 .pickerStyle(.segmented)
                 .disabled(viewModel.isBusy)
@@ -359,17 +357,19 @@ struct MacContentView: View {
                     viewModel.loadBitcoinAdvancedPreset()
                 }
                 .accessibilityIdentifier("button.sign.btc.load_advanced")
+                .disabled(viewModel.selectedVendor.isLedger)
 
                 Button("Load Multisig") {
                     viewModel.loadBitcoinMultisigPreset()
                 }
                 .accessibilityIdentifier("button.sign.btc.load_multisig")
+                .disabled(viewModel.selectedVendor.isLedger)
             }
             TextEditor(text: $viewModel.btcTxJsonInput)
                 .font(.system(.footnote, design: .monospaced))
                 .frame(minHeight: 140)
                 .accessibilityIdentifier("input.sign.btc.tx_json")
-            Text("BTC signing requires ref_txs that match each input prev_hash/prev_index. The RBF preset covers orig_txs for real-device testing, and the multisig preset mirrors Trezor Suite's xpub-based multisig payload shape for emulator or seeded-device testing. Real Bitcoin payment requests also need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in presets.")
+            Text(viewModel.selectedVendor.isLedger ? "Ledger signs single-account BIP84 transactions. Supply full ref_txs matching your Ledger account. Built-in presets use test keys; multisig and replacement metadata are unsupported." : "BTC signing requires ref_txs that match each input prev_hash/prev_index. The RBF preset covers orig_txs for real-device testing, and the multisig preset mirrors Trezor Suite's xpub-based multisig payload shape for emulator or seeded-device testing. Real Bitcoin payment requests also need a fresh device nonce, authenticated address MACs, and a merchant signature, so they are not covered by the built-in presets.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

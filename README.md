@@ -128,7 +128,7 @@ Current and planned milestones are tracked in:
 
 ## Experimental Ledger support
 
-Direct Stax BLE discovery, connection, and Ethereum/Solana signing operations are available through
+Direct Stax BLE discovery, connection, and Ethereum/Solana signing and initial BIP84 Bitcoin operations are available through
 Rust, CLI, Swift/Kotlin bindings, and Apple/Android sample apps. See [Ledger setup and validation limits](docs/ledger.md).
 
 

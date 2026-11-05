@@ -7,7 +7,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use hw_wallet::bip32::parse_bip32_path;
 use hw_wallet::eth::TxInput;
 use hw_wallet::ledger::{
-    LedgerEthereumExt, LedgerSigningResult, LedgerSolanaExt, LedgerTypedDataExt,
+    LedgerBitcoinExt, LedgerEthereumExt, LedgerSigningResult, LedgerSolanaExt, LedgerTypedDataExt,
 };
 use hw_wallet::message::SignTypedDataRequestExt;
 use hw_wallet::sol::SolanaSignTxExt;
@@ -48,6 +48,25 @@ pub struct LedgerArgs {
 
 #[derive(Debug, Subcommand)]
 enum LedgerCommand {
+    /// Retrieve and verify a standard Bitcoin address (BIP44/49/84/86).
+    BitcoinAddress {
+        #[arg(long, default_value = "m/84'/0'/0'/0/0")]
+        path: String,
+        #[arg(long)]
+        no_display: bool,
+    },
+    /// Sign a Bitcoin message and verify the recovered key (BIP137).
+    SignBitcoinMessage {
+        #[arg(long, default_value = "m/84'/0'/0'/0/0")]
+        path: String,
+        #[arg(long)]
+        message: String,
+    },
+    /// Sign BIP84 transaction JSON with full ref_txs, without broadcasting.
+    SignBitcoinTransaction {
+        #[arg(long)]
+        tx: String,
+    },
     /// Retrieve a Solana address, displaying it by default.
     SolanaAddress {
         #[arg(long, default_value = "m/44'/501'/0'/0'")]
@@ -166,6 +185,39 @@ impl LedgerArgs {
 impl LedgerCommand {
     async fn run(self, client: &mut LedgerClient<LedgerBleTransport>) -> Result<()> {
         match self {
+            Self::BitcoinAddress { path, no_display } => {
+                let result = client
+                    .bitcoin_address(&parse_bip32_path(&path)?, !no_display)
+                    .await?;
+                println!(
+                    "address={}\npublic_key={}",
+                    result.address,
+                    hex::encode(result.public_key)
+                );
+            }
+            Self::SignBitcoinMessage { path, message } => {
+                let request =
+                    SignMessageRequest::bitcoin(parse_bip32_path(&path)?, message.into_bytes());
+                let result = client.sign_verified_bitcoin_message(&request).await?;
+                let formatted = hw_wallet::message::NormalizedMessageSignature::from(&result);
+                println!("address={}\nsignature={}", result.address, formatted.value);
+            }
+            Self::SignBitcoinTransaction { tx } => {
+                let request = hw_wallet::btc::TxInput::from_json(&read_inline_or_file_argument(
+                    &tx,
+                    "Bitcoin transaction file",
+                )?)?
+                .try_into()?;
+                let result = client.sign_verified_bitcoin_transaction(&request).await?;
+                for (index, signature) in result.signatures.iter().enumerate() {
+                    println!("signature[{index}]={}", hex::encode(signature));
+                }
+                println!(
+                    "signed_transaction={}\ntransaction_id={}",
+                    hex::encode(result.serialized_transaction),
+                    result.transaction_id
+                );
+            }
             Self::Scan => {}
             Self::Connect => {
                 let app = client.app_info().await?;

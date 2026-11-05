@@ -1,8 +1,10 @@
 use crate::LedgerError;
 
-#[allow(async_fn_in_trait)]
 pub trait ApduTransport {
-    async fn exchange(&mut self, command: &[u8]) -> Result<Vec<u8>, LedgerError>;
+    fn exchange(
+        &mut self,
+        command: &[u8],
+    ) -> impl std::future::Future<Output = Result<Vec<u8>, LedgerError>> + Send;
 }
 
 pub(crate) struct Apdu;

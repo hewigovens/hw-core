@@ -28,10 +28,11 @@ platform requirements, Bluetooth permissions, storage and workflow examples.
 ## Ledger
 
 Call `discover(vendor: .ledgerStax)` (or `.ledgerNanoX` / `.ledgerFlex`), then
-`connect(device:)`. The returned `WalletSession` supports the same Ethereum/Solana `getAddress`,
+`connect(device:)`. The returned `WalletSession` supports the same Ethereum/Solana/Bitcoin `getAddress`,
 `signTx`, and `signMessage` requests, plus Ethereum `signTypedData`. Open the corresponding
-Ethereum or Solana app on the Ledger first.
-Trezor pairing, nonce, features, and Bitcoin operations are unsupported.
+Ethereum, Solana, or Bitcoin app on the Ledger first.
+Bitcoin transaction signing currently supports single-account BIP84 inputs with full reference transactions.
+Trezor pairing, nonce, and features are unsupported.
 Ledger's `events()` stream finishes immediately; use operation results/errors for status.
 After cancelling a Ledger request, reject any remaining prompt, disconnect, and rescan.
 See [Ledger support](../../docs/ledger.md) for tested hardware and signing limitations.
