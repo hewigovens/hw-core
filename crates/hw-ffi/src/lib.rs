@@ -26,7 +26,4 @@ pub use crate::types::{
 };
 pub use crate::version::hw_core_version;
 
-pub use ledger::{
-    LedgerAppInfo, LedgerDiscoveredDevice, LedgerEthereumAddress, LedgerEthereumSignature,
-    LedgerModel, LedgerSessionHandle, LedgerSigningResult,
-};
+pub use ledger::{LedgerAppInfo, LedgerDiscoveredDevice, LedgerModel, LedgerSessionHandle};

@@ -1,18 +1,8 @@
 use crate::apdu::Apdu;
+use crate::protocol::*;
 use crate::{ApduTransport, LedgerAppInfo, LedgerError};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EthereumAddress {
-    pub address: String,
-    pub public_key: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EthereumSignature {
-    pub v: u8,
-    pub r: Vec<u8>,
-    pub s: Vec<u8>,
-}
+use super::{EthereumAddress, EthereumSignature};
 
 pub struct LedgerClient<T> {
     pub(super) transport: T,
@@ -27,15 +17,19 @@ impl<T: ApduTransport> LedgerClient<T> {
         }
     }
 
+    pub fn is_ready(&self) -> bool {
+        self.ready
+    }
+
     pub fn into_transport(self) -> T {
         self.transport
     }
 
     pub async fn app_info(&mut self) -> Result<LedgerAppInfo, LedgerError> {
-        LedgerAppInfo::decode(&self.command(0xb0, 0x01, 0, &[]).await?)
+        LedgerAppInfo::decode(&self.command(CLA_APP_INFO, INS_APP_INFO, 0, &[]).await?)
     }
 
-    async fn ensure_ethereum_app(&mut self) -> Result<(), LedgerError> {
+    pub(super) async fn ensure_ethereum_app(&mut self) -> Result<(), LedgerError> {
         self.ensure_app("Ethereum").await
     }
 
@@ -61,7 +55,9 @@ impl<T: ApduTransport> LedgerClient<T> {
             data.extend_from_slice(&chain_id.to_be_bytes());
         }
         self.ensure_ethereum_app().await?;
-        let response = self.command(0xe0, 0x02, u8::from(display), &data).await?;
+        let response = self
+            .command(CLA_APP, INS_ETH_ADDRESS, u8::from(display), &data)
+            .await?;
         if response.len() != 107 || response[0] != 65 || response[1] != 4 || response[66] != 40 {
             return Err(LedgerError::Protocol("invalid Ethereum address response"));
         }
@@ -87,21 +83,24 @@ impl<T: ApduTransport> LedgerClient<T> {
             .map_err(|_| LedgerError::InvalidInput("message too large"))?;
         data.extend_from_slice(&length.to_be_bytes());
         data.extend_from_slice(message);
-        self.sign_chunks(0x08, &data).await
+        self.sign_chunks(INS_ETH_PERSONAL_MESSAGE, &data).await
     }
 
-    /// Accepts a complete unsigned Ethereum transaction envelope; never broadcasts it.
+    /// Accepts an unsigned EIP-1559 (type 2) envelope; never broadcasts it.
+    /// Legacy transactions are unsupported: their v/r/s trailer needs different chunk boundaries.
     pub async fn sign_transaction(
         &mut self,
         path: &[u32],
         transaction: &[u8],
     ) -> Result<EthereumSignature, LedgerError> {
-        if transaction.is_empty() {
-            return Err(LedgerError::InvalidInput("empty transaction"));
+        if transaction.first() != Some(&2) {
+            return Err(LedgerError::InvalidInput(
+                "only EIP-1559 transaction envelopes are supported",
+            ));
         }
         let mut data = Self::encode_path(path)?;
         data.extend_from_slice(transaction);
-        self.sign_chunks(0x04, &data).await
+        self.sign_chunks(INS_ETH_TRANSACTION, &data).await
     }
 
     async fn sign_chunks(
@@ -115,21 +114,19 @@ impl<T: ApduTransport> LedgerClient<T> {
         self.ensure_ethereum_app().await?;
         // Cancellation between chunks must not allow another command into an unfinished signing flow.
         self.ready = false;
-        let count = data.len().div_ceil(150);
-        for (index, chunk) in data.chunks(150).enumerate() {
-            let command =
-                Apdu::command(0xe0, instruction, if index == 0 { 0 } else { 0x80 }, chunk)?;
-            let response = Apdu::response(self.transport.exchange(&command).await?)?;
+        let count = data.len().div_ceil(ETH_CHUNK_SIZE);
+        for (index, chunk) in data.chunks(ETH_CHUNK_SIZE).enumerate() {
+            let command = Apdu::command(
+                CLA_APP,
+                instruction,
+                if index == 0 { 0 } else { 0x80 },
+                chunk,
+            )?;
+            let response = self.exchange_apdu(&command).await?;
             if index + 1 == count {
-                if response.len() != 65 {
-                    return Err(LedgerError::Protocol("invalid Ethereum signature length"));
-                }
+                let signature = EthereumSignature::decode(&response)?;
                 self.ready = true;
-                return Ok(EthereumSignature {
-                    v: response[0],
-                    r: response[1..33].to_vec(),
-                    s: response[33..65].to_vec(),
-                });
+                return Ok(signature);
             }
             if !response.is_empty() {
                 return Err(LedgerError::Protocol("unexpected intermediate signature"));
@@ -150,14 +147,25 @@ impl<T: ApduTransport> LedgerClient<T> {
         }
         let command = Apdu::command(cla, instruction, p1, data)?;
         self.ready = false;
-        let response = self.transport.exchange(&command).await?;
+        let response = self.exchange_apdu(&command).await?;
         self.ready = true;
-        Apdu::response(response)
+        Ok(response)
+    }
+
+    pub(super) async fn exchange_apdu(&mut self, command: &[u8]) -> Result<Vec<u8>, LedgerError> {
+        let response = Apdu::response(self.transport.exchange(command).await?);
+        if response
+            .as_ref()
+            .is_err_and(|error| error.is_device_response())
+        {
+            self.ready = true;
+        }
+        response
     }
 
     pub(super) fn encode_path(path: &[u32]) -> Result<Vec<u8>, LedgerError> {
         if path.is_empty() || path.len() > 10 {
-            return Err(LedgerError::InvalidInput(
+            return Err(LedgerError::InvalidBip32Path(
                 "path must contain 1 to 10 components",
             ));
         }

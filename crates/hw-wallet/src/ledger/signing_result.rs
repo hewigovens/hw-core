@@ -16,6 +16,23 @@ pub struct LedgerSigningResult {
 }
 
 impl LedgerSigningResult {
+    /// A normalized Ethereum message signature: r || s || v, with v = 27 or 28.
+    pub fn message_signature(&self) -> WalletResult<Vec<u8>> {
+        let v = match self.v {
+            0 | 1 => self.v + 27,
+            27 | 28 => self.v,
+            _ => {
+                return Err(WalletError::Verification(
+                    "invalid Ethereum recovery id".into(),
+                ));
+            }
+        };
+        let mut signature = self.r.clone();
+        signature.extend(&self.s);
+        signature.push(v);
+        Ok(signature)
+    }
+
     pub(super) fn verify(
         signature: EthereumSignature,
         hash: [u8; 32],
@@ -26,12 +43,13 @@ impl LedgerSigningResult {
             r: signature.r.clone(),
             s: signature.s.clone(),
         };
-        let recovered = VerifiedSignature::recover_hash(hash, &raw)?;
+        let recovered = VerifiedSignature::recover_hash(hash, &raw)
+            .map_err(|error| WalletError::Verification(error.to_string()))?;
         if !recovered
             .recovered_address
             .eq_ignore_ascii_case(expected_address)
         {
-            return Err(WalletError::Signing(
+            return Err(WalletError::Verification(
                 "Ledger signature does not match the requested account".into(),
             ));
         }
@@ -50,7 +68,11 @@ impl LedgerSigningResult {
         let parity = match self.v {
             0 | 1 => self.v,
             27 | 28 => self.v - 27,
-            _ => return Err(WalletError::Signing("invalid EIP-1559 recovery id".into())),
+            _ => {
+                return Err(WalletError::Verification(
+                    "invalid EIP-1559 recovery id".into(),
+                ));
+            }
         };
         let payload = unsigned
             .strip_prefix(&[2])

@@ -1,6 +1,6 @@
 use super::packet_io::PacketIo;
 use crate::framing::{BleFrames, BleResponse};
-use crate::{ApduTransport, LedgerError};
+use crate::{ApduTransport, LedgerError, protocol::BLE_MTU_COMMAND};
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -35,9 +35,9 @@ impl<I: PacketIo> BleChannel<I> {
     }
 
     async fn negotiate(&mut self) -> Result<(), LedgerError> {
-        self.link.write(&[0x08, 0, 0, 0, 0]).await?;
+        self.link.write(&[BLE_MTU_COMMAND, 0, 0, 0, 0]).await?;
         let response = self.link.read().await?;
-        if response.len() != 6 || response[0] != 0x08 || response[5] < 6 {
+        if response.len() != 6 || response[0] != BLE_MTU_COMMAND || response[5] < 6 {
             return Err(LedgerError::Protocol("invalid MTU response"));
         }
         // A smaller frame is valid and avoids exceeding platform write limits.

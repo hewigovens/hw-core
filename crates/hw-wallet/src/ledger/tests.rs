@@ -1,46 +1,32 @@
 use super::*;
 use crate::eth::TxInput;
 use k256::ecdsa::SigningKey;
-use ledger_connect::{ApduTransport, LedgerClient, LedgerError};
+use ledger_connect::LedgerClient;
+type Mock = ledger_connect::testing::ScriptedTransport;
 use sha3::{Digest, Keccak256};
 use std::collections::VecDeque;
 
 const ADDRESS: &str = "5637C997D8aFf61a4EC7d606f461c1c75f2b8120";
 const TX: &str = r#"{"to":"0x000000000000000000000000000000000000dead","nonce":"0x1","gas_limit":"0x5208","max_fee_per_gas":"0x1","max_priority_fee":"0x1","chain_id":1}"#;
 
-struct Mock {
-    replies: VecDeque<Vec<u8>>,
-    commands: Vec<Vec<u8>>,
-}
-impl ApduTransport for Mock {
-    async fn exchange(&mut self, bytes: &[u8]) -> Result<Vec<u8>, LedgerError> {
-        self.commands.push(bytes.to_vec());
-        self.replies
-            .pop_front()
-            .ok_or(LedgerError::Protocol("unexpected command"))
-    }
-}
-impl Mock {
-    fn signing(hash: [u8; 32], address: &str) -> Self {
-        let key = SigningKey::from_slice(
-            &hex::decode("4c0883a69102937d6231471b5dbb6204fe512961708279ef4f8f6f1842f5f6d4")
-                .unwrap(),
-        )
-        .unwrap();
-        let (signature, recovery) = key.sign_prehash_recoverable(&hash);
-        let mut signed = vec![recovery.to_byte() + 27];
-        signed.extend(signature.to_bytes());
-        signed.extend([0x90, 0]);
-        let app = b"\x01\x08Ethereum\x051.0.0\x90\x00".to_vec();
-        let mut account = vec![65];
-        account.extend(key.verifying_key().to_sec1_point(false).as_bytes());
-        account.push(40);
-        account.extend(address.as_bytes());
-        account.extend([0x90, 0]);
-        Self {
-            replies: vec![app.clone(), account, app, signed].into(),
-            commands: vec![],
-        }
+fn signing_mock(hash: [u8; 32], address: &str) -> Mock {
+    let key = SigningKey::from_slice(
+        &hex::decode("4c0883a69102937d6231471b5dbb6204fe512961708279ef4f8f6f1842f5f6d4").unwrap(),
+    )
+    .unwrap();
+    let (signature, recovery) = key.sign_prehash_recoverable(&hash);
+    let mut signed = vec![recovery.to_byte() + 27];
+    signed.extend(signature.to_bytes());
+    signed.extend([0x90, 0]);
+    let app = Mock::app_info("Ethereum", "1.0.0");
+    let mut account = vec![65];
+    account.extend(key.verifying_key().to_sec1_point(false).as_bytes());
+    account.push(40);
+    account.extend(address.as_bytes());
+    account.extend([0x90, 0]);
+    Mock {
+        responses: vec![app.clone(), account, app, signed].into(),
+        commands: vec![],
     }
 }
 
@@ -49,7 +35,7 @@ async fn eip1559_uses_known_rlp_envelope_and_assembles_verified_signed_transacti
     let unsigned =
         hex::decode("02df0101010182520894000000000000000000000000000000000000dead8080c0").unwrap();
     let hash: [u8; 32] = Keccak256::digest(&unsigned).into();
-    let mut client = LedgerClient::new(Mock::signing(hash, ADDRESS));
+    let mut client = LedgerClient::new(signing_mock(hash, ADDRESS));
     let request = TxInput::from_json(TX)
         .unwrap()
         .into_sign_tx(vec![1])
@@ -89,12 +75,16 @@ async fn personal_message_recovery_rejects_changed_message_and_wrong_account() {
             false,
         ),
     ] {
-        let mut client = LedgerClient::new(Mock::signing(hash, address));
-        let result = client.sign_verified_message(&[1], message).await;
+        let mut client = LedgerClient::new(signing_mock(hash, address));
+        let request = trezor_connect::thp::SignMessageRequest::ethereum(vec![1], message.to_vec());
+        let result = client.sign_message(&request).await;
         assert_eq!(result.is_ok(), accepted);
+        if let Err(error) = &result {
+            assert_eq!(error.kind(), crate::WalletErrorKind::Device);
+        }
         if let Ok(result) = result {
-            assert!(matches!(result.v, 27 | 28));
-            assert!(result.signed_transaction.is_none());
+            assert!(matches!(result.signature[64], 27 | 28));
+            assert!(result.signed_data.is_none());
         }
     }
 }
@@ -113,7 +103,7 @@ async fn invalid_transaction_is_rejected_before_device_interaction() {
             _ => request.definitions.encoded_network = Some(vec![1]),
         }
         let mut client = LedgerClient::new(Mock {
-            replies: VecDeque::new(),
+            responses: VecDeque::new(),
             commands: vec![],
         });
         assert!(client.sign_eip1559(&request).await.is_err());
@@ -187,7 +177,7 @@ async fn eip712_hashes_verify_signer_and_never_sign_missing_message_hash() {
     hash.update([0x11; 32]);
     hash.update([0x22; 32]);
     let hash: [u8; 32] = hash.finalize().into();
-    let mut client = LedgerClient::new(Mock::signing(hash, ADDRESS));
+    let mut client = LedgerClient::new(signing_mock(hash, ADDRESS));
     let result = client.sign_verified_typed_data(&request).await.unwrap();
     assert_eq!(result.signature.len(), 65);
     assert!(matches!(result.signature[64], 27 | 28));
@@ -195,13 +185,13 @@ async fn eip712_hashes_verify_signer_and_never_sign_missing_message_hash() {
         &client.into_transport().commands[3][..5],
         &[0xe0, 0x0c, 0, 0, 85]
     );
-    let mut client = LedgerClient::new(Mock::signing([9; 32], ADDRESS));
+    let mut client = LedgerClient::new(signing_mock([9; 32], ADDRESS));
     assert!(client.sign_verified_typed_data(&request).await.is_err());
     let request =
         SignTypedDataRequest::from_eip712_hashes(ETH_PATH.to_vec(), &"11".repeat(32), None)
             .unwrap();
     let mut client = LedgerClient::new(Mock {
-        replies: VecDeque::new(),
+        responses: VecDeque::new(),
         commands: vec![],
     });
     assert!(client.sign_verified_typed_data(&request).await.is_err());
@@ -214,7 +204,7 @@ async fn solana_verifies_exact_transaction_and_sorted_ocms_envelope() {
     use trezor_connect::thp::{SignMessageRequest, SolanaSignTx};
     let key = EdSigningKey::from_bytes(&[3; 32]);
     let public = key.verifying_key().to_bytes();
-    let app = b"\x01\x06Solana\x051.0.0\x90\x00".to_vec();
+    let app = Mock::app_info("Solana", "1.0.0");
     let mock = |message: &[u8], wrong: bool| {
         let mut account = public.to_vec();
         account.extend([0x90, 0]);
@@ -224,21 +214,18 @@ async fn solana_verifies_exact_transaction_and_sorted_ocms_envelope() {
             .to_vec();
         signature.extend([0x90, 0]);
         Mock {
-            replies: vec![app.clone(), account, app.clone(), signature].into(),
+            responses: vec![app.clone(), account, app.clone(), signature].into(),
             commands: vec![],
         }
     };
     let tx = SolanaSignTx {
         path: SOL_PATH.to_vec(),
-        serialized_tx: vec![1; 100],
+        serialized_tx: [vec![1, 0, 0, 1], public.to_vec(), vec![0; 32], vec![0]].concat(),
         additional_info: None,
     };
     for wrong in [false, true] {
         let mut client = LedgerClient::new(mock(&tx.serialized_tx, wrong));
-        assert_eq!(
-            client.sign_verified_solana_transaction(&tx).await.is_err(),
-            wrong
-        );
+        assert_eq!(client.sign_tx(&tx.clone().into()).await.is_err(), wrong);
     }
     let mut signers = vec![[0; 32], public];
     signers.sort();
@@ -260,13 +247,14 @@ async fn solana_verifies_exact_transaction_and_sorted_ocms_envelope() {
     assert!(client.sign_verified_solana_message(&request).await.is_err());
 
     let mut old_app = mock(&expected, false);
-    *old_app.replies.back_mut().unwrap() = vec![0x6a, 0x81];
+    *old_app.responses.back_mut().unwrap() = vec![0x6a, 0x81];
     let mut client = LedgerClient::new(old_app);
     let error = client
         .sign_verified_solana_message(&request)
         .await
         .unwrap_err();
     assert!(error.to_string().contains("OCMS v1 support"));
+    assert_eq!(error.kind(), crate::WalletErrorKind::Unsupported);
     // A legacy-only app must not cause a retry with different signed bytes.
     assert_eq!(client.into_transport().commands.len(), 4);
 }
@@ -315,10 +303,11 @@ async fn full_typed_data_stream_is_verified_without_hash_only_fallback() {
         .try_into()
         .unwrap();
     for valid in [true, false] {
-        let mut mock = Mock::signing(if valid { hash } else { [0; 32] }, ADDRESS);
-        let signed = mock.replies.pop_back().unwrap();
-        mock.replies.extend(std::iter::repeat_n(vec![0x90, 0], 23));
-        mock.replies.push_back(signed);
+        let mut mock = signing_mock(if valid { hash } else { [0; 32] }, ADDRESS);
+        let signed = mock.responses.pop_back().unwrap();
+        mock.responses
+            .extend(std::iter::repeat_n(vec![0x90, 0], 23));
+        mock.responses.push_back(signed);
         let mut client = LedgerClient::new(mock);
         let result = client.sign_verified_typed_data(&request).await;
         assert_eq!(result.is_ok(), valid);
@@ -326,4 +315,185 @@ async fn full_typed_data_stream_is_verified_without_hash_only_fallback() {
         assert_eq!(commands.len(), 27);
         assert_eq!(&commands.last().unwrap()[..4], &[0xe0, 0x0c, 0, 1]);
     }
+}
+
+#[tokio::test]
+async fn solana_rejects_full_transaction_envelopes_and_malformed_messages_before_device_io() {
+    let mut message = vec![1, 0, 0, 1];
+    message.extend([3; 32]);
+    message.extend([0; 32]);
+    message.push(0);
+    let wrapped = [vec![1], vec![0; 64], message.clone()].concat();
+    let mut trailing = message.clone();
+    trailing.push(0);
+    let mut truncated = message.clone();
+    truncated.pop();
+    let mut invalid_header = message.clone();
+    invalid_header[0] = 2;
+    for bytes in [wrapped, trailing, truncated, invalid_header] {
+        let mut client = LedgerClient::new(Mock {
+            responses: VecDeque::new(),
+            commands: vec![],
+        });
+        let request = trezor_connect::thp::SolanaSignTx {
+            path: SOL_PATH.to_vec(),
+            serialized_tx: bytes,
+            additional_info: None,
+        };
+        let error = client
+            .sign_verified_solana_transaction(&request)
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), crate::WalletErrorKind::Validation);
+        assert!(client.into_transport().commands.is_empty());
+    }
+    crate::sol::SolanaMessage::required_signers(&message).unwrap();
+    let versioned = [vec![0x80], message, vec![0]].concat();
+    crate::sol::SolanaMessage::required_signers(&versioned).unwrap();
+}
+
+#[tokio::test]
+async fn official_ledger_eip712_streams_match_struct_arrays_dependencies_and_wide_signed_ints() {
+    use crate::message::SignTypedDataRequestExt;
+    use trezor_connect::thp::{SignTypedDataPayload, SignTypedDataRequest};
+    for (json, recording, expected_hash) in [
+        (
+            include_str!("../../../../tests/data/ethereum/ledger/6.json"),
+            include_str!("../../../../tests/data/ethereum/ledger/6.apdus"),
+            "eb39729929b718f017fa7e39a3bb451357d5bc6d28b8c73f4f1b7f39f13afb09",
+        ),
+        (
+            include_str!("../../../../tests/data/ethereum/ledger/13.json"),
+            include_str!("../../../../tests/data/ethereum/ledger/13.apdus"),
+            "e09868a20d323de3c8543dba9adaeb79fcdc8a6144d029c2e3af18be6ae20d94",
+        ),
+    ] {
+        let request =
+            SignTypedDataRequest::from_eip712_json(ETH_PATH.to_vec(), json, true).unwrap();
+        let SignTypedDataPayload::TypedData(data) = request.payload else {
+            panic!("full typed data")
+        };
+        let prepared = super::prepared_typed_data::PreparedTypedData::new(&data).unwrap();
+        assert_eq!(hex::encode(prepared.hash), expected_hash);
+        let expected: Vec<Vec<u8>> = recording
+            .lines()
+            .filter_map(|line| line.strip_prefix("=> "))
+            .map(|line| hex::decode(line.trim()).unwrap())
+            .collect();
+        let mut responses = VecDeque::from([Mock::app_info("Ethereum", "1.0.0")]);
+        responses.extend(
+            recording
+                .lines()
+                .filter_map(|line| line.strip_prefix("<= "))
+                .map(|line| hex::decode(line.trim()).unwrap()),
+        );
+        let mut client = LedgerClient::new(Mock {
+            responses,
+            commands: vec![],
+        });
+        client
+            .sign_eip712(ETH_PATH, &prepared.commands)
+            .await
+            .unwrap();
+        assert_eq!(client.into_transport().commands[1..], expected);
+    }
+}
+
+#[tokio::test]
+async fn shared_ledger_requests_reject_unsupported_options_before_device_io() {
+    use trezor_connect::thp::{GetAddressRequest, SignMessageRequest};
+    for chain in [
+        hw_chain::Chain::Bitcoin,
+        hw_chain::Chain::Ethereum,
+        hw_chain::Chain::Solana,
+    ] {
+        for (chunkify, network) in [(true, None), (false, Some(vec![1]))] {
+            let mut client = LedgerClient::new(Mock::default());
+            let mut address = GetAddressRequest::ethereum(ETH_PATH.to_vec());
+            address.chain = chain;
+            address.chunkify = chunkify;
+            address.encoded_network = network.clone();
+            assert_eq!(
+                client.get_address(&address).await.unwrap_err().kind(),
+                crate::WalletErrorKind::Unsupported
+            );
+            let mut message = SignMessageRequest::ethereum(ETH_PATH.to_vec(), b"hello".to_vec());
+            message.chain = chain;
+            message.chunkify = chunkify;
+            message.encoded_network = network;
+            assert_eq!(
+                client.sign_message(&message).await.unwrap_err().kind(),
+                crate::WalletErrorKind::Unsupported
+            );
+            assert!(client.into_transport().commands.is_empty());
+        }
+    }
+}
+
+#[tokio::test]
+async fn solana_requires_the_derived_key_in_the_static_required_signers() {
+    let key = [7; 32];
+    for versioned in [false, true] {
+        // The derived key is present, but only as an unsigned account.
+        let mut bytes = if versioned { vec![0x80] } else { vec![] };
+        bytes.extend([1, 0, 1, 2]);
+        bytes.extend([8; 32]);
+        bytes.extend(key);
+        bytes.extend([0; 32]);
+        bytes.push(0);
+        if versioned {
+            bytes.push(0);
+        }
+        let mut response = key.to_vec();
+        response.extend([0x90, 0]);
+        let mut client = LedgerClient::new(Mock {
+            responses: vec![Mock::app_info("Solana", "1.17.1"), response].into(),
+            commands: vec![],
+        });
+        let request = trezor_connect::thp::SolanaSignTx {
+            path: SOL_PATH.to_vec(),
+            serialized_tx: bytes,
+            additional_info: None,
+        };
+        let error = client
+            .sign_verified_solana_transaction(&request)
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("not a required transaction signer")
+        );
+        assert_eq!(client.into_transport().commands.len(), 2);
+    }
+}
+
+#[tokio::test]
+async fn solana_ocms_v1_matches_independent_openssl_signature_vector() {
+    // Format checked against app-solana's V1OffchainMessage.serialize. Signature generated
+    // independently with Node/OpenSSL Ed25519, using the public test seed [7; 32].
+    let key =
+        hex::decode("ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c").unwrap();
+    let envelope = hex::decode("ff736f6c616e61206f6666636861696e0101ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c54657374206d657373616765").unwrap();
+    let signature = hex::decode("4b992ced441e8f75bfdc3b8152e3f2a78924fc0f7ae4199f431565b027860de7b85012288d60aa79a15ad1fd7fdc7c5ecae7077c3925be36c3f7754787a5f708").unwrap();
+    let app = Mock::app_info("Solana", "1.17.1");
+    let mut key_response = key.clone();
+    key_response.extend([0x90, 0]);
+    let mut signed_response = signature.clone();
+    signed_response.extend([0x90, 0]);
+    let mut client = LedgerClient::new(Mock {
+        responses: vec![app.clone(), key_response, app, signed_response].into(),
+        commands: vec![],
+    });
+    let request = trezor_connect::thp::SignMessageRequest::solana(
+        SOL_PATH.to_vec(),
+        "Test message".into(),
+        vec![],
+    );
+    let result = client.sign_message(&request).await.unwrap();
+    assert_eq!(result.signature, signature);
+    assert_eq!(result.signed_data, Some(envelope.clone()));
+    let mut expected = hex::decode("e00701005001048000002c800001f58000000080000000").unwrap();
+    expected.extend(envelope);
+    assert_eq!(client.into_transport().commands[3], expected);
 }

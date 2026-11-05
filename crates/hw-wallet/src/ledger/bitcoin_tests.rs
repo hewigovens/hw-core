@@ -1,5 +1,6 @@
 use super::{
-    LedgerBitcoinExt, bitcoin_account::BitcoinAccount, bitcoin_transaction::BitcoinTransaction,
+    LedgerBitcoinExt, LedgerWalletExt, bitcoin_account::BitcoinAccount,
+    bitcoin_transaction::BitcoinTransaction,
 };
 use bitcoin::{
     EcdsaSighashType, Network,
@@ -11,7 +12,8 @@ use bitcoin::{
 use ledger_bitcoin_client::{
     PartialSignature, SignPsbtYieldedObject, WalletPolicy, wallet::Version,
 };
-use ledger_connect::{ApduTransport, LedgerClient, LedgerError};
+use ledger_connect::LedgerClient;
+type Mock = ledger_connect::testing::ScriptedTransport;
 use std::collections::VecDeque;
 use trezor_connect::thp::{BtcSignTx, SignMessageRequest};
 
@@ -25,6 +27,7 @@ fn fixture() -> (BitcoinAccount, BtcSignTx, Xpriv) {
     let xpub = Xpub::from_priv(&secp, &private);
     let fingerprint = master.fingerprint(&secp);
     let account = BitcoinAccount {
+        purpose: super::bitcoin_purpose::BitcoinPurpose::Segwit,
         path: path[..3].to_vec(),
         network: Network::Bitcoin,
         fingerprint,
@@ -66,26 +69,30 @@ fn signatures(
     let key = private
         .derive_priv(&secp, &BitcoinAccount::derivation(&[0, 0]))
         .unwrap();
-    let previous = prepared.psbt.inputs[0].witness_utxo.as_ref().unwrap();
-    let hash = SighashCache::new(&prepared.psbt.unsigned_tx)
-        .p2wpkh_signature_hash(
-            0,
-            &previous.script_pubkey,
-            previous.value,
-            EcdsaSighashType::All,
-        )
-        .unwrap();
-    let signature = bitcoin::ecdsa::Signature::sighash_all(secp.sign_ecdsa(
-        &Message::from_digest(hash.to_byte_array()),
-        &key.private_key,
-    ));
-    vec![(
-        0,
-        SignPsbtYieldedObject::Partial(PartialSignature::Sig(
-            bitcoin::PublicKey::new(key.private_key.public_key(&secp)),
-            signature,
-        )),
-    )]
+    (0..prepared.psbt.inputs.len())
+        .map(|index| {
+            let previous = prepared.psbt.inputs[index].witness_utxo.as_ref().unwrap();
+            let hash = SighashCache::new(&prepared.psbt.unsigned_tx)
+                .p2wpkh_signature_hash(
+                    index,
+                    &previous.script_pubkey,
+                    previous.value,
+                    EcdsaSighashType::All,
+                )
+                .unwrap();
+            let signature = bitcoin::ecdsa::Signature::sighash_all(secp.sign_ecdsa(
+                &Message::from_digest(hash.to_byte_array()),
+                &key.private_key,
+            ));
+            (
+                index,
+                SignPsbtYieldedObject::Partial(PartialSignature::Sig(
+                    bitcoin::PublicKey::new(key.private_key.public_key(&secp)),
+                    signature,
+                )),
+            )
+        })
+        .collect()
 }
 
 #[test]
@@ -154,20 +161,20 @@ fn bitcoin_rejects_changed_transactions_missing_duplicate_and_wrong_key_signatur
                 }
             }
         }
-        assert!(prepared.finish(signatures).is_err(), "mutation {mutation}");
+        let error = prepared
+            .finish(signatures)
+            .err()
+            .expect("invalid signature must fail");
+        assert_eq!(
+            error.kind(),
+            crate::WalletErrorKind::Device,
+            "mutation {mutation}"
+        );
     }
 }
 
-struct Mock {
-    replies: VecDeque<Vec<u8>>,
-}
-impl ApduTransport for Mock {
-    async fn exchange(&mut self, _: &[u8]) -> Result<Vec<u8>, LedgerError> {
-        Ok(self.replies.pop_front().expect("unexpected device request"))
-    }
-}
 fn app() -> Vec<u8> {
-    b"\x01\x07Bitcoin\x052.4.0\x01\x00\x90\x00".to_vec()
+    Mock::app_info("Bitcoin", "2.4.0")
 }
 fn ok(mut bytes: Vec<u8>) -> Vec<u8> {
     bytes.extend([0x90, 0]);
@@ -193,7 +200,8 @@ async fn bitcoin_message_recovery_binds_key_payload_and_bip137_address_type() {
     signature.extend(compact);
     for tamper in [false, true] {
         let transport = Mock {
-            replies: vec![
+            commands: vec![],
+            responses: vec![
                 app(),
                 ok(account.fingerprint.as_bytes().to_vec()),
                 app(),
@@ -235,7 +243,8 @@ async fn bitcoin_invalid_paths_and_taproot_messages_do_not_contact_device() {
         vec![0x8000_0056, 0x8000_0000, 0x8000_0000, 0, 0],
     ] {
         let mut client = LedgerClient::new(Mock {
-            replies: VecDeque::new(),
+            commands: vec![],
+            responses: VecDeque::new(),
         });
         assert!(
             client
@@ -262,7 +271,8 @@ async fn bitcoin_psbt_yield_is_verified_through_the_public_wallet_api() {
     yielded.extend(signature.to_vec());
     yielded.extend([0xe0, 0]);
     let mut client = LedgerClient::new(Mock {
-        replies: vec![
+        commands: vec![],
+        responses: vec![
             app(),
             ok(account.fingerprint.as_bytes().to_vec()),
             app(),
@@ -273,15 +283,17 @@ async fn bitcoin_psbt_yield_is_verified_through_the_public_wallet_api() {
         ]
         .into(),
     });
-    let result = client
-        .sign_verified_bitcoin_transaction(&request)
-        .await
-        .unwrap();
-    assert_eq!(
-        result.signatures,
-        vec![signature.signature.serialize_der().to_vec()]
-    );
-    assert!(!result.serialized_transaction.is_empty());
+    let result = client.sign_tx(&request.into()).await.unwrap();
+    let trezor_connect::thp::SignTxResponse::Bitcoin {
+        signatures,
+        last_signature,
+    } = result
+    else {
+        panic!("expected shared Bitcoin response");
+    };
+    let expected = signature.signature.serialize_der().to_vec();
+    assert_eq!(signatures, vec![expected.clone()]);
+    assert_eq!(last_signature, expected);
 }
 
 #[tokio::test]
@@ -294,7 +306,8 @@ async fn bitcoin_address_verification_rejects_a_different_account_address() {
         }
         let response = account.address(&path).unwrap().to_string();
         let mut client = LedgerClient::new(Mock {
-            replies: vec![
+            commands: vec![],
+            responses: vec![
                 app(),
                 ok(account.fingerprint.as_bytes().to_vec()),
                 app(),
@@ -307,4 +320,71 @@ async fn bitcoin_address_verification_rejects_a_different_account_address() {
         let result = client.bitcoin_address(&request.inputs[0].path, false).await;
         assert_eq!(result.is_err(), tamper);
     }
+}
+
+#[test]
+fn bitcoin_multiple_inputs_preserve_indices_when_device_yields_out_of_order() {
+    let (account, mut request, private) = fixture();
+    let prepared = BitcoinTransaction::new(&request, &account).unwrap();
+    let mut reference = prepared.psbt.inputs[0].non_witness_utxo.clone().unwrap();
+    reference.output.push(reference.output[0].clone());
+    let hash = hex::decode(reference.compute_txid().to_string()).unwrap();
+    request.ref_txs[0].hash = hash.clone();
+    let output = request.ref_txs[0].bin_outputs[0].clone();
+    request.ref_txs[0].bin_outputs.push(output);
+    request.inputs[0].prev_hash = hash;
+    let mut second = request.inputs[0].clone();
+    second.prev_index = 1;
+    request.inputs.push(second);
+    let prepared = BitcoinTransaction::new(&request, &account).unwrap();
+    let signatures = signatures(&prepared, &private);
+    let mut reversed = signatures.clone();
+    reversed.reverse();
+    let result = prepared.finish(reversed).unwrap();
+    let transaction: bitcoin::Transaction =
+        bitcoin::consensus::deserialize(&result.serialized_transaction).unwrap();
+    for (index, object) in &signatures {
+        let SignPsbtYieldedObject::Partial(PartialSignature::Sig(_, signature)) = object else {
+            panic!("ECDSA")
+        };
+        assert_eq!(
+            transaction.input[*index].witness.iter().next().unwrap(),
+            signature.to_vec()
+        );
+        assert_eq!(
+            result.signatures[*index],
+            signature.signature.serialize_der().to_vec()
+        );
+    }
+    // Same key at both indices: swapping labels must fail the transaction hash check.
+    let swapped = signatures
+        .into_iter()
+        .map(|(index, signature)| (1 - index, signature))
+        .collect();
+    assert!(
+        BitcoinTransaction::new(&request, &account)
+            .unwrap()
+            .finish(swapped)
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn bitcoin_taproot_message_is_unsupported_before_device_io() {
+    let mut client = LedgerClient::new(Mock::default());
+    let request = SignMessageRequest::bitcoin(
+        vec![
+            86 | crate::bip32::HARDENED,
+            crate::bip32::HARDENED,
+            crate::bip32::HARDENED,
+            0,
+            0,
+        ],
+        b"test".to_vec(),
+    );
+    assert!(matches!(
+        client.sign_verified_bitcoin_message(&request).await,
+        Err(crate::WalletError::Unsupported(_))
+    ));
+    assert!(client.into_transport().commands.is_empty());
 }

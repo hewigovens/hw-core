@@ -1,3 +1,4 @@
+use super::Eip712TypeName;
 use std::{collections::BTreeMap, str::FromStr};
 
 use num_bigint::BigInt;
@@ -28,43 +29,10 @@ pub struct Eip712StructMember {
     pub type_name: String,
 }
 
-fn parse_array_type(type_name: &str) -> Option<(&str, Option<u32>)> {
-    let stripped = type_name.strip_suffix(']')?;
-    let start = stripped.rfind('[')?;
-    let entry = &stripped[..start];
-    let size_str = &stripped[start + 1..];
-    if size_str.is_empty() {
-        return Some((entry, None));
-    }
-    let size = size_str.parse::<u32>().ok()?;
-    Some((entry, Some(size)))
-}
-
-fn parse_number_type(type_name: &str) -> Option<(bool, u32)> {
-    let (signed, bits) = match type_name.strip_prefix("uint") {
-        Some(bits) => (false, bits),
-        None => (true, type_name.strip_prefix("int")?),
-    };
-    let bits = if bits.is_empty() {
-        256
-    } else {
-        bits.parse::<u32>().ok()?
-    };
-    Some((signed, bits))
-}
-
 fn strip_hex_prefix(value: &str) -> Option<&str> {
     value
         .strip_prefix("0x")
         .or_else(|| value.strip_prefix("0X"))
-}
-
-fn parse_bytes_type(type_name: &str) -> Option<Option<u32>> {
-    let suffix = type_name.strip_prefix("bytes")?;
-    if suffix.is_empty() {
-        return Some(None);
-    }
-    Some(Some(suffix.parse::<u32>().ok()?))
 }
 
 fn parse_bigint_from_json(value: &JsonValue) -> BackendResult<BigInt> {
@@ -192,7 +160,7 @@ fn parse_eip712_address_bytes(value: &str) -> BackendResult<Vec<u8>> {
 
 impl EthereumFieldType {
     fn from_type_name(type_name: &str, types: &Eip712Types) -> BackendResult<Self> {
-        if let Some((entry_type_name, array_size)) = parse_array_type(type_name) {
+        if let Some((entry_type_name, array_size)) = Eip712TypeName(type_name).array() {
             let entry_type = Self::from_type_name(entry_type_name, types)?;
             return Ok(Self {
                 data_type: EthereumDataTypeProto::Array as i32,
@@ -202,7 +170,7 @@ impl EthereumFieldType {
             });
         }
 
-        if let Some((signed, bits)) = parse_number_type(type_name) {
+        if let Some((signed, bits)) = Eip712TypeName(type_name).number() {
             let bytes = bits / 8;
             return Ok(Self {
                 data_type: if signed {
@@ -216,7 +184,7 @@ impl EthereumFieldType {
             });
         }
 
-        if let Some(size) = parse_bytes_type(type_name) {
+        if let Some(size) = Eip712TypeName(type_name).bytes() {
             return Ok(Self {
                 data_type: EthereumDataTypeProto::Bytes as i32,
                 size,
@@ -294,7 +262,7 @@ impl Eip712TypedData {
 
         for &index in nested_path {
             if let Some(array) = current_value.as_array() {
-                let (entry_type_name, _) = parse_array_type(current_type_name).ok_or_else(|| {
+                let (entry_type_name, _) = Eip712TypeName(current_type_name).array().ok_or_else(|| {
                 BackendError::Transport(format!(
                     "member_path traverses array but type '{current_type_name}' is not an array"
                 ))
@@ -339,7 +307,7 @@ impl Eip712TypedData {
     }
 
     fn encode_value(&self, type_name: &str, value: &JsonValue) -> BackendResult<Vec<u8>> {
-        if parse_array_type(type_name).is_some() {
+        if Eip712TypeName(type_name).array().is_some() {
             let array = value.as_array().ok_or_else(|| {
                 BackendError::Transport(format!(
                     "expected array value for EIP-712 type '{type_name}', got {value}"
@@ -348,7 +316,7 @@ impl Eip712TypedData {
             return bigint_to_fixed_bytes(BigInt::from(array.len() as u64), 2, false);
         }
 
-        if let Some(size) = parse_bytes_type(type_name) {
+        if let Some(size) = Eip712TypeName(type_name).bytes() {
             let str_value = value.as_str().ok_or_else(|| {
                 BackendError::Transport(format!(
                     "expected string for EIP-712 bytes value '{type_name}', got {value}"
@@ -389,7 +357,7 @@ impl Eip712TypedData {
             return Ok(vec![if bool_value { 1 } else { 0 }]);
         }
 
-        if let Some((signed, bits)) = parse_number_type(type_name) {
+        if let Some((signed, bits)) = Eip712TypeName(type_name).number() {
             let bytes = (bits as usize).div_ceil(8);
             let number = parse_bigint_from_json(value)?;
             return bigint_to_fixed_bytes(number, bytes, signed);
@@ -492,13 +460,16 @@ mod tests {
 
     #[test]
     fn suite_parity_parse_array_type() {
-        assert_eq!(parse_array_type("uint8[26]"), Some(("uint8", Some(26))));
-        assert_eq!(parse_array_type("int32[]"), Some(("int32", None)));
         assert_eq!(
-            parse_array_type("int32[5][12]"),
+            Eip712TypeName("uint8[26]").array(),
+            Some(("uint8", Some(26)))
+        );
+        assert_eq!(Eip712TypeName("int32[]").array(), Some(("int32", None)));
+        assert_eq!(
+            Eip712TypeName("int32[5][12]").array(),
             Some(("int32[5]", Some(12)))
         );
-        assert_eq!(parse_array_type("bytes"), None);
+        assert_eq!(Eip712TypeName("bytes").array(), None);
     }
 
     #[test]

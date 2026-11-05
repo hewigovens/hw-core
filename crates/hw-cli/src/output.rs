@@ -74,3 +74,39 @@ impl PrintResponse for EthTxSignature {
         Ok(())
     }
 }
+
+impl PrintResponse for hw_wallet::ledger::LedgerBitcoinAddress {
+    fn print(&self) -> Result<()> {
+        print_labeled_value("Address", &self.address);
+        print_hex_field("Public key", &self.public_key);
+        Ok(())
+    }
+}
+
+impl PrintResponse for hw_wallet::ledger::LedgerBitcoinTxResult {
+    fn print(&self) -> Result<()> {
+        for (index, signature) in self.signatures.iter().enumerate() {
+            print_hex_field(&format!("Signature [{index}] (hex)"), signature);
+        }
+        print_hex_field("Signed transaction (hex)", &self.serialized_transaction);
+        print_labeled_value("Transaction ID", &self.transaction_id);
+        Ok(())
+    }
+}
+
+impl PrintResponse for hw_wallet::ledger::LedgerSigningResult {
+    fn print(&self) -> Result<()> {
+        print_labeled_value("Recovered address", &self.recovered_address);
+        print_hex_field("Signing hash", &self.signing_hash);
+        print_labeled_value("v", self.v);
+        print_hex_field("r", &self.r);
+        print_hex_field("s", &self.s);
+        if let Some(transaction) = &self.signed_transaction {
+            print_hex_field("Signed transaction (hex)", transaction);
+        }
+        if let Some(hash) = &self.transaction_hash {
+            print_hex_field("Transaction hash", hash);
+        }
+        Ok(())
+    }
+}

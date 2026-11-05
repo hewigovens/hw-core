@@ -1,4 +1,6 @@
-use super::{LedgerBitcoinTxResult, bitcoin_account::BitcoinAccount};
+use super::{
+    LedgerBitcoinTxResult, bitcoin_account::BitcoinAccount, bitcoin_purpose::BitcoinPurpose,
+};
 use crate::{WalletError, WalletResult};
 use bitcoin::{
     Address, Amount, EcdsaSighashType, OutPoint, PublicKey, ScriptBuf, Sequence, Transaction, TxIn,
@@ -45,8 +47,8 @@ impl BitcoinTransaction {
         }
         let mut outpoints = HashSet::new();
         for input in &request.inputs {
-            BitcoinAccount::validate_path(&input.path)?;
-            if input.path[0] != (84 | 0x8000_0000)
+            let (purpose, _) = BitcoinAccount::validate_path(&input.path)?;
+            if purpose != BitcoinPurpose::Segwit
                 || input.path[..3] != request.inputs[0].path[..3]
                 || input.script_type != BtcInputScriptType::SpendWitness
                 || input.multisig.is_some()
@@ -248,6 +250,41 @@ impl BitcoinTransaction {
         Ok(Self { psbt, keys })
     }
 
+    fn verification(message: &str) -> WalletError {
+        WalletError::Verification(message.into())
+    }
+
+    fn verify_signature(
+        &self,
+        index: usize,
+        signature: &bitcoin::ecdsa::Signature,
+        cache: &mut SighashCache<&Transaction>,
+    ) -> WalletResult<()> {
+        let previous = self.psbt.inputs[index]
+            .witness_utxo
+            .as_ref()
+            .ok_or_else(|| Self::verification("missing Bitcoin previous output"))?;
+        let hash = cache
+            .p2wpkh_signature_hash(
+                index,
+                &previous.script_pubkey,
+                previous.value,
+                EcdsaSighashType::All,
+            )
+            .map_err(|_| Self::verification("cannot compute Bitcoin signing hash"))?;
+        Secp256k1::verification_only()
+            .verify_ecdsa(
+                &Message::from_digest(hash.to_byte_array()),
+                &signature.signature,
+                &self.keys[index].inner,
+            )
+            .map_err(|_| {
+                Self::verification(
+                    "Ledger Bitcoin signature does not match the requested transaction",
+                )
+            })
+    }
+
     pub fn finish(
         self,
         yielded: Vec<(usize, SignPsbtYieldedObject)>,
@@ -258,44 +295,24 @@ impl BitcoinTransaction {
         for (index, object) in yielded {
             let SignPsbtYieldedObject::Partial(PartialSignature::Sig(key, signature)) = object
             else {
-                return Err(Self::invalid("unexpected Bitcoin signature type"));
+                return Err(Self::verification("unexpected Bitcoin signature type"));
             };
             if self.keys.get(index) != Some(&key)
                 || !signatures[index].is_empty()
                 || signature.sighash_type != EcdsaSighashType::All
             {
-                return Err(Self::invalid(
+                return Err(Self::verification(
                     "unexpected Bitcoin signature key, index or sighash",
                 ));
             }
-            let previous = self.psbt.inputs[index]
-                .witness_utxo
-                .as_ref()
-                .ok_or_else(|| Self::invalid("missing Bitcoin previous output"))?;
-            let hash = cache
-                .p2wpkh_signature_hash(
-                    index,
-                    &previous.script_pubkey,
-                    previous.value,
-                    EcdsaSighashType::All,
-                )
-                .map_err(|_| Self::invalid("cannot compute Bitcoin signing hash"))?;
-            Secp256k1::verification_only()
-                .verify_ecdsa(
-                    &Message::from_digest(hash.to_byte_array()),
-                    &signature.signature,
-                    &key.inner,
-                )
-                .map_err(|_| {
-                    Self::invalid(
-                        "Ledger Bitcoin signature does not match the requested transaction",
-                    )
-                })?;
+            self.verify_signature(index, &signature, &mut cache)?;
             transaction.input[index].witness = Witness::p2wpkh(&signature, &key.inner);
             signatures[index] = signature.signature.serialize_der().to_vec();
         }
         if signatures.iter().any(Vec::is_empty) {
-            return Err(Self::invalid("Ledger did not sign every Bitcoin input"));
+            return Err(Self::verification(
+                "Ledger did not sign every Bitcoin input",
+            ));
         }
         Ok(LedgerBitcoinTxResult {
             signatures,
@@ -304,3 +321,7 @@ impl BitcoinTransaction {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "bitcoin_vector_tests.rs"]
+mod vector_tests;

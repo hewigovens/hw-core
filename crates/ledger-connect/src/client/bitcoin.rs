@@ -29,7 +29,10 @@ impl<T: ApduTransport + Send> LedgerClient<T> {
             _ => LedgerError::Protocol("invalid Bitcoin app response or wallet policy"),
         });
         // An interrupted or cancelled Merkle exchange requires a new connection.
-        if result.is_ok() {
+        if result
+            .as_ref()
+            .map_or_else(|error| error.is_device_response(), |_| true)
+        {
             self.ready = true;
         }
         result

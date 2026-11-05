@@ -1,4 +1,5 @@
-use crate::{WalletError, WalletResult};
+use super::bitcoin_purpose::BitcoinPurpose;
+use crate::{WalletError, WalletResult, bip32::HARDENED};
 use bitcoin::{
     Address, CompressedPublicKey, Network, PublicKey,
     bip32::{ChildNumber, DerivationPath, Fingerprint, Xpub},
@@ -9,6 +10,7 @@ use ledger_connect::{ApduTransport, LedgerClient};
 
 pub(super) struct BitcoinAccount {
     pub path: Vec<u32>,
+    pub purpose: BitcoinPurpose,
     pub network: Network,
     pub fingerprint: Fingerprint,
     pub xpub: Xpub,
@@ -16,32 +18,38 @@ pub(super) struct BitcoinAccount {
 }
 
 impl BitcoinAccount {
-    pub fn validate_path(path: &[u32]) -> WalletResult<Network> {
-        if path.len() != 5
-            || ![44, 49, 84, 86]
-                .iter()
-                .any(|purpose| path[0] == (purpose | 0x8000_0000))
-            || ![0x8000_0000, 0x8000_0001].contains(&path[1])
-            || path[2] < 0x8000_0000
-            || path[3] > 1
-            || path[4] >= 0x8000_0000
-        {
-            return Err(WalletError::Signing(
+    pub fn validate_path(path: &[u32]) -> WalletResult<(BitcoinPurpose, Network)> {
+        let invalid = || {
+            WalletError::InvalidBip32Path(
                 "Ledger Bitcoin requires m/44'|49'|84'|86'/0'|1'/account'/0|1/index".into(),
-            ));
+            )
+        };
+        let [purpose, coin, account, branch, index] = path else {
+            return Err(invalid());
+        };
+        let purpose = BitcoinPurpose::from_component(*purpose).ok_or_else(invalid)?;
+        if ![HARDENED, HARDENED | 1].contains(coin)
+            || *account < HARDENED
+            || *branch > 1
+            || *index >= HARDENED
+        {
+            return Err(invalid());
         }
-        Ok(if path[1] == 0x8000_0000 {
-            Network::Bitcoin
-        } else {
-            Network::Testnet
-        })
+        Ok((
+            purpose,
+            if *coin == HARDENED {
+                Network::Bitcoin
+            } else {
+                Network::Testnet
+            },
+        ))
     }
 
     pub async fn load<T: ApduTransport + Send>(
         client: &mut LedgerClient<T>,
         path: &[u32],
     ) -> WalletResult<Self> {
-        let network = Self::validate_path(path)?;
+        let (purpose, network) = Self::validate_path(path)?;
         let testnet = network != Network::Bitcoin;
         let account = Self::derivation(&path[..3]);
         let fingerprint = client.bitcoin_master_fingerprint(testnet).await?;
@@ -50,25 +58,19 @@ impl BitcoinAccount {
             || xpub.child_number != ChildNumber::from(path[2])
             || xpub.network != network.into()
         {
-            return Err(WalletError::Signing(
+            return Err(WalletError::Verification(
                 "Ledger returned an unexpected Bitcoin account key".into(),
             ));
         }
-        let descriptor = match path[0] & 0x7fff_ffff {
-            44 => "pkh(@0/**)",
-            49 => "sh(wpkh(@0/**))",
-            84 => "wpkh(@0/**)",
-            86 => "tr(@0/**)",
-            _ => unreachable!("validated purpose"),
-        };
         let policy = WalletPolicy::new(
             String::new(),
             Version::V2,
-            descriptor.into(),
+            purpose.descriptor().into(),
             [((fingerprint, account), xpub)],
         );
         Ok(Self {
             path: path[..3].to_vec(),
+            purpose,
             network,
             fingerprint,
             xpub,
@@ -98,24 +100,23 @@ impl BitcoinAccount {
                 &Secp256k1::verification_only(),
                 &Self::derivation(&path[3..]),
             )
-            .map_err(|_| WalletError::Signing("cannot derive Bitcoin account child".into()))?;
+            .map_err(|_| WalletError::Verification("cannot derive Bitcoin account child".into()))?;
         Ok(PublicKey::new(child.public_key))
     }
 
     pub fn address(&self, path: &[u32]) -> WalletResult<Address> {
         let key = self.key(path)?;
         let compressed = CompressedPublicKey(key.inner);
-        Ok(match path[0] & 0x7fff_ffff {
-            44 => Address::p2pkh(key, self.network),
-            49 => Address::p2shwpkh(&compressed, self.network),
-            84 => Address::p2wpkh(&compressed, self.network),
-            86 => Address::p2tr(
+        Ok(match self.purpose {
+            BitcoinPurpose::Legacy => Address::p2pkh(key, self.network),
+            BitcoinPurpose::NestedSegwit => Address::p2shwpkh(&compressed, self.network),
+            BitcoinPurpose::Segwit => Address::p2wpkh(&compressed, self.network),
+            BitcoinPurpose::Taproot => Address::p2tr(
                 &Secp256k1::verification_only(),
                 key.inner.x_only_public_key().0,
                 None,
                 self.network,
             ),
-            _ => unreachable!("validated purpose"),
         })
     }
 }

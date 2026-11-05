@@ -3,7 +3,7 @@ use crate::eth::EthSignTxExt;
 use crate::{WalletError, WalletResult};
 use ledger_connect::{ApduTransport, LedgerClient};
 use sha3::{Digest, Keccak256};
-use trezor_connect::thp::{EthDefinitionCatalog, EthDefinitions, EthSignTx};
+use trezor_connect::thp::{EthDefinitionCatalog, EthDefinitions, EthSignTx, SignMessageResponse};
 
 #[allow(async_fn_in_trait)]
 pub trait LedgerEthereumExt {
@@ -12,7 +12,7 @@ pub trait LedgerEthereumExt {
         &mut self,
         path: &[u32],
         message: &[u8],
-    ) -> WalletResult<LedgerSigningResult>;
+    ) -> WalletResult<SignMessageResponse>;
 }
 
 impl<T: ApduTransport> LedgerEthereumExt for LedgerClient<T> {
@@ -66,18 +66,20 @@ impl<T: ApduTransport> LedgerEthereumExt for LedgerClient<T> {
         &mut self,
         path: &[u32],
         message: &[u8],
-    ) -> WalletResult<LedgerSigningResult> {
+    ) -> WalletResult<SignMessageResponse> {
         let account = self.ethereum_address(path, false, 1).await?;
         let signature = self.sign_personal_message(path, message).await?;
         let mut hash = Keccak256::new();
         hash.update(b"\x19Ethereum Signed Message:\n");
         hash.update(message.len().to_string().as_bytes());
         hash.update(message);
-        let mut result =
+        let result =
             LedgerSigningResult::verify(signature, hash.finalize().into(), &account.address)?;
-        if result.v < 2 {
-            result.v += 27;
-        }
-        Ok(result)
+        Ok(SignMessageResponse {
+            chain: hw_chain::Chain::Ethereum,
+            signature: result.message_signature()?,
+            address: result.recovered_address,
+            signed_data: None,
+        })
     }
 }

@@ -883,7 +883,17 @@ final class ContentViewModel: ObservableObject {
             return
         }
 
-        let selected = devices[selectedDeviceIndex]
+        var selected = devices[selectedDeviceIndex]
+        if selected.requiresRediscovery {
+            let deviceID = selected.id
+            devices = try await coreKit.discover(vendor: selectedVendor)
+            guard let index = devices.firstIndex(where: { $0.id == deviceID }) else {
+                selectedDeviceIndex = 0
+                throw InputValidationError(message: "Selected Ledger was not found; unlock it and scan again")
+            }
+            selectedDeviceIndex = index
+            selected = devices[index]
+        }
         session = try await coreKit.connect(device: selected)
         rememberDeviceID(selected.id)
         status = "Connected: \(selected.id)"
@@ -1274,7 +1284,7 @@ final class ContentViewModel: ObservableObject {
         do {
             try await operation()
         } catch {
-            if selectedVendor.isLedger {
+            if selectedVendor.isLedger && (session?.ledgerNeedsReconnect ?? true) {
                 await disconnectSession()
                 devices = []
                 sessionState = nil

@@ -1,22 +1,8 @@
 use super::*;
-use crate::{ApduTransport, LedgerError};
-use std::collections::VecDeque;
+use crate::LedgerError;
 
-#[derive(Default)]
-pub(super) struct MockTransport {
-    pub(super) responses: VecDeque<Vec<u8>>,
-    pub(super) commands: Vec<Vec<u8>>,
-}
-
-impl ApduTransport for MockTransport {
-    async fn exchange(&mut self, command: &[u8]) -> Result<Vec<u8>, LedgerError> {
-        self.commands.push(command.to_vec());
-        match self.responses.pop_front() {
-            Some(response) => Ok(response),
-            None => std::future::pending().await,
-        }
-    }
-}
+use crate::testing::ScriptedTransport;
+pub(super) type MockTransport = ScriptedTransport<true>;
 
 #[tokio::test]
 async fn address_encodes_path_and_chain_id_and_parses_device_response() {
@@ -73,13 +59,7 @@ async fn personal_message_chunks_include_length_and_continuation_flag() {
 
 #[tokio::test]
 async fn malformed_status_and_signature_fail_without_sending_another_request() {
-    for response in [
-        vec![],
-        vec![0x90],
-        vec![0x90, 0],
-        vec![1, 0x90, 0],
-        vec![0x69, 0x82],
-    ] {
+    for response in [vec![], vec![0x90], vec![0x90, 0], vec![1, 0x90, 0]] {
         let mut client = LedgerClient::new(MockTransport {
             responses: vec![ethereum_app_response(), response].into(),
             ..Default::default()
@@ -120,14 +100,14 @@ async fn invalid_paths_never_reach_transport() {
     for path in [vec![], vec![1; 11]] {
         assert!(matches!(
             client.ethereum_address(&path, true, 1).await,
-            Err(LedgerError::InvalidInput(_))
+            Err(LedgerError::InvalidBip32Path(_))
         ));
     }
     assert!(client.into_transport().commands.is_empty());
 }
 
 fn ethereum_app_response() -> Vec<u8> {
-    b"\x01\x08Ethereum\x051.0.0\x01\x00\x90\x00".to_vec()
+    MockTransport::app_info("Ethereum", "1.0.0")
 }
 
 #[tokio::test]
@@ -252,4 +232,113 @@ async fn eip712_streams_field_lengths_and_cancellation_retires_client() {
         client.app_info().await,
         Err(LedgerError::Disconnected)
     ));
+}
+
+#[tokio::test]
+async fn completed_device_errors_allow_the_next_request_on_the_same_session() {
+    for status in [0x6985u16, 0x6982, 0x5515, 0x6a80] {
+        for operation in 0..7 {
+            let app = if operation >= 4 {
+                b"\x01\x06Solana\x051.0.0\x90\x00".to_vec()
+            } else {
+                ethereum_app_response()
+            };
+            let mut client = LedgerClient::new(MockTransport {
+                responses: vec![app.clone(), status.to_be_bytes().to_vec(), app].into(),
+                ..Default::default()
+            });
+            let path = [0x8000002c, 0x800001f5, 0x80000000, 0x80000000];
+            let result = match operation {
+                0 => client.ethereum_address(&[1], true, 1).await.map(|_| ()),
+                1 => client
+                    .sign_personal_message(&[1], b"test")
+                    .await
+                    .map(|_| ()),
+                2 => client
+                    .sign_eip712_hashes(&[1], &[0; 32], &[1; 32])
+                    .await
+                    .map(|_| ()),
+                3 => client
+                    .sign_eip712(&[1], &[Eip712Command::StructName("Mail".into())])
+                    .await
+                    .map(|_| ()),
+                4 => client.solana_public_key(&path, true).await.map(|_| ()),
+                5 => client
+                    .sign_solana_transaction(&path, &[1; 300])
+                    .await
+                    .map(|_| ()),
+                _ => client
+                    .sign_solana_offchain_message(&path, b"test")
+                    .await
+                    .map(|_| ()),
+            };
+            assert!(result.is_err(), "operation {operation}, status {status:x}");
+            client
+                .app_info()
+                .await
+                .expect("completed device status must preserve the session");
+            assert_eq!(client.into_transport().commands.len(), 3);
+        }
+    }
+}
+
+#[tokio::test]
+async fn legacy_ethereum_envelopes_are_rejected_before_device_io() {
+    let mut client = LedgerClient::new(MockTransport::default());
+    for transaction in [vec![], vec![0xc0], vec![1, 0xc0]] {
+        assert!(matches!(
+            client.sign_transaction(&[1], &transaction).await,
+            Err(LedgerError::InvalidInput(_))
+        ));
+    }
+    assert!(client.into_transport().commands.is_empty());
+}
+
+#[tokio::test]
+async fn solana_statuses_are_typed_and_leave_completed_sessions_reusable() {
+    for (status, blind) in [(vec![0x68, 0x08], true), (vec![0x6a, 0x81], false)] {
+        let app = MockTransport::app_info("Solana", "1.17.1");
+        let mut client = LedgerClient::new(MockTransport {
+            responses: vec![app.clone(), status, app].into(),
+            commands: vec![],
+        });
+        let error = client
+            .sign_solana_offchain_message(&[0x8000002c, 0x800001f5], b"message")
+            .await
+            .unwrap_err();
+        if blind {
+            assert!(matches!(error, LedgerError::SolanaBlindSigningRequired));
+        } else {
+            assert!(matches!(error, LedgerError::SolanaMessageHeaderUnsupported));
+        }
+        assert!(client.is_ready());
+        client.app_info().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn ethereum_mid_stream_rejection_allows_a_successful_next_request() {
+    for status in [0x6985u16, 0x6982] {
+        let mut client = LedgerClient::new(MockTransport {
+            responses: vec![
+                ethereum_app_response(),
+                vec![0x90, 0],
+                status.to_be_bytes().to_vec(),
+                ethereum_app_response(),
+            ]
+            .into(),
+            commands: vec![],
+        });
+        assert!(matches!(
+            client.sign_personal_message(&[1], &[0x41; 400]).await,
+            Err(LedgerError::Rejected)
+        ));
+        assert!(client.is_ready());
+        assert_eq!(client.app_info().await.unwrap().name, "Ethereum");
+        let commands = client.into_transport().commands;
+        assert_eq!(commands.len(), 4);
+        assert_eq!(&commands[1][..5], &[0xe0, 0x08, 0, 0, 150]);
+        assert_eq!(&commands[2][..5], &[0xe0, 0x08, 0x80, 0, 150]);
+        assert_eq!(commands[3], [0xb0, 1, 0, 0, 0]);
+    }
 }

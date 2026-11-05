@@ -1,4 +1,7 @@
-use super::{bitcoin_account::BitcoinAccount, bitcoin_transaction::BitcoinTransaction};
+use super::{
+    LedgerBitcoinAddress, LedgerBitcoinTxResult, bitcoin_account::BitcoinAccount,
+    bitcoin_transaction::BitcoinTransaction,
+};
 use crate::{WalletError, WalletResult};
 use bitcoin::{
     Network,
@@ -10,18 +13,6 @@ use bitcoin::{
 };
 use ledger_connect::{ApduTransport, LedgerClient};
 use trezor_connect::thp::{BtcSignTx, SignMessageRequest, SignMessageResponse};
-
-pub struct LedgerBitcoinAddress {
-    pub address: String,
-    pub public_key: Vec<u8>,
-}
-
-pub struct LedgerBitcoinTxResult {
-    /// DER signatures in input order, without the SIGHASH_ALL suffix.
-    pub signatures: Vec<Vec<u8>>,
-    pub serialized_transaction: Vec<u8>,
-    pub transaction_id: String,
-}
 
 #[allow(async_fn_in_trait)]
 pub trait LedgerBitcoinExt {
@@ -58,9 +49,11 @@ impl<T: ApduTransport + Send> LedgerBitcoinExt for LedgerClient<T> {
             )
             .await?
             .require_network(account.network)
-            .map_err(|_| WalletError::Signing("Ledger Bitcoin address network mismatch".into()))?;
+            .map_err(|_| {
+                WalletError::Verification("Ledger Bitcoin address network mismatch".into())
+            })?;
         if address != expected {
-            return Err(WalletError::Signing(
+            return Err(WalletError::Verification(
                 "Ledger Bitcoin address does not match the account key".into(),
             ));
         }
@@ -74,15 +67,18 @@ impl<T: ApduTransport + Send> LedgerBitcoinExt for LedgerClient<T> {
         &mut self,
         request: &SignMessageRequest,
     ) -> WalletResult<SignMessageResponse> {
-        BitcoinAccount::validate_path(&request.path)?;
+        let (purpose, _) = BitcoinAccount::validate_path(&request.path)?;
         if request.chain != hw_chain::Chain::Bitcoin
             || request.chunkify
             || request.encoded_network.is_some()
             || !request.solana_signers.is_empty()
-            || request.path[0] == (86 | 0x8000_0000)
         {
             return Err(WalletError::Signing("Ledger Bitcoin messages require a BIP44, BIP49 or BIP84 path without Trezor display options".into()));
         }
+        // BIP137 encodes the requested address type in the compact signature header.
+        let offset = purpose.message_header_offset().ok_or_else(|| {
+            WalletError::Unsupported("Taproot message signing is not supported".into())
+        })?;
         let account = BitcoinAccount::load(self, &request.path).await?;
         let (header, signature) = self
             .sign_bitcoin_message(
@@ -92,15 +88,16 @@ impl<T: ApduTransport + Send> LedgerBitcoinExt for LedgerClient<T> {
             )
             .await?;
         if !(31..=34).contains(&header) {
-            return Err(WalletError::Signing(
+            return Err(WalletError::Verification(
                 "invalid Bitcoin message recovery header".into(),
             ));
         }
         let recovery = RecoveryId::from_i32(i32::from(header - 31))
-            .map_err(|_| WalletError::Signing("invalid Bitcoin recovery id".into()))?;
+            .map_err(|_| WalletError::Verification("invalid Bitcoin recovery id".into()))?;
         let recoverable =
-            RecoverableSignature::from_compact(&signature.serialize_compact(), recovery)
-                .map_err(|_| WalletError::Signing("invalid Bitcoin message signature".into()))?;
+            RecoverableSignature::from_compact(&signature.serialize_compact(), recovery).map_err(
+                |_| WalletError::Verification("invalid Bitcoin message signature".into()),
+            )?;
         let mut preimage = b"\x18Bitcoin Signed Message:\n".to_vec();
         preimage.extend(bitcoin::consensus::serialize(&bitcoin::VarInt(
             request.message.len() as u64,
@@ -109,19 +106,13 @@ impl<T: ApduTransport + Send> LedgerBitcoinExt for LedgerClient<T> {
         let hash = bitcoin::hashes::sha256d::Hash::hash(&preimage);
         let recovered = Secp256k1::verification_only()
             .recover_ecdsa(&Message::from_digest(hash.to_byte_array()), &recoverable)
-            .map_err(|_| WalletError::Signing("invalid Bitcoin message signature".into()))?;
+            .map_err(|_| WalletError::Verification("invalid Bitcoin message signature".into()))?;
         if recovered != account.key(&request.path)?.inner {
-            return Err(WalletError::Signing(
+            return Err(WalletError::Verification(
                 "Ledger Bitcoin message signature does not match the requested key and payload"
                     .into(),
             ));
         }
-        // BIP137 encodes the requested address type in the compact signature header.
-        let offset = match request.path[0] & 0x7fff_ffff {
-            49 => 4,
-            84 => 8,
-            _ => 0,
-        };
         let mut bytes = vec![header + offset];
         bytes.extend(signature.serialize_compact());
         Ok(SignMessageResponse {

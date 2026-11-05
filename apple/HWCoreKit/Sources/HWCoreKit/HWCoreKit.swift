@@ -56,7 +56,7 @@ public final class HWCoreKit: @unchecked Sendable {
             let raw: BleDiscoveredDevice
             switch device.raw {
             case .ledger(let device):
-                let ledger = try await device.connect(timeoutMs: 120_000)
+                let ledger = try await device.connect(timeoutMs: config.ledgerTimeoutMs)
                 return WalletSession(ledger: ledger, logger: logger, retryPolicy: config.sessionRetryPolicy)
             case .trezor(let device): raw = device
             }

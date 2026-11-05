@@ -22,9 +22,10 @@ hw-cli           Interactive CLI using clap
 thp-proto ────────────────┐
 hw-chain ─────────────────┼─→ trezor-connect ──→ hw-wallet ──┬─→ hw-ffi
 ble-transport ────────────┘                                  └─→ hw-cli
+ble-transport ──→ ledger-connect ──────────→ hw-wallet
 ```
 
-`ble-transport` is optional in `trezor-connect` (`ble` feature). `hw-wallet` also depends on `hw-chain` and `ble-transport`; `hw-ffi` and `hw-cli` depend on `trezor-connect` and `ble-transport` directly.
+`ble-transport` is optional in `trezor-connect` (`ble` feature). `hw-wallet` also depends on `hw-chain`, `ble-transport`, and `ledger-connect`; `hw-ffi` and `hw-cli` depend on `trezor-connect`, `ledger-connect`, and `ble-transport` directly.
 
 ## Behavior Ownership
 

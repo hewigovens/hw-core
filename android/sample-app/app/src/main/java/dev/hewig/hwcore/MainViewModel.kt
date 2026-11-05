@@ -853,7 +853,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     }
 
     private suspend fun retireLedgerAfterFailure() {
-        if (!ui.vendor.isLedger) return
+        if (!ui.vendor.isLedger || ledgerSession?.isReady() == true) return
         dropWorkflow()
         ui = ui.copy(
             hasWorkflow = false, sessionState = null, devices = emptyList(),
@@ -1080,11 +1080,19 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     }
 
     private suspend fun connectLedger() {
-        val device = selectedDevice() as? SampleDevice.Ledger ?: error("Scan for a Ledger first")
-        val session = ledgerSession ?: device.handle.connect(120_000uL).also { ledgerSession = it }
+        var device = selectedDevice() as? SampleDevice.Ledger ?: error("Scan for a Ledger first")
+        if (ledgerSession == null && device.handle.isConsumed()) {
+            val deviceId = device.info().id
+            val devices = discover(checkNotNull(bleManager), 8_000uL)
+            val index = devices.indexOfFirst { it.info().id == deviceId }
+            ui = ui.copy(devices = devices, selectedDeviceIndex = index.coerceAtLeast(0))
+            check(index >= 0) { "Selected Ledger was not found; unlock it and scan again" }
+            device = devices[index] as SampleDevice.Ledger
+        }
+        val session = ledgerSession ?: device.handle.connect(300_000uL).also { ledgerSession = it }
         val app = session.appInfo()
         setRememberedDeviceId(device.info().id)
-        applySessionState(SessionState(SessionPhase.READY, false, false, true, true, false, null))
+        applySessionState(session.sessionState())
         ui = ui.copy(
             hasWorkflow = true, isBusy = false, pairingPrompt = null,
             status = "Connected: ${app.name} ${app.version}. Open the app matching the selected chain.",

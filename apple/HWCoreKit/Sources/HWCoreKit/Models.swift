@@ -9,6 +9,8 @@ public struct HWCoreConfig: Sendable {
     public var hostStorage: HostStorage?
     public var pairingMethods: [PairingMethod]
     public var sessionRetryPolicy: SessionRetryPolicy
+    /// Connection and per-APDU deadline; increase this for longer on-device reviews.
+    public var ledgerTimeoutMs: UInt64
 
     public init(
         hostName: String,
@@ -16,7 +18,8 @@ public struct HWCoreConfig: Sendable {
         storagePath: String? = nil,
         hostStorage: HostStorage? = nil,
         pairingMethods: [PairingMethod] = [.codeEntry],
-        sessionRetryPolicy: SessionRetryPolicy = sessionRetryPolicyDefault()
+        sessionRetryPolicy: SessionRetryPolicy = sessionRetryPolicyDefault(),
+        ledgerTimeoutMs: UInt64 = 300_000
     ) {
         self.hostName = hostName
         self.appName = appName
@@ -24,6 +27,7 @@ public struct HWCoreConfig: Sendable {
         self.hostStorage = hostStorage
         self.pairingMethods = pairingMethods
         self.sessionRetryPolicy = sessionRetryPolicy
+        self.ledgerTimeoutMs = ledgerTimeoutMs
     }
 }
 
@@ -36,6 +40,12 @@ public final class WalletDevice: @unchecked Sendable {
         case trezor(BleDiscoveredDevice)
         case ledger(LedgerDiscoveredDevice)
     }
+    /// A consumed Ledger discovery handle must be refreshed by scanning before connecting again.
+    public var requiresRediscovery: Bool {
+        if case .ledger(let device) = raw { return device.isConsumed() }
+        return false
+    }
+
     let raw: Handle
     public let vendor: WalletVendor
 

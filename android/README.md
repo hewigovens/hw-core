@@ -112,10 +112,4 @@ The library exposes the following via `uniffi.hwcore.*`:
 
 ### Ledger in the sample
 
-Select **Ledger Stax** (or Nano X/Flex) under **Wallet**, unlock the device and open
-Ethereum, Solana, or Bitcoin, then scan and connect. Address, transaction signing, and message signing
-use direct BLE. For EIP-712, select ETH and enable **EIP-712 typed data** in message inputs,
-edit JSON, and use **Sign Msg**. Bitcoin transaction signing supports single-account BIP84 inputs
-with full reference transactions. Trezor-only controls and Ledger multisig/RBF presets are disabled.
-Cancel Request ends the host request; reject any remaining device prompt and reconnect.
-See [Ledger support](../docs/ledger.md) for API details and verification limits.
+Select **Ledger Stax** (or Nano X/Flex) under **Wallet**, unlock the device and open Ethereum, Solana, or Bitcoin, then scan and connect. Address, transaction signing, and message signing use direct BLE. For EIP-712, select ETH and enable **EIP-712 typed data** in message inputs, edit JSON, and use **Sign Msg**. Bitcoin transaction signing supports single-account BIP84 inputs with full reference transactions. Trezor-only controls and Ledger multisig/RBF presets are disabled. Cancel Request ends the host request; reject any remaining device prompt and reconnect. See [Ledger support](../docs/ledger.md) for API details and verification limits.

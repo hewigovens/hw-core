@@ -1,4 +1,4 @@
-use super::eip712_field::Eip712Field;
+use super::{eip712_field::Eip712Field, eip712_kind::Eip712Kind};
 use crate::{WalletError, WalletResult};
 use ledger_connect::Eip712Command;
 use serde_json::Value;
@@ -34,7 +34,7 @@ impl PreparedTypedData {
                     return Err(WalletError::Signing("duplicate EIP-712 field name".into()));
                 }
                 let ty = Eip712Field::parse(&field.type_name)?;
-                if ty.kind == 0 && !data.types.contains_key(ty.base) {
+                if ty.kind == Eip712Kind::Struct && !data.types.contains_key(ty.base) {
                     return Err(WalletError::Signing(format!(
                         "undefined EIP-712 struct {}",
                         ty.base
@@ -94,7 +94,7 @@ impl PreparedTypedData {
             }
             return Ok(hash.finalize().into());
         }
-        if ty.kind == 0 {
+        if ty.kind == Eip712Kind::Struct {
             let fields = data
                 .types
                 .get(name)
@@ -121,7 +121,7 @@ impl PreparedTypedData {
                 "expected scalar EIP-712 value for {name}"
             )));
         }
-        let bytes = data
+        let mut bytes = data
             .member_value(path)
             .map_err(|err| WalletError::Signing(err.to_string()))?;
         if bytes.len() > 65535 {
@@ -131,14 +131,23 @@ impl PreparedTypedData {
         }
         let mut encoded = [0; 32];
         match ty.kind {
-            5 | 7 => encoded = Keccak256::digest(&bytes).into(),
-            6 => encoded[..bytes.len()].copy_from_slice(&bytes),
+            Eip712Kind::String | Eip712Kind::Bytes => encoded = Keccak256::digest(&bytes).into(),
+            Eip712Kind::FixedBytes => encoded[..bytes.len()].copy_from_slice(&bytes),
             _ => {
-                if ty.kind == 1 && bytes.first().is_some_and(|b| b & 0x80 != 0) {
+                if ty.kind == Eip712Kind::Int && bytes.first().is_some_and(|b| b & 0x80 != 0) {
                     encoded.fill(0xff);
                 }
                 encoded[32 - bytes.len()..].copy_from_slice(&bytes);
             }
+        }
+        // Match LedgerJS fixture bytes by trimming leading zero octets. Keep the full-width
+        // value above for hashing and negative two's-complement sign extension.
+        if matches!(ty.kind, Eip712Kind::Int | Eip712Kind::Uint) {
+            let first = bytes
+                .iter()
+                .position(|byte| *byte != 0)
+                .unwrap_or(bytes.len().saturating_sub(1));
+            bytes.drain(..first);
         }
         self.commands.push(Eip712Command::Value(bytes));
         Ok(encoded)
@@ -157,7 +166,7 @@ impl PreparedTypedData {
                 .ok_or_else(|| WalletError::Signing("undefined EIP-712 struct".into()))?
             {
                 let ty = Eip712Field::parse(&field.type_name)?;
-                if ty.kind == 0 {
+                if ty.kind == Eip712Kind::Struct {
                     pending.push(ty.base);
                 }
             }

@@ -29,5 +29,6 @@ tracing = { workspace = true }
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std"] }
 
 [dev-dependencies]
+ledger-connect = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 trezor-connect = { workspace = true, features = ["ble", "test-support"] }

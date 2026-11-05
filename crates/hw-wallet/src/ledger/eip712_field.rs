@@ -1,68 +1,76 @@
+use super::eip712_kind::Eip712Kind;
 use crate::{WalletError, WalletResult};
+use trezor_connect::thp::types::Eip712TypeName;
 
 pub(super) struct Eip712Field<'a> {
     pub base: &'a str,
-    pub kind: u8,
+    pub kind: Eip712Kind,
     pub size: Option<u8>,
     pub dimensions: Vec<Option<u8>>,
 }
 
 impl<'a> Eip712Field<'a> {
     pub fn parse(name: &'a str) -> WalletResult<Self> {
-        let (base, mut rest) = name.split_at(name.find('[').unwrap_or(name.len()));
+        let mut base = name;
         let mut dimensions = Vec::new();
-        while !rest.is_empty() {
-            let tail = rest.strip_prefix('[').ok_or_else(|| Self::invalid(name))?;
-            let (len, next) = tail.split_once(']').ok_or_else(|| Self::invalid(name))?;
-            let size = if len.is_empty() {
-                None
-            } else {
-                Some(
-                    len.parse::<u8>()
+        while let Some((entry, size)) = Eip712TypeName(base).array() {
+            if !base[entry.len() + 1..base.len() - 1]
+                .bytes()
+                .all(|b| b.is_ascii_digit())
+            {
+                return Err(Self::invalid(name));
+            }
+            dimensions.push(
+                size.map(|size| {
+                    u8::try_from(size)
                         .ok()
-                        .filter(|n| *n > 0)
-                        .ok_or_else(|| Self::invalid(name))?,
-                )
-            };
-            dimensions.push(size);
+                        .filter(|size| *size > 0)
+                        .ok_or_else(|| Self::invalid(name))
+                })
+                .transpose()?,
+            );
             if dimensions.len() > 32 {
                 return Err(Self::invalid(name));
             }
-            rest = next;
+            base = entry;
         }
+        dimensions.reverse();
+        Self::validate_name(base)?;
         let (kind, size) = match base {
-            "address" => (3, None),
-            "bool" => (4, None),
-            "string" => (5, None),
-            "bytes" => (7, None),
-            _ if ["uint", "int"].iter().any(|prefix| {
-                base.strip_prefix(prefix)
-                    .is_some_and(|suffix| suffix.bytes().all(|b| b.is_ascii_digit()))
-            }) =>
-            {
-                let signed = base.starts_with("int");
-                let bits = base[if signed { 3 } else { 4 }..]
-                    .parse::<u16>()
-                    .map_err(|_| Self::invalid(name))?;
-                if bits == 0 || bits > 256 || bits % 8 != 0 {
-                    return Err(Self::invalid(name));
-                }
-                (if signed { 1 } else { 2 }, Some((bits / 8) as u8))
-            }
-            _ if base.strip_prefix("bytes").is_some_and(|suffix| {
-                !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
-            }) =>
-            {
-                let size = base[5..]
-                    .parse::<u8>()
-                    .ok()
-                    .filter(|n| (1..=32).contains(n))
-                    .ok_or_else(|| Self::invalid(name))?;
-                (6, Some(size))
-            }
+            "address" => (Eip712Kind::Address, None),
+            "bool" => (Eip712Kind::Bool, None),
+            "string" => (Eip712Kind::String, None),
             _ => {
-                Self::validate_name(base)?;
-                (0, None)
+                if let Some((signed, bits)) = Eip712TypeName(base).number() {
+                    // EIP-712 requires explicit widths; the shared Trezor parser also accepts aliases.
+                    if matches!(base, "int" | "uint") || bits == 0 || bits > 256 || bits % 8 != 0 {
+                        return Err(Self::invalid(name));
+                    }
+                    (
+                        if signed {
+                            Eip712Kind::Int
+                        } else {
+                            Eip712Kind::Uint
+                        },
+                        Some((bits / 8) as u8),
+                    )
+                } else if let Some(size) = Eip712TypeName(base).bytes() {
+                    match size {
+                        None => (Eip712Kind::Bytes, None),
+                        Some(size) if (1..=32).contains(&size) => {
+                            (Eip712Kind::FixedBytes, Some(size as u8))
+                        }
+                        _ => return Err(Self::invalid(name)),
+                    }
+                } else {
+                    if ["uint", "int", "bytes"].iter().any(|prefix| {
+                        base.strip_prefix(prefix)
+                            .is_some_and(|suffix| suffix.bytes().all(|b| b.is_ascii_digit()))
+                    }) {
+                        return Err(Self::invalid(name));
+                    }
+                    (Eip712Kind::Struct, None)
+                }
             }
         };
         Ok(Self {
@@ -89,11 +97,11 @@ impl<'a> Eip712Field<'a> {
     pub fn definition(&self, name: &str) -> WalletResult<Vec<u8>> {
         Self::validate_name(name)?;
         let mut out = vec![
-            self.kind
+            self.kind as u8
                 | if self.size.is_some() { 0x40 } else { 0 }
                 | if self.dimensions.is_empty() { 0 } else { 0x80 },
         ];
-        if self.kind == 0 {
+        if self.kind == Eip712Kind::Struct {
             out.push(self.base.len() as u8);
             out.extend(self.base.as_bytes());
         }

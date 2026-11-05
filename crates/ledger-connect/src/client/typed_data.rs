@@ -1,4 +1,5 @@
 use super::{EthereumSignature, LedgerClient};
+use crate::protocol::*;
 use crate::{ApduTransport, LedgerError, apdu::Apdu};
 
 #[derive(Debug, Clone)]
@@ -13,28 +14,28 @@ pub enum Eip712Command {
 impl Eip712Command {
     fn encode(&self) -> Result<Vec<Vec<u8>>, LedgerError> {
         let (ins, p2, data) = match self {
-            Self::StructName(name) => (0x1a, 0, name.as_bytes().to_vec()),
-            Self::StructField(data) => (0x1a, 0xff, data.clone()),
-            Self::Root(name) => (0x1c, 0, name.as_bytes().to_vec()),
-            Self::Array(size) => (0x1c, 0x0f, vec![*size]),
+            Self::StructName(name) => (INS_ETH_STRUCT, 0, name.as_bytes().to_vec()),
+            Self::StructField(data) => (INS_ETH_STRUCT, 0xff, data.clone()),
+            Self::Root(name) => (INS_ETH_VALUE, 0, name.as_bytes().to_vec()),
+            Self::Array(size) => (INS_ETH_VALUE, 0x0f, vec![*size]),
             Self::Value(value) => {
                 let len = u16::try_from(value.len())
                     .map_err(|_| LedgerError::InvalidInput("EIP-712 field exceeds 65535 bytes"))?;
                 let mut data = len.to_be_bytes().to_vec();
                 data.extend(value);
-                (0x1c, 0xff, data)
+                (INS_ETH_VALUE, 0xff, data)
             }
         };
         if matches!(self, Self::Value(_)) {
-            let count = data.len().div_ceil(255);
-            data.chunks(255)
+            let count = data.len().div_ceil(APDU_DATA_SIZE);
+            data.chunks(APDU_DATA_SIZE)
                 .enumerate()
                 .map(|(index, chunk)| {
-                    Apdu::command_with_p2(0xe0, ins, u8::from(index + 1 < count), p2, chunk)
+                    Apdu::command_with_p2(CLA_APP, ins, u8::from(index + 1 < count), p2, chunk)
                 })
                 .collect()
         } else {
-            Ok(vec![Apdu::command_with_p2(0xe0, ins, 0, p2, &data)?])
+            Ok(vec![Apdu::command_with_p2(CLA_APP, ins, 0, p2, &data)?])
         }
     }
 }
@@ -49,8 +50,8 @@ impl<T: ApduTransport> LedgerClient<T> {
         let mut data = Self::encode_path(path)?;
         data.extend(domain);
         data.extend(message);
-        let command = Apdu::command(0xe0, 0x0c, 0, &data)?;
-        self.ensure_app("Ethereum").await?;
+        let command = Apdu::command(CLA_APP, INS_ETH_TYPED_DATA, 0, &data)?;
+        self.ensure_ethereum_app().await?;
         self.ready = false;
         self.typed_data_signature(&command).await
     }
@@ -60,7 +61,8 @@ impl<T: ApduTransport> LedgerClient<T> {
         path: &[u32],
         fields: &[Eip712Command],
     ) -> Result<EthereumSignature, LedgerError> {
-        let sign = Apdu::command_with_p2(0xe0, 0x0c, 0, 1, &Self::encode_path(path)?)?;
+        let sign =
+            Apdu::command_with_p2(CLA_APP, INS_ETH_TYPED_DATA, 0, 1, &Self::encode_path(path)?)?;
         if fields.is_empty() || fields.len() > 16384 {
             return Err(LedgerError::InvalidInput("invalid EIP-712 command count"));
         }
@@ -68,7 +70,7 @@ impl<T: ApduTransport> LedgerClient<T> {
             .iter()
             .map(Eip712Command::encode)
             .collect::<Result<Vec<_>, _>>()?;
-        self.ensure_app("Ethereum").await?;
+        self.ensure_ethereum_app().await?;
         self.ready = false;
         for (index, command) in commands.iter().flatten().enumerate() {
             tracing::debug!(
@@ -78,7 +80,7 @@ impl<T: ApduTransport> LedgerClient<T> {
                 bytes = command.len(),
                 "Sending Ledger EIP-712 field"
             );
-            let response = Apdu::response(self.transport.exchange(command).await?)?;
+            let response = self.exchange_apdu(command).await?;
             if !response.is_empty() {
                 return Err(LedgerError::Protocol("unexpected EIP-712 field response"));
             }
@@ -90,15 +92,9 @@ impl<T: ApduTransport> LedgerClient<T> {
         &mut self,
         command: &[u8],
     ) -> Result<EthereumSignature, LedgerError> {
-        let response = Apdu::response(self.transport.exchange(command).await?)?;
-        if response.len() != 65 {
-            return Err(LedgerError::Protocol("invalid EIP-712 signature length"));
-        }
+        let response = self.exchange_apdu(command).await?;
+        let signature = EthereumSignature::decode(&response)?;
         self.ready = true;
-        Ok(EthereumSignature {
-            v: response[0],
-            r: response[1..33].to_vec(),
-            s: response[33..].to_vec(),
-        })
+        Ok(signature)
     }
 }

@@ -6,6 +6,9 @@ license.workspace = true
 repository.workspace = true
 description = "Direct Ledger BLE/APDU client for Ethereum, Solana, and Bitcoin"
 
+[features]
+test-support = []
+
 [dependencies]
 async-trait = { workspace = true }
 bitcoin = { workspace = true }

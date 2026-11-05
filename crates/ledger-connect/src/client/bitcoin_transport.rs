@@ -1,18 +1,30 @@
-use crate::{ApduTransport, LedgerError, apdu::Apdu};
+use crate::{ApduTransport, LedgerError, apdu::Apdu, protocol::*};
 use ledger_bitcoin_client::{
     apdu::{APDUCommand, StatusWord},
     async_client::Transport,
 };
 use tokio::sync::Mutex;
 
+const BITCOIN_MESSAGE_SIGNATURE_LENGTH: usize = 65;
+
 pub(super) struct BitcoinTransport<'a, T> {
-    state: Mutex<(&'a mut T, usize, u8)>,
+    state: Mutex<ExchangeState<'a, T>>,
+}
+
+struct ExchangeState<'a, T> {
+    transport: &'a mut T,
+    exchange_count: usize,
+    root_instruction: u8,
 }
 
 impl<'a, T> BitcoinTransport<'a, T> {
     pub fn new(transport: &'a mut T) -> Self {
         Self {
-            state: Mutex::new((transport, 0, 0)),
+            state: Mutex::new(ExchangeState {
+                transport,
+                exchange_count: 0,
+                root_instruction: 0,
+            }),
         }
     }
 }
@@ -30,32 +42,29 @@ impl<T: ApduTransport + Send> Transport for BitcoinTransport<'_, T> {
             &command.data,
         )?;
         let mut state = self.state.lock().await;
-        state.1 += 1;
-        if command.cla == 0xe1 {
-            state.2 = command.ins;
+        state.exchange_count += 1;
+        if command.cla == CLA_BITCOIN {
+            state.root_instruction = command.ins;
         }
-        if state.1 > 100_000 {
+        if state.exchange_count > 100_000 {
             return Err(LedgerError::Protocol("Bitcoin continuation limit exceeded"));
         }
-        let mut response = state.0.exchange(&bytes).await?;
-        if response.len() < 2 {
-            return Err(LedgerError::Protocol("missing Bitcoin status word"));
+        let (status, response) = Apdu::split_response(state.transport.exchange(&bytes).await?)?;
+        if status != STATUS_INTERRUPTED {
+            Apdu::check_status(status)?;
         }
-        let end = response.len() - 2;
-        let status = u16::from_be_bytes([response[end], response[end + 1]]);
-        if status != 0xe000 && status != 0x9000 {
-            return Apdu::response(response).map(|data| (StatusWord::OK, data));
-        }
-        response.truncate(end);
         // Upstream's message parser indexes byte zero before checking the length.
         // Continuations can be arbitrarily short; only a final message signature is fixed-size.
-        if status == 0x9000 && state.2 == 0x10 && response.len() != 65 {
+        if status == STATUS_OK
+            && state.root_instruction == INS_BTC_MESSAGE
+            && response.len() != BITCOIN_MESSAGE_SIGNATURE_LENGTH
+        {
             return Err(LedgerError::Protocol(
                 "invalid Bitcoin message signature length",
             ));
         }
         Ok((
-            if status == 0xe000 {
+            if status == STATUS_INTERRUPTED {
                 StatusWord::InterruptedExecution
             } else {
                 StatusWord::OK

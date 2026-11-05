@@ -23,7 +23,6 @@ required-features = ["bindings-cli"]
 async-trait = { workspace = true }
 ble-transport = { workspace = true }
 hex = { workspace = true }
-bs58 = { workspace = true }
 hw-wallet = { workspace = true }
 ledger-connect = { workspace = true }
 parking_lot = { workspace = true }

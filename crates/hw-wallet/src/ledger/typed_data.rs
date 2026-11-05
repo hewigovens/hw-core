@@ -74,13 +74,7 @@ impl<T: ApduTransport> LedgerTypedDataExt for LedgerClient<T> {
             _ => return Err(WalletError::Signing("missing typed data".into())),
         };
         let result = LedgerSigningResult::verify(signature, hash, &account.address)?;
-        let mut signature = result.r;
-        signature.extend(result.s);
-        signature.push(match result.v {
-            0 | 1 => result.v + 27,
-            27 | 28 => result.v,
-            _ => return Err(WalletError::Signing("invalid EIP-712 recovery id".into())),
-        });
+        let signature = result.message_signature()?;
         Ok(SignTypedDataResponse {
             chain: Chain::Ethereum,
             address: result.recovered_address,

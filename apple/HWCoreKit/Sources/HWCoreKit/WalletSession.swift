@@ -26,6 +26,21 @@ public final class WalletSession: @unchecked Sendable {
         self.retryPolicy = retryPolicy
     }
 
+    private func withRequestTimeout<T: Sendable>(
+        seconds: TimeInterval?, operation: String,
+        _ block: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withTimeout(seconds: seconds, operation: operation, onCancel: {
+            self.cancel()
+        }, block)
+    }
+
+    /// Inspect after an operation finishes; an incomplete Ledger exchange needs a fresh connection.
+    public var ledgerNeedsReconnect: Bool {
+        if case .ledger(let ledger) = backend { return !ledger.isReady() }
+        return false
+    }
+
     private func trezorWorkflow() throws -> BleWorkflowHandle {
         guard case .trezor(let workflow) = backend else {
             throw HwCoreError.Unsupported(message: "This operation is specific to Trezor")
@@ -57,14 +72,9 @@ public final class WalletSession: @unchecked Sendable {
 
     public func sessionState(timeout: TimeInterval? = nil) async throws -> SessionState {
         do {
-            return try await withTimeout(seconds: timeout, operation: "sessionState") {
+            return try await withRequestTimeout(seconds: timeout, operation: "sessionState") {
                 if case .ledger(let ledger) = self.backend {
-                    _ = try await ledger.appInfo()
-                    return SessionState(
-                        phase: .ready, canPairOnly: false, canConnect: false,
-                        canGetAddress: true, canSignTx: true,
-                        requiresPairingCode: false, promptMessage: nil
-                    )
+                    return try await ledger.sessionState()
                 }
                 return try await self.trezorWorkflow().sessionState()
             }
@@ -78,7 +88,7 @@ public final class WalletSession: @unchecked Sendable {
         timeout: TimeInterval? = nil
     ) async throws -> SessionState {
         do {
-            return try await withTimeout(seconds: timeout, operation: "pairOnly") {
+            return try await withRequestTimeout(seconds: timeout, operation: "pairOnly") {
                 try await self.trezorWorkflow().pairOnlyWithPolicy(
                     tryToUnlock: tryToUnlock,
                     retryPolicy: self.retryPolicy
@@ -95,7 +105,7 @@ public final class WalletSession: @unchecked Sendable {
     ) async throws -> SessionState {
         if case .ledger = backend { return try await sessionState(timeout: timeout) }
         do {
-            return try await withTimeout(seconds: timeout, operation: "connectReady") {
+            return try await withRequestTimeout(seconds: timeout, operation: "connectReady") {
                 try await self.trezorWorkflow().connectReadyWithPolicy(
                     tryToUnlock: tryToUnlock,
                     retryPolicy: self.retryPolicy
@@ -111,7 +121,7 @@ public final class WalletSession: @unchecked Sendable {
         timeout: TimeInterval? = nil
     ) async throws -> SessionHandshakeState {
         do {
-            return try await withTimeout(seconds: timeout, operation: "prepareChannelAndHandshake") {
+            return try await withRequestTimeout(seconds: timeout, operation: "prepareChannelAndHandshake") {
                 try await self.trezorWorkflow().prepareChannelAndHandshake(tryToUnlock: tryToUnlock)
             }
         } catch {
@@ -121,7 +131,7 @@ public final class WalletSession: @unchecked Sendable {
 
     public func startPairing(timeout: TimeInterval? = nil) async throws -> PairingPrompt {
         do {
-            return try await withTimeout(seconds: timeout, operation: "startPairing") {
+            return try await withRequestTimeout(seconds: timeout, operation: "startPairing") {
                 try await self.trezorWorkflow().pairingStart()
             }
         } catch {
@@ -131,7 +141,7 @@ public final class WalletSession: @unchecked Sendable {
 
     public func submitPairingCode(_ code: String, timeout: TimeInterval? = nil) async throws -> PairingProgress {
         do {
-            return try await withTimeout(seconds: timeout, operation: "submitPairingCode") {
+            return try await withRequestTimeout(seconds: timeout, operation: "submitPairingCode") {
                 try await self.trezorWorkflow().pairingSubmitCode(code: code)
             }
         } catch {
@@ -142,7 +152,7 @@ public final class WalletSession: @unchecked Sendable {
     /// Switches a started pairing to QR code or NFC; for NFC, hand `nfcData` to the device.
     public func selectPairingMethod(_ method: PairingMethod, timeout: TimeInterval? = nil) async throws -> PairingPrompt {
         do {
-            return try await withTimeout(seconds: timeout, operation: "selectPairingMethod") {
+            return try await withRequestTimeout(seconds: timeout, operation: "selectPairingMethod") {
                 try await self.trezorWorkflow().pairingSelectMethod(method: method)
             }
         } catch {
@@ -153,7 +163,7 @@ public final class WalletSession: @unchecked Sendable {
     /// Completes QR code pairing with the hex data scanned from the Trezor screen.
     public func submitPairingQrTag(_ tag: String, timeout: TimeInterval? = nil) async throws -> PairingProgress {
         do {
-            return try await withTimeout(seconds: timeout, operation: "submitPairingQrTag") {
+            return try await withRequestTimeout(seconds: timeout, operation: "submitPairingQrTag") {
                 try await self.trezorWorkflow().pairingSubmitQrTag(tag: tag)
             }
         } catch {
@@ -164,7 +174,7 @@ public final class WalletSession: @unchecked Sendable {
     /// Completes NFC pairing with the hex tag read from the Trezor over NFC.
     public func submitPairingNfcTag(_ tag: String, timeout: TimeInterval? = nil) async throws -> PairingProgress {
         do {
-            return try await withTimeout(seconds: timeout, operation: "submitPairingNfcTag") {
+            return try await withRequestTimeout(seconds: timeout, operation: "submitPairingNfcTag") {
                 try await self.trezorWorkflow().pairingSubmitNfcTag(tag: tag)
             }
         } catch {
@@ -174,7 +184,7 @@ public final class WalletSession: @unchecked Sendable {
 
     public func confirmPairedConnection(timeout: TimeInterval? = nil) async throws -> PairingProgress {
         do {
-            return try await withTimeout(seconds: timeout, operation: "confirmPairedConnection") {
+            return try await withRequestTimeout(seconds: timeout, operation: "confirmPairedConnection") {
                 try await self.trezorWorkflow().pairingConfirmConnection()
             }
         } catch {
@@ -189,7 +199,7 @@ public final class WalletSession: @unchecked Sendable {
         timeout: TimeInterval? = nil
     ) async throws {
         do {
-            _ = try await withTimeout(seconds: timeout, operation: "createWalletSession") {
+            _ = try await withRequestTimeout(seconds: timeout, operation: "createWalletSession") {
                 try await self.trezorWorkflow().createSession(
                     passphrase: passphrase,
                     onDevice: onDevice,
@@ -220,7 +230,7 @@ public final class WalletSession: @unchecked Sendable {
                 chunkify: chunkify,
                 encodedNetwork: encodedNetwork
             )
-            return try await withTimeout(seconds: timeout, operation: "getAddress") {
+            return try await withRequestTimeout(seconds: timeout, operation: "getAddress") {
                 if case .ledger(let ledger) = self.backend {
                     return try await ledger.getAddress(request: request)
                 }
@@ -234,7 +244,7 @@ public final class WalletSession: @unchecked Sendable {
     /// Device id, label, model, firmware version and passphrase settings.
     public func getFeatures(timeout: TimeInterval? = nil) async throws -> DeviceFeatures {
         do {
-            return try await withTimeout(seconds: timeout, operation: "getFeatures") {
+            return try await withRequestTimeout(seconds: timeout, operation: "getFeatures") {
                 try await self.trezorWorkflow().getFeatures()
             }
         } catch {
@@ -244,7 +254,7 @@ public final class WalletSession: @unchecked Sendable {
 
     public func getNonce(timeout: TimeInterval? = nil) async throws -> String {
         do {
-            return try await withTimeout(seconds: timeout, operation: "getNonce") {
+            return try await withRequestTimeout(seconds: timeout, operation: "getNonce") {
                 try await self.trezorWorkflow().getNonce()
             }
         } catch {
@@ -258,7 +268,7 @@ public final class WalletSession: @unchecked Sendable {
         timeout: TimeInterval? = nil
     ) async throws -> SignTxResult {
         do {
-            return try await withTimeout(seconds: timeout, operation: "signBitcoinTx") {
+            return try await withRequestTimeout(seconds: timeout, operation: "signBitcoinTx") {
                 if case .ledger(let ledger) = self.backend {
                     return try await ledger.signBitcoinTx(request: request)
                 }
@@ -274,7 +284,7 @@ public final class WalletSession: @unchecked Sendable {
         timeout: TimeInterval? = nil
     ) async throws -> SignTxResult {
         do {
-            return try await withTimeout(seconds: timeout, operation: "signTx") {
+            return try await withRequestTimeout(seconds: timeout, operation: "signTx") {
                 if case .ledger(let ledger) = self.backend {
                     return try await ledger.signTx(request: request)
                 }
@@ -290,7 +300,7 @@ public final class WalletSession: @unchecked Sendable {
         timeout: TimeInterval? = nil
     ) async throws -> SignMessageResult {
         do {
-            return try await withTimeout(seconds: timeout, operation: "signMessage") {
+            return try await withRequestTimeout(seconds: timeout, operation: "signMessage") {
                 if case .ledger(let ledger) = self.backend {
                     return try await ledger.signMessage(request: request)
                 }
@@ -303,7 +313,7 @@ public final class WalletSession: @unchecked Sendable {
 
     public func signTypedData(_ request: SignTypedDataRequest, timeout: TimeInterval? = nil) async throws -> SignTypedDataResult {
         do {
-            return try await withTimeout(seconds: timeout, operation: "signTypedData") {
+            return try await withRequestTimeout(seconds: timeout, operation: "signTypedData") {
                 if case .ledger(let ledger) = self.backend {
                     return try await ledger.signTypedData(request: request)
                 }
@@ -321,19 +331,20 @@ public final class WalletSession: @unchecked Sendable {
         }
     }
 
+    /// Cleanup runs even when the caller is cancelled; the timeout still applies to backend teardown.
     public func disconnect(timeout: TimeInterval? = 5) async {
-        if case .ledger(let ledger) = backend {
-            try? await withTimeout(seconds: timeout, operation: "disconnect") { try await ledger.disconnect() }
-            return
-        }
-        do {
-            _ = try await withTimeout(seconds: timeout, operation: "disconnect") {
-                try await self.trezorWorkflow().abort()
-                return true
+        await Task.detached {
+            do {
+                try await self.withRequestTimeout(seconds: timeout, operation: "disconnect") {
+                    switch self.backend {
+                    case .ledger(let ledger): try await ledger.disconnect()
+                    case .trezor(let workflow): try await workflow.abort()
+                    }
+                }
+            } catch {
+                self.log(level: .warning, operation: "disconnect", message: "Ignoring disconnect failure")
             }
-        } catch {
-            log(level: .warning, operation: "disconnect", message: "Ignoring disconnect failure")
-        }
+        }.value
     }
 
     private func log(level: WalletLogLevel, operation: String, message: String, metadata: [String: String] = [:]) {

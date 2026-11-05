@@ -7,7 +7,7 @@ use bitcoin::{
 };
 
 fn app() -> Vec<u8> {
-    b"\x01\x07Bitcoin\x052.4.0\x01\x00\x90\x00".to_vec()
+    MockTransport::app_info("Bitcoin", "2.4.0")
 }
 
 #[tokio::test]
@@ -93,13 +93,21 @@ async fn bitcoin_wrong_app_and_rejection_are_actionable() {
         })
     ));
     let mut client = LedgerClient::new(MockTransport {
-        responses: vec![app(), vec![0x69, 0x85]].into(),
+        responses: vec![app(), vec![0x69, 0x85], app(), vec![1, 2, 3, 4, 0x90, 0]].into(),
         ..Default::default()
     });
     assert!(matches!(
         client.bitcoin_master_fingerprint(false).await,
         Err(LedgerError::Rejected)
     ));
+    assert_eq!(
+        client
+            .bitcoin_master_fingerprint(false)
+            .await
+            .unwrap()
+            .as_bytes(),
+        &[1, 2, 3, 4]
+    );
 }
 
 fn preimage_request() -> Vec<u8> {

@@ -16,3 +16,15 @@ impl LedgerModel {
         }
     }
 }
+
+impl std::str::FromStr for LedgerModel {
+    type Err = &'static str;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "nano-x" => Ok(Self::NanoX),
+            "stax" => Ok(Self::Stax),
+            "flex" => Ok(Self::Flex),
+            _ => Err("expected Ledger model nano-x, stax, or flex"),
+        }
+    }
+}

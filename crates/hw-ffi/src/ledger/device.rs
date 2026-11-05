@@ -26,6 +26,10 @@ impl LedgerDiscoveredDevice {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl LedgerDiscoveredDevice {
+    pub fn is_consumed(&self) -> bool {
+        self.device.lock().is_none()
+    }
+
     pub fn info(&self) -> BleDeviceInfo {
         self.info.clone()
     }

@@ -1,4 +1,4 @@
-use crate::LedgerError;
+use crate::{LedgerError, protocol::BLE_APDU_TAG};
 
 pub(crate) struct BleFrames;
 
@@ -17,7 +17,7 @@ impl BleFrames {
         while offset < apdu.len() {
             let index = u16::try_from(frames.len())
                 .map_err(|_| LedgerError::InvalidInput("too many frames"))?;
-            let mut frame = vec![5];
+            let mut frame = vec![BLE_APDU_TAG];
             frame.extend_from_slice(&index.to_be_bytes());
             if index == 0 {
                 frame.extend_from_slice(&length.to_be_bytes());
@@ -40,7 +40,9 @@ pub(crate) struct BleResponse {
 
 impl BleResponse {
     pub fn push(&mut self, frame: &[u8]) -> Result<Option<Vec<u8>>, LedgerError> {
-        if frame.len() < 3 || frame[0] != 5 || u16::from_be_bytes([frame[1], frame[2]]) != self.next
+        if frame.len() < 3
+            || frame[0] != BLE_APDU_TAG
+            || u16::from_be_bytes([frame[1], frame[2]]) != self.next
         {
             return Err(LedgerError::Protocol("invalid BLE tag or sequence"));
         }

@@ -1,3 +1,5 @@
+mod message;
+pub(crate) use message::SolanaMessage;
 mod additional_info_input;
 mod sign_tx;
 
