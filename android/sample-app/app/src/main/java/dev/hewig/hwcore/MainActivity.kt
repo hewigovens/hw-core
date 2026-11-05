@@ -200,10 +200,10 @@ fun MainScreen(
     val showConfigTab = selectedTab == 1
     val showLogsTab = selectedTab == 2
 
-    val canPairOnly = !ui.isBusy && (ui.sessionState?.canPairOnly == true || (!ui.hasWorkflow && ui.devices.isNotEmpty()))
+    val canPairOnly = !ui.vendor.isLedger && !ui.isBusy && (ui.sessionState?.canPairOnly == true || (!ui.hasWorkflow && ui.devices.isNotEmpty()))
     val canConnect = !ui.isBusy && (ui.sessionState?.canConnect == true || (!ui.hasWorkflow && ui.devices.isNotEmpty()))
     val canGetAddress = !ui.isBusy && ui.sessionState?.canGetAddress == true
-    val canGetNonce = canGetAddress
+    val canGetNonce = canGetAddress && !ui.vendor.isLedger
     val canSign = !ui.isBusy && ui.sessionState?.canSignTx == true
     val canSignMessage = canSign
     val canDisconnect = !ui.isBusy && ui.hasWorkflow
@@ -325,6 +325,25 @@ fun MainScreen(
                     text = { Text("Logs") },
                 )
             }
+        }
+
+        if (showMainTab) item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Wallet", style = MaterialTheme.typography.titleMedium)
+                WalletVendor.values().forEach { vendor ->
+                    FilterChip(
+                        selected = ui.vendor == vendor,
+                        onClick = { vm.selectVendor(vendor) },
+                        enabled = !ui.isBusy,
+                        label = { Text(vendor.label) },
+                    )
+                }
+                if (ui.vendor.isLedger) Text("Open Ethereum or Solana on Ledger to match the selected chain. BTC and Trezor pairing controls are unavailable.")
+            }
+        }
+
+        if (ui.isBusy && ui.hasWorkflow) {
+            item { OutlinedButton(onClick = vm::cancelOperation) { Text("Cancel Request") } }
         }
 
         if (showMainTab) {
@@ -461,7 +480,7 @@ fun MainScreen(
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Chain", style = MaterialTheme.typography.titleMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Chain.values().forEach { chain ->
+                        Chain.values().filter { !ui.vendor.isLedger || it != Chain.BITCOIN }.forEach { chain ->
                             FilterChip(
                                 selected = chain == ui.selectedChain,
                                 onClick = { vm.selectChain(chain) },
@@ -501,7 +520,7 @@ fun MainScreen(
                         title = "Chunkify",
                         checked = ui.addressChunkify,
                         onCheckedChange = vm::setAddressChunkify,
-                        enabled = !ui.isBusy,
+                        enabled = !ui.isBusy && !ui.vendor.isLedger,
                     )
                 }
             }
@@ -582,7 +601,7 @@ fun MainScreen(
                                 title = "Chunkify",
                                 checked = ui.ethChunkify,
                                 onCheckedChange = vm::setEthChunkify,
-                                enabled = !ui.isBusy,
+                                enabled = !ui.isBusy && !ui.vendor.isLedger,
                             )
                         }
 
@@ -656,7 +675,7 @@ fun MainScreen(
                                 title = "Chunkify",
                                 checked = ui.solChunkify,
                                 onCheckedChange = vm::setSolChunkify,
-                                enabled = !ui.isBusy,
+                                enabled = !ui.isBusy && !ui.vendor.isLedger,
                             )
                         }
                     }
@@ -671,26 +690,36 @@ fun MainScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !ui.isBusy,
                     )
-                    OutlinedTextField(
-                        value = ui.messagePayload,
-                        onValueChange = vm::updateMessagePayload,
-                        label = { Text("Message") },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !ui.isBusy,
-                    )
-                    ToggleRow(
-                        title = "Message is hex",
-                        checked = ui.messageIsHex,
-                        onCheckedChange = vm::setMessageHexMode,
-                        enabled = !ui.isBusy,
-                    )
-                    ToggleRow(
-                        title = "Chunkify",
-                        checked = ui.messageChunkify,
-                        onCheckedChange = vm::setMessageChunkify,
-                        enabled = !ui.isBusy,
-                    )
-
+                    if (ui.selectedChain == Chain.ETHEREUM) {
+                        ToggleRow(title = "EIP-712 typed data", checked = ui.messageTypedData, onCheckedChange = vm::setMessageTypedData, enabled = !ui.isBusy)
+                    }
+                    if (ui.selectedChain == Chain.ETHEREUM && ui.messageTypedData) {
+                        OutlinedTextField(
+                            value = ui.typedDataJson, onValueChange = vm::updateTypedDataJson,
+                            label = { Text("EIP-712 JSON") }, minLines = 6,
+                            modifier = Modifier.fillMaxWidth(), enabled = !ui.isBusy,
+                        )
+                    } else {
+                        OutlinedTextField(
+                            value = ui.messagePayload,
+                            onValueChange = vm::updateMessagePayload,
+                            label = { Text("Message") },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !ui.isBusy,
+                        )
+                        ToggleRow(
+                            title = "Message is hex",
+                            checked = ui.messageIsHex,
+                            onCheckedChange = vm::setMessageHexMode,
+                            enabled = !ui.isBusy,
+                        )
+                        ToggleRow(
+                            title = "Chunkify",
+                            checked = ui.messageChunkify,
+                            onCheckedChange = vm::setMessageChunkify,
+                            enabled = !ui.isBusy && !ui.vendor.isLedger,
+                        )
+                    }
                     Divider(modifier = Modifier.padding(vertical = 4.dp))
 
                     Text("Preview", style = MaterialTheme.typography.titleSmall)

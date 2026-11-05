@@ -1,6 +1,6 @@
 # hw-core Android
 
-Android library and sample app for hw-core, exposing Trezor hardware wallet communication via UniFFI bindings.
+Android library and sample app for hw-core, exposing Trezor and experimental Ledger hardware wallet communication via UniFFI bindings.
 
 Call `System.loadLibrary("hwcore")` before any `uniffi.hwcore` call: the bindings load the library through JNA, which does not run its `JNI_OnLoad`, and that hook initializes btleplug. To build hw-core's Rust crates into your own native library instead of using this one, see [Embedding hw-core on Android](../docs/android-embedding.md).
 
@@ -109,3 +109,12 @@ The library exposes the following via `uniffi.hwcore.*`:
 | `hwCoreVersion()` | Library version string |
 | `hostConfigNew()` | Create host configuration |
 | `chainConfig()` | Get chain-specific config (path, slip44) |
+
+### Ledger in the sample
+
+Select **Ledger Stax** (or Nano X/Flex) under **Wallet**, unlock the device and open
+Ethereum or Solana, then scan and connect. Address, transaction signing, and message signing
+use direct BLE. For EIP-712, select ETH and enable **EIP-712 typed data** in message inputs,
+edit JSON, and use **Sign Msg**. Trezor-only controls are disabled.
+Cancel Request ends the host request; reject any remaining device prompt and reconnect.
+See [Ledger support](../docs/ledger.md) for API details and verification limits.

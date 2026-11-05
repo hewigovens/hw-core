@@ -3,7 +3,7 @@
 `HWCoreKit` is a thin Swift wrapper around generated UniFFI bindings from `crates/hw-ffi`.
 
 ## What It Provides
-- Device discovery (`discoverTrezor`)
+- Trezor discovery (`discoverTrezor`) and Ledger model discovery (`discover(vendor:)`)
 - Session setup (`prepareChannelAndHandshake`)
 - Pairing loop (`startPairing`, `submitPairingCode`, `confirmPairedConnection`)
 - Wallet session creation (`createWalletSession`)
@@ -24,6 +24,17 @@ Generated artifacts are not committed; build before resolving a fresh checkout.
 `just bindings` and the sample app recipes prepare a debug build of the same package on macOS.
 See the [iOS and macOS integration guide](https://github.com/hewigovens/hw-core/blob/main/docs/apple-integration.md) for
 platform requirements, Bluetooth permissions, storage and workflow examples.
+
+## Ledger
+
+Call `discover(vendor: .ledgerStax)` (or `.ledgerNanoX` / `.ledgerFlex`), then
+`connect(device:)`. The returned `WalletSession` supports the same Ethereum/Solana `getAddress`,
+`signTx`, and `signMessage` requests, plus Ethereum `signTypedData`. Open the corresponding
+Ethereum or Solana app on the Ledger first.
+Trezor pairing, nonce, features, and Bitcoin operations are unsupported.
+Ledger's `events()` stream finishes immediately; use operation results/errors for status.
+After cancelling a Ledger request, reject any remaining prompt, disconnect, and rescan.
+See [Ledger support](../../docs/ledger.md) for tested hardware and signing limitations.
 
 ## Notes
 - This scaffold is intentionally thin and keeps protocol-heavy logic in Rust.

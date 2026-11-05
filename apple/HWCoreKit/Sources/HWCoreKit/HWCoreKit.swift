@@ -41,9 +41,26 @@ public final class HWCoreKit: @unchecked Sendable {
         }
     }
 
+    public func discover(vendor: WalletVendor, timeoutMs: UInt64 = 8_000) async throws -> [WalletDevice] {
+        guard let model = vendor.ledgerModel else { return try await discoverTrezor(timeoutMs: timeoutMs) }
+        do {
+            let discovered = try await manager.discoverLedger(model: model, durationMs: timeoutMs)
+            return discovered.map { WalletDevice(raw: $0, vendor: vendor) }
+        } catch {
+            throw mapError(error)
+        }
+    }
+
     public func connect(device: WalletDevice) async throws -> WalletSession {
         do {
-            let session = try await device.raw.connect()
+            let raw: BleDiscoveredDevice
+            switch device.raw {
+            case .ledger(let device):
+                let ledger = try await device.connect(timeoutMs: 120_000)
+                return WalletSession(ledger: ledger, logger: logger, retryPolicy: config.sessionRetryPolicy)
+            case .trezor(let device): raw = device
+            }
+            let session = try await raw.connect()
             let workflow: BleWorkflowHandle
             if let hostStorage = config.hostStorage {
                 workflow = try await session.intoWorkflowWithHostStorage(

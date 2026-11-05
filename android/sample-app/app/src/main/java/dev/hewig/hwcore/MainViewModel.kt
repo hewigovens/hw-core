@@ -41,7 +41,8 @@ data class UiState(
     val status: String = "Idle",
     val phaseSummary: String = "No session",
     val log: List<String> = emptyList(),
-    val devices: List<BleDiscoveredDevice> = emptyList(),
+    val vendor: WalletVendor = WalletVendor.TREZOR,
+    val devices: List<SampleDevice> = emptyList(),
     val selectedDeviceIndex: Int = 0,
     val sessionState: SessionState? = null,
     val hasWorkflow: Boolean = false,
@@ -63,6 +64,8 @@ data class UiState(
     val ethChunkify: Boolean = false,
     val messageSignPathInput: String = DEFAULT_ETH_PATH,
     val messagePayload: String = "hello from hw-core",
+    val messageTypedData: Boolean = false,
+    val typedDataJson: String = DEFAULT_TYPED_DATA_JSON,
     val messageIsHex: Boolean = false,
     val messageChunkify: Boolean = false,
     val solSignPathInput: String = DEFAULT_SOL_PATH,
@@ -78,6 +81,7 @@ data class UiState(
     val isBusy: Boolean = false,
 )
 
+private const val DEFAULT_TYPED_DATA_JSON = """{"types":{"EIP712Domain":[{"name":"name","type":"string"}],"Message":[{"name":"contents","type":"string"}]},"primaryType":"Message","domain":{"name":"hw-core sample"},"message":{"contents":"Hello from hw-core"}}"""
 private const val DEFAULT_ETH_PATH = "m/44'/60'/0'/0/0"
 private const val DEFAULT_BTC_PATH = "m/84'/0'/0'/0/0"
 private const val DEFAULT_SOL_PATH = "m/44'/501'/0'/0'"
@@ -391,6 +395,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
     private var bleManager: BleManagerHandle? = null
     private var workflow: BleWorkflowHandle? = null
+    private var ledgerSession: LedgerSessionHandle? = null
     private var workflowEventsJob: Job? = null
     private var pendingPairingFlow: PendingPairingFlow? = null
     private var hostConfig: HostConfig? = null
@@ -481,13 +486,17 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         ui = ui.copy(log = emptyList())
     }
 
+    private val rememberedDeviceFile: String
+        get() = if (ui.vendor == WalletVendor.TREZOR) REMEMBERED_DEVICE_FILE
+        else "remembered-device-${ui.vendor.name.lowercase()}.txt"
+
     private fun restoreRememberedDeviceId(context: Context) {
         if (!rememberedDeviceId.isNullOrBlank()) {
             return
         }
         val restored = runCatching {
             context.filesDir
-                .resolve(REMEMBERED_DEVICE_FILE)
+                .resolve(rememberedDeviceFile)
                 .takeIf { it.exists() }
                 ?.readText()
                 ?.trim()
@@ -501,7 +510,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     private fun persistRememberedDeviceId() {
         val context = appContext ?: return
         runCatching {
-            val file = context.filesDir.resolve(REMEMBERED_DEVICE_FILE)
+            val file = context.filesDir.resolve(rememberedDeviceFile)
             val id = rememberedDeviceId?.trim().orEmpty()
             if (id.isEmpty()) {
                 if (file.exists()) {
@@ -532,6 +541,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             put("hadLiveSession", state.hasWorkflow || state.sessionState != null)
             put("rememberedDeviceId", rememberedDeviceId)
             put("selectedChain", state.selectedChain.name)
+            put("walletVendor", state.vendor.name)
             put("addressPathInput", state.addressPathInput)
             put("showAddressOnDevice", state.showAddressOnDevice)
             put("includeAddressPublicKey", state.includeAddressPublicKey)
@@ -549,6 +559,8 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             put("messageSignPathInput", state.messageSignPathInput)
             put("messagePayload", state.messagePayload)
             put("messageIsHex", state.messageIsHex)
+            put("messageTypedData", state.messageTypedData)
+            put("typedDataJson", state.typedDataJson)
             put("messageChunkify", state.messageChunkify)
             put("solSignPathInput", state.solSignPathInput)
             put("solSerializedTxHex", state.solSerializedTxHex)
@@ -573,6 +585,9 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             }
         }
 
+        val restoredVendor = runCatching {
+            WalletVendor.valueOf(json.optString("walletVendor", "TREZOR"))
+        }.getOrDefault(WalletVendor.TREZOR)
         val restoredChain = runCatching {
             Chain.valueOf(json.optString("selectedChain", Chain.ETHEREUM.name))
         }.getOrDefault(Chain.ETHEREUM)
@@ -582,7 +597,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         val restoredStatus = json.optString("status", "Idle")
         val restoredPhase = json.optString("phaseSummary", "No session")
         val hadLiveSession = json.optBoolean("hadLiveSession", false)
-        setRememberedDeviceId(json.optString("rememberedDeviceId").trim().ifEmpty { null })
+        rememberedDeviceId = json.optString("rememberedDeviceId").trim().ifEmpty { null }
         val requiresReconnect = hadLiveSession ||
             restoredScreen == AppScreen.Ready ||
             restoredScreen == AppScreen.Pairing ||
@@ -623,15 +638,16 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 }
             }
             ui = UiState(
+                vendor = restoredVendor,
                 screen = effectiveScreen,
                 status = effectiveStatus,
                 phaseSummary = effectivePhase,
                 log = logsSnapshot(),
-                selectedChain = restoredChain,
+                selectedChain = if (restoredVendor.isLedger && restoredChain == Chain.BITCOIN) Chain.ETHEREUM else restoredChain,
                 addressPathInput = json.optString("addressPathInput", DEFAULT_ETH_PATH),
                 showAddressOnDevice = json.optBoolean("showAddressOnDevice", true),
                 includeAddressPublicKey = json.optBoolean("includeAddressPublicKey", false),
-                addressChunkify = json.optBoolean("addressChunkify", false),
+                addressChunkify = !restoredVendor.isLedger && json.optBoolean("addressChunkify", false),
                 ethSignPathInput = json.optString("ethSignPathInput", DEFAULT_ETH_PATH),
                 ethTo = json.optString("ethTo", "0x000000000000000000000000000000000000dead"),
                 ethValue = json.optString("ethValue", "0x0"),
@@ -641,14 +657,16 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 ethData = json.optString("ethData", "0x"),
                 ethMaxFeePerGas = json.optString("ethMaxFeePerGas", "0x3b9aca00"),
                 ethMaxPriorityFee = json.optString("ethMaxPriorityFee", "0x59682f00"),
-                ethChunkify = json.optBoolean("ethChunkify", false),
+                ethChunkify = !restoredVendor.isLedger && json.optBoolean("ethChunkify", false),
                 messageSignPathInput = json.optString("messageSignPathInput", DEFAULT_ETH_PATH),
                 messagePayload = json.optString("messagePayload", "hello from hw-core"),
                 messageIsHex = json.optBoolean("messageIsHex", false),
-                messageChunkify = json.optBoolean("messageChunkify", false),
+                messageTypedData = json.optBoolean("messageTypedData", false),
+                typedDataJson = json.optString("typedDataJson", DEFAULT_TYPED_DATA_JSON),
+                messageChunkify = !restoredVendor.isLedger && json.optBoolean("messageChunkify", false),
                 solSignPathInput = json.optString("solSignPathInput", DEFAULT_SOL_PATH),
                 solSerializedTxHex = json.optString("solSerializedTxHex", DEFAULT_SOLANA_TX_HEX),
-                solChunkify = json.optBoolean("solChunkify", false),
+                solChunkify = !restoredVendor.isLedger && json.optBoolean("solChunkify", false),
                 btcTxJsonInput = json.optString("btcTxJsonInput", DEFAULT_BITCOIN_TX_JSON.trim()),
                 address = json.optString("address").takeIf { it.isNotBlank() },
                 addressPublicKey = json.optString("addressPublicKey").takeIf { it.isNotBlank() },
@@ -774,6 +792,11 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         error.message.orEmpty().contains("device already connected", ignoreCase = true)
 
     private suspend fun dropWorkflow(forceBleManagerReset: Boolean = false) {
+        ledgerSession?.let { session ->
+            runCatching { session.disconnect() }
+            session.destroy()
+        }
+        ledgerSession = null
         workflowEventsJob?.cancel()
         workflowEventsJob = null
         val wf = workflow
@@ -814,6 +837,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     }
 
     private suspend fun recoverAfterConnectFailure(errorMessage: String, requireRescan: Boolean) {
+        val rescan = requireRescan || ui.vendor.isLedger
         dropWorkflow()
         ui = ui.copy(
             screen = AppScreen.Scanning,
@@ -821,14 +845,23 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             sessionState = null,
             pairingPrompt = null,
             phaseSummary = "No session",
-            devices = if (requireRescan) emptyList() else ui.devices,
+            devices = if (rescan) emptyList() else ui.devices,
             selectedDeviceIndex = 0,
         )
-        val suffix = if (requireRescan) " Tap Scan to refresh devices and reconnect." else ""
+        val suffix = if (rescan) " Tap Scan to refresh devices and reconnect." else ""
         setError("$errorMessage$suffix")
     }
 
-    private fun selectedDevice(): BleDiscoveredDevice? = ui.devices.getOrNull(ui.selectedDeviceIndex)
+    private suspend fun retireLedgerAfterFailure() {
+        if (!ui.vendor.isLedger) return
+        dropWorkflow()
+        ui = ui.copy(
+            hasWorkflow = false, sessionState = null, devices = emptyList(),
+            phaseSummary = "No session",
+        )
+    }
+
+    private fun selectedDevice(): SampleDevice? = ui.devices.getOrNull(ui.selectedDeviceIndex)
 
     private fun chainDefaultPath(chain: Chain): String =
         chainConfig(chain).defaultPath
@@ -910,7 +943,8 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         ui = ui.copy(screen = AppScreen.Connecting)
         log("Connecting to ${info.name ?: info.id}...")
 
-        val session = device.connect()
+        val trezor = (device as? SampleDevice.Trezor)?.handle ?: throw IllegalStateException("Trezor operation unavailable on Ledger")
+        val session = trezor.connect()
         val wf = session.intoWorkflowWithHostStorage(
             currentHostConfig(),
             checkNotNull(hostStorage) { "host storage not configured" },
@@ -925,7 +959,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     fun maybeAutoReconnect(hasBlePermissions: Boolean, isBluetoothEnabled: Boolean) {
         if (!shouldAutoReconnect || autoReconnectInFlight) return
         if (!hasBlePermissions || !isBluetoothEnabled) return
-        if (workflow != null || ui.isBusy) return
+        if (workflow != null || ledgerSession != null || ui.isBusy) return
         val targetId = rememberedDeviceId ?: return
 
         autoReconnectInFlight = true
@@ -944,7 +978,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                     log("BLE manager initialized")
                 }
                 val mgr = bleManager ?: return@launch setError("Auto-connect failed: BLE manager unavailable")
-                val found = mgr.discoverTrezor(4_000uL)
+                val found = discover(mgr, 4_000uL)
                 log("Auto-connect: found ${found.size} device(s)")
 
                 val matchIndex = found.indexOfFirst { discovered ->
@@ -968,6 +1002,10 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                     error = null,
                 )
 
+                if (ui.vendor.isLedger) {
+                    connectLedger()
+                    return@launch
+                }
                 val wf = ensureWorkflowFromSelectedDevice()
                 pendingPairingFlow = PendingPairingFlow.ConnectReady
                 log("Auto-connect: advancing workflow to session-ready state...")
@@ -1035,6 +1073,46 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
     // -- BLE Scan --
 
+    private suspend fun discover(manager: BleManagerHandle, duration: ULong): List<SampleDevice> {
+        val model = ui.vendor.ledgerModel
+        return if (model == null) manager.discoverTrezor(duration).map { SampleDevice.Trezor(it) }
+        else manager.discoverLedger(model, duration).map { SampleDevice.Ledger(it) }
+    }
+
+    private suspend fun connectLedger() {
+        val device = selectedDevice() as? SampleDevice.Ledger ?: error("Scan for a Ledger first")
+        val session = ledgerSession ?: device.handle.connect(120_000uL).also { ledgerSession = it }
+        val app = session.appInfo()
+        setRememberedDeviceId(device.info().id)
+        applySessionState(SessionState(SessionPhase.READY, false, false, true, true, false, null))
+        ui = ui.copy(
+            hasWorkflow = true, isBusy = false, pairingPrompt = null,
+            status = "Connected: ${app.name} ${app.version}. Open the app matching the selected chain.",
+        )
+    }
+
+    fun selectVendor(vendor: WalletVendor) {
+        if (ui.isBusy || vendor == ui.vendor) return
+        shouldAutoReconnect = false
+        ui = ui.copy(isBusy = true)
+        viewModelScope.launch(Dispatchers.IO) {
+            dropWorkflow()
+            rememberedDeviceId = null
+            ui = ui.copy(
+                vendor = vendor, devices = emptyList(), selectedDeviceIndex = 0,
+                sessionState = null, hasWorkflow = false, pairingPrompt = null,
+                selectedChain = Chain.ETHEREUM, addressPathInput = DEFAULT_ETH_PATH,
+                messageSignPathInput = DEFAULT_ETH_PATH,
+                addressChunkify = false, ethChunkify = false, messageChunkify = false, solChunkify = false,
+                address = null, addressPublicKey = null, nonceResult = null,
+                txSignResult = null, messageSignResult = null, error = null,
+                isBusy = false, phaseSummary = "No session", screen = AppScreen.Home,
+                status = "Selected ${vendor.label}; scan to connect",
+            )
+            appContext?.let { restoreRememberedDeviceId(it) }
+        }
+    }
+
     fun scan() {
         shouldAutoReconnect = false
         ui = ui.copy(
@@ -1049,7 +1127,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             error = null,
             isBusy = true,
         )
-        log("Scanning for Trezor devices...")
+        log("Scanning for ${ui.vendor.label}...")
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1065,9 +1143,8 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                     log("BLE manager initialized")
                 }
                 val mgr = bleManager ?: return@launch setError("Scan failed: BLE manager unavailable")
-                val found = mgr.discoverTrezor(5_000uL)
-
                 dropWorkflow()
+                val found = discover(mgr, 5_000uL)
 
                 log("Found ${found.size} device(s)")
                 val remembered = rememberedDeviceId
@@ -1095,17 +1172,25 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     }
 
     fun selectDeviceIndex(index: Int) {
-        if (index !in ui.devices.indices) {
-            return
+        if (ui.isBusy || index !in ui.devices.indices || index == ui.selectedDeviceIndex) return
+        shouldAutoReconnect = false
+        ui = ui.copy(isBusy = true)
+        viewModelScope.launch(Dispatchers.IO) {
+            dropWorkflow()
+            ui = ui.copy(
+                selectedDeviceIndex = index, hasWorkflow = false, sessionState = null,
+                pairingPrompt = null, phaseSummary = "No session", isBusy = false,
+                address = null, addressPublicKey = null, nonceResult = null,
+                txSignResult = null, messageSignResult = null,
+                status = "Device selected; connect to continue",
+            )
         }
-        val info = ui.devices[index].info()
-        ui = ui.copy(selectedDeviceIndex = index)
-        log("Selected device: ${info.name ?: info.id}")
     }
 
     // -- Session actions --
 
     fun pairOnly() {
+        if (ui.vendor.isLedger) return
         shouldAutoReconnect = false
         ui = ui.copy(isBusy = true, error = null)
         log("Pair-only flow requested...")
@@ -1138,6 +1223,10 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                if (ui.vendor.isLedger) {
+                    connectLedger()
+                    return@launch
+                }
                 val wf = ensureWorkflowFromSelectedDevice()
                 pendingPairingFlow = PendingPairingFlow.ConnectReady
                 log("Advancing workflow to session-ready state...")
@@ -1236,10 +1325,15 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
     // -- Chain & input controls --
 
+    fun setMessageTypedData(enabled: Boolean) { ui = ui.copy(messageTypedData = enabled) }
+    fun updateTypedDataJson(value: String) { ui = ui.copy(typedDataJson = value) }
+
     fun selectChain(chain: Chain) {
+        if (ui.vendor.isLedger && chain == Chain.BITCOIN) return
         val nextAddressPath = chainDefaultPath(chain)
         ui = ui.copy(
             selectedChain = chain,
+            messageTypedData = false,
             addressPathInput = nextAddressPath,
             messageSignPathInput = chainDefaultPath(chain),
             address = null,
@@ -1305,6 +1399,9 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     fun messageSignPreview(): String {
         val state = ui
         val chain = state.selectedChain
+        if (chain == Chain.ETHEREUM && state.messageTypedData) {
+            return "ETH EIP-712 path=${resolvedPath(state.messageSignPathInput, chain)}; review the JSON above"
+        }
         return "${chainLabel(chain)} path=${resolvedPath(state.messageSignPathInput, chain)} " +
             "hex=${state.messageIsHex} bytes=${state.messagePayload.toByteArray().size}"
     }
@@ -1317,7 +1414,9 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val wf = workflow ?: return@launch setError("Get address failed: connect first")
+                val wf = workflow
+                val ledger = ledgerSession
+                if (wf == null && ledger == null) return@launch setError("Get address failed: connect first")
                 if (ui.sessionState?.canGetAddress != true) {
                     return@launch setError("Get address failed: session is not ready")
                 }
@@ -1330,7 +1429,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                     includePublicKey = ui.includeAddressPublicKey,
                     chunkify = ui.addressChunkify,
                 )
-                val result = wf.getAddress(request)
+                val result = if (ledger != null) ledger.getAddress(request) else checkNotNull(wf).getAddress(request)
                 ui = ui.copy(
                     address = result.address,
                     addressPublicKey = result.publicKey,
@@ -1342,6 +1441,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                     log("${chainLabel(chain)} public key: $pubkey")
                 }
             } catch (e: Exception) {
+                retireLedgerAfterFailure()
                 setError("Get address failed: ${e.message}")
             }
         }
@@ -1378,17 +1478,20 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val wf = workflow ?: return@launch setError("Sign tx failed: connect first")
+                val wf = workflow
+                val ledger = ledgerSession
+                if (wf == null && ledger == null) return@launch setError("Sign tx failed: connect first")
                 if (ui.sessionState?.canSignTx != true) {
                     return@launch setError("Sign tx failed: session is not ready")
                 }
 
                 val request = buildSignTxRequest()
-                val result = wf.signTx(request)
+                val result = if (ledger != null) ledger.signTx(request) else checkNotNull(wf).signTx(request)
                 val display = formatSignTxResult(chain, result)
                 ui = ui.copy(txSignResult = display, isBusy = false, status = "Transaction signed")
                 log("${chainLabel(chain)} sign result ready")
             } catch (e: Exception) {
+                retireLedgerAfterFailure()
                 setError("Sign tx failed: ${e.message}")
             }
         }
@@ -1401,11 +1504,22 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val wf = workflow ?: return@launch setError("Sign message failed: connect first")
+                val wf = workflow
+                val ledger = ledgerSession
+                if (wf == null && ledger == null) return@launch setError("Sign message failed: connect first")
                 if (ui.sessionState?.canSignTx != true) {
                     return@launch setError("Sign message failed: session is not ready")
                 }
 
+                if (chain == Chain.ETHEREUM && ui.messageTypedData) {
+                    val request = SignTypedDataRequest(
+                        chain = chain, path = resolvedPath(ui.messageSignPathInput, chain),
+                        domainSeparatorHash = "", messageHash = null, dataJson = ui.typedDataJson,
+                    )
+                    val result = if (ledger != null) ledger.signTypedData(request) else checkNotNull(wf).signTypedData(request)
+                    ui = ui.copy(messageSignResult = "address = ${result.address}\nsignature = ${result.signatureFormatted}", isBusy = false, status = "EIP-712 typed data signed")
+                    return@launch
+                }
                 val request = SignMessageRequest(
                     chain = chain,
                     path = resolvedPath(ui.messageSignPathInput, chain),
@@ -1414,11 +1528,12 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                     isHex = ui.messageIsHex,
                     chunkify = ui.messageChunkify,
                 )
-                val result = wf.signMessage(request)
+                val result = if (ledger != null) ledger.signMessage(request) else checkNotNull(wf).signMessage(request)
                 val display = buildString {
                     appendLine("address = ${result.address}")
                     appendLine("encoding = ${result.signatureEncoding}")
                     appendLine("signature = ${result.signatureFormatted}")
+                    result.signedData?.let { appendLine("signed_data = ${it.toHex()}") }
                 }.trimEnd()
 
                 ui = ui.copy(
@@ -1428,6 +1543,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
                 )
                 log("${chainLabel(chain)} message sign result ready")
             } catch (e: Exception) {
+                retireLedgerAfterFailure()
                 setError("Sign message failed: ${e.message}")
             }
         }
@@ -1533,6 +1649,11 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
             Chain.SOLANA -> "SOL"
         }
 
+    fun cancelOperation() {
+        ledgerSession?.cancel()
+        workflow?.cancel()
+    }
+
     fun disconnect() {
         shouldAutoReconnect = false
         viewModelScope.launch(Dispatchers.IO) {
@@ -1575,6 +1696,8 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     override fun onCleared() {
         workflowEventsJob?.cancel()
         workflow?.destroy()
+        ledgerSession?.cancel()
+        ledgerSession?.destroy()
         bleManager?.destroy()
         super.onCleared()
     }

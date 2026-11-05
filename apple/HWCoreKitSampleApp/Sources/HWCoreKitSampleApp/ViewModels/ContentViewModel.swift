@@ -15,6 +15,7 @@ final class ContentViewModel: ObservableObject {
     @Published var status = "Idle"
     @Published var devices: [WalletDevice] = []
     @Published var selectedDeviceIndex = 0
+    @Published var selectedVendor: WalletVendor = .trezor
     @Published var selectedChain: Chain = .ethereum
     @Published var phaseSummary = "No session"
     @Published var pairingPromptMessage = ""
@@ -42,6 +43,8 @@ final class ContentViewModel: ObservableObject {
     @Published var ethChunkify = false
     @Published var messageSignPathInput: String
     @Published var messageSignPayload = "hello from hw-core"
+    @Published var messageSignTypedData = false
+    @Published var typedDataJson = #"{"types":{"EIP712Domain":[{"name":"name","type":"string"}],"Message":[{"name":"contents","type":"string"}]},"primaryType":"Message","domain":{"name":"hw-core sample"},"message":{"contents":"Hello from hw-core"}}"#
     @Published var messageSignIsHex = false
     @Published var messageSignChunkify = false
     @Published var solSignPathInput: String
@@ -58,7 +61,9 @@ final class ContentViewModel: ObservableObject {
     private var pendingRecoveryDeviceID: String?
     private var shouldRecoverOnActive = false
     private let defaults = UserDefaults.standard
-    private let rememberedDeviceIDDefaultsKey = "hwcore.sample.rememberedDeviceID"
+    private var rememberedDeviceIDDefaultsKey: String {
+        selectedVendor == .trezor ? "hwcore.sample.rememberedDeviceID" : "hwcore.sample.rememberedDeviceID.\(selectedVendor.rawValue)"
+    }
 
     private enum PendingPairingFlow {
         case pairOnly
@@ -386,6 +391,7 @@ final class ContentViewModel: ObservableObject {
     }
 
     var canPairOnly: Bool {
+        guard !selectedVendor.isLedger else { return false }
         guard !isBusy, hasSelectedDevice else { return false }
         guard session != nil else { return true }
         return sessionState?.canPairOnly ?? true
@@ -398,11 +404,11 @@ final class ContentViewModel: ObservableObject {
     }
 
     var canGetAddress: Bool {
-        !isBusy && session != nil && (sessionState?.canGetAddress ?? false)
+        !isBusy && selectedVendor.supportedChains.contains(selectedChain) && session != nil && (sessionState?.canGetAddress ?? false)
     }
 
     var canSign: Bool {
-        !isBusy && session != nil && (sessionState?.canSignTx ?? false)
+        !isBusy && selectedVendor.supportedChains.contains(selectedChain) && session != nil && (sessionState?.canSignTx ?? false)
     }
 
     var canSignMessage: Bool {
@@ -447,13 +453,51 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    var canGetNonce: Bool { canGetAddress && !selectedVendor.isLedger }
+    var canCancel: Bool { isBusy && session != nil }
+
+    func selectDevice(_ index: Int) async {
+        guard !isBusy, devices.indices.contains(index), index != selectedDeviceIndex else { return }
+        isBusy = true
+        defer { isBusy = false }
+        await disconnectSession()
+        selectedDeviceIndex = index
+        address = ""
+        addressPublicKey = ""
+        signatureSummary = ""
+        nonceResult = ""
+        status = "Device selected; connect to continue"
+    }
+
+    func selectedVendorDidChange() async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        await disconnectSession()
+        devices = []
+        selectedDeviceIndex = 0
+        selectedChain = .ethereum
+        addressChunkify = false
+        ethChunkify = false
+        messageSignChunkify = false
+        solChunkify = false
+        shouldRecoverOnActive = false
+        pendingRecoveryDeviceID = nil
+        address = ""
+        addressPublicKey = ""
+        signatureSummary = ""
+        nonceResult = ""
+        status = selectedVendor.isLedger ? "Unlock Ledger and open the app for your selected chain, then scan" : "Ready to scan Trezor"
+    }
+
     func scan() async {
         await runAction(prefix: "scan") { [self] in
             await self.bootstrap()
             guard let coreKit else { return }
 
+            await disconnectSession()
             status = "Scanning for devices..."
-            devices = try await coreKit.discoverTrezor(timeoutMs: 8_000)
+            devices = try await coreKit.discover(vendor: selectedVendor, timeoutMs: 8_000)
             if let rememberedDeviceID = rememberedDeviceID(),
                let rememberedIndex = devices.firstIndex(where: { $0.id == rememberedDeviceID })
             {
@@ -465,15 +509,12 @@ final class ContentViewModel: ObservableObject {
             status = "Found \(devices.count) device(s)"
             appendLog("scan complete: \(devices.count) device(s)")
 
-            if session != nil {
-                await disconnectSession()
-            }
-
             await attemptAutoConnectRememberedDeviceIfPossible(trigger: "scan")
         }
     }
 
     func pairOnly() async {
+        guard !selectedVendor.isLedger else { return }
         await runAction(prefix: "pairOnly") { [self] in
             try clearPairingStorage()
             await disconnectSession()
@@ -616,6 +657,16 @@ final class ContentViewModel: ObservableObject {
                 status = "Connect first"
                 return
             }
+            if selectedChain == .ethereum && messageSignTypedData {
+                let request = SignTypedDataRequest(
+                    chain: .ethereum, path: resolvedPath(messageSignPathInput, chain: .ethereum),
+                    domainSeparatorHash: "", messageHash: nil, dataJson: typedDataJson
+                )
+                let result = try await session.signTypedData(request)
+                signatureSummary = "address=\(result.address)\nsignature=\(result.signatureFormatted)"
+                status = "EIP-712 typed data signed"
+                return
+            }
             let request = try buildMessageSignRequest(chain: selectedChain)
             appendLog("message sign preview: \(messageSignPreview)")
             let result = try await session.signMessage(request)
@@ -626,6 +677,7 @@ final class ContentViewModel: ObservableObject {
     }
 
     func selectedChainDidChange() {
+        messageSignTypedData = false
         addressPathInput = defaultPath(for: selectedChain)
         messageSignPathInput = defaultPath(for: selectedChain)
         nonceResult = ""
@@ -647,7 +699,10 @@ final class ContentViewModel: ObservableObject {
     }
 
     var messageSignPreview: String {
-        "\(chainLabel(selectedChain)) path=\(resolvedPath(messageSignPathInput, chain: selectedChain)) hex=\(messageSignIsHex) bytes=\(messageSignPayload.utf8.count)"
+        if selectedChain == .ethereum && messageSignTypedData {
+            return "ETH EIP-712 path=\(resolvedPath(messageSignPathInput, chain: .ethereum)); review the JSON above"
+        }
+        return "\(chainLabel(selectedChain)) path=\(resolvedPath(messageSignPathInput, chain: selectedChain)) hex=\(messageSignIsHex) bytes=\(messageSignPayload.utf8.count)"
     }
 
     func copyAddressToClipboard() {
@@ -691,16 +746,22 @@ final class ContentViewModel: ObservableObject {
         #endif
     }
 
+    func cancelOperation() {
+        session?.cancel()
+        status = selectedVendor.isLedger ? "Cancelling; reject any remaining Ledger prompt" : "Cancelling device request"
+    }
+
     func disconnect() async {
         await runAction(prefix: "disconnect") { [self] in
             await disconnectSession()
+            if selectedVendor.isLedger { devices = [] }
         }
     }
 
     func resetAll() async {
         await runAction(prefix: "reset") { [self] in
             await disconnectSession()
-            try clearPairingStorage()
+            if !selectedVendor.isLedger { try clearPairingStorage() }
             clearRememberedDeviceID()
 
             devices = []
@@ -720,7 +781,7 @@ final class ContentViewModel: ObservableObject {
             logs.removeAll()
 
             status = "Reset complete"
-            appendLog("reset: cleared session, pairing storage, remembered device, and UI state")
+            appendLog("reset: cleared selected wallet session, remembered device, and UI state")
         }
     }
 
@@ -782,7 +843,7 @@ final class ContentViewModel: ObservableObject {
             await bootstrap()
             guard let coreKit else { return }
 
-            let discovered = try await coreKit.discoverTrezor(timeoutMs: 4_000)
+            let discovered = try await coreKit.discover(vendor: selectedVendor, timeoutMs: 4_000)
             devices = discovered
             if let recoveryID = pendingRecoveryDeviceID ?? rememberedDeviceID(),
                let matchingIndex = discovered.firstIndex(where: { $0.id == recoveryID })
@@ -997,7 +1058,11 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func describeMessageSignResult(_ result: SignMessageResult) -> String {
-        "address=\(result.address) signature=\(result.signatureFormatted)"
+        var summary = "address=\(result.address) signature=\(result.signatureFormatted)"
+        if let signedData = result.signedData {
+            summary += "\nsigned_data=0x\(hex(signedData))"
+        }
+        return summary
     }
 
     private func hex(_ data: Data) -> String {
@@ -1209,6 +1274,11 @@ final class ContentViewModel: ObservableObject {
         do {
             try await operation()
         } catch {
+            if selectedVendor.isLedger {
+                await disconnectSession()
+                devices = []
+                sessionState = nil
+            }
             handleError(error, prefix: prefix)
         }
     }

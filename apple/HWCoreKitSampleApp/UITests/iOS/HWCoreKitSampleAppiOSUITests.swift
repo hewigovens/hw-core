@@ -42,6 +42,38 @@ final class HWCoreKitSampleAppiOSUITests: XCTestCase {
         XCTAssertTrue(waitForElement(app, identifier: "state.session_phase", timeout: 10), "Expected state.session_phase")
     }
 
+    @MainActor
+    func testWalletSwitchRestrictsLedgerAndRestoresTrezorChains() throws {
+        let app = launchApp()
+        let wallet = app.buttons["picker.wallet"]
+        XCTAssertTrue(wallet.waitForExistence(timeout: 10))
+        wallet.tap()
+        app.buttons["Ledger Stax"].tap()
+        XCTAssertFalse(app.buttons["BTC"].exists)
+        XCTAssertTrue(app.buttons["SOL"].exists)
+        XCTAssertFalse(app.buttons["action.pair_only"].isEnabled)
+        wallet.tap()
+        app.buttons["Trezor Safe 7"].tap()
+        XCTAssertTrue(app.buttons["BTC"].exists)
+        XCTAssertTrue(app.buttons["SOL"].exists)
+    }
+
+    @MainActor
+    func testTypedDataEditorAndSolanaInputs() throws {
+        let app = launchApp()
+        app.tabBars.buttons["Config"].tap()
+        let typed = app.switches["toggle.message.typed_data"]
+        for _ in 0..<5 where !typed.isHittable { app.swipeUp() }
+        XCTAssertTrue(typed.exists)
+        typed.tap()
+        XCTAssertTrue(app.textViews["input.message.typed_data"].exists)
+        app.tabBars.buttons["Wallet"].tap()
+        app.buttons["SOL"].tap()
+        app.tabBars.buttons["Config"].tap()
+        XCTAssertTrue(app.textFields["input.sign.sol.tx_hex"].exists)
+        XCTAssertFalse(app.switches["toggle.message.typed_data"].exists)
+    }
+
     private func launchApp() -> XCUIApplication {
         addUIInterruptionMonitor(withDescription: "Bluetooth permission") { [weak self] alert in
             self?.tapFirstMatchingPermissionButton(in: alert) ?? false

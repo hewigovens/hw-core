@@ -4,14 +4,19 @@ A minimal SwiftUI sample app (macOS + iOS) that exercises the `HWCoreKit` API.
 
 ## What It Demonstrates
 - Creating an `HWCoreKit` instance
-- BLE device discovery
+- Direct BLE discovery for Trezor Safe 7 and Ledger Stax/Nano X/Flex
 - Workflow-state driven pair/connect transitions from Rust state machine
 - Pair-only flow (`pair --force` equivalent) and connect-ready flow
 - Pairing code entry via SwiftUI alert
-- Address retrieval for ETH/BTC/SOL
+- Address retrieval and transaction/message signing for Ledger ETH/SOL; Trezor ETH/BTC/SOL
 - Signing requests for ETH/BTC/SOL (basic BTC request types)
 - Event stream consumption (`session.events()`)
 - App lifecycle recovery path (background disconnect + foreground reconnect attempt)
+
+For Ledger, select the model in **Wallet**, open Ethereum or Solana on the device, then scan and
+connect. For EIP-712, enable **EIP-712 typed data** in message inputs, edit JSON, and use
+**Sign Msg**. Pair-only, nonce, and chunkify controls are Trezor-specific. See
+[Ledger support](../../docs/ledger.md) for limitations and cancellation/reconnect behavior.
 
 ## Run (macOS)
 From repository root:

@@ -32,14 +32,29 @@ public final class WalletDevice: @unchecked Sendable {
     public let name: String?
     public let rssi: Int32?
 
-    let raw: BleDiscoveredDevice
+    enum Handle {
+        case trezor(BleDiscoveredDevice)
+        case ledger(LedgerDiscoveredDevice)
+    }
+    let raw: Handle
+    public let vendor: WalletVendor
 
     init(raw: BleDiscoveredDevice) {
         let info = raw.info()
         self.id = info.id
         self.name = info.name
         self.rssi = info.rssi
-        self.raw = raw
+        self.raw = .trezor(raw)
+        self.vendor = .trezor
+    }
+
+    init(raw: LedgerDiscoveredDevice, vendor: WalletVendor) {
+        let info = raw.info()
+        self.id = info.id
+        self.name = info.name
+        self.rssi = info.rssi
+        self.raw = .ledger(raw)
+        self.vendor = vendor
     }
 }
 
@@ -93,6 +108,8 @@ public typealias AddressResult = HWCoreFFI.AddressResult
 public typealias AccessListEntry = HWCoreFFI.AccessListEntry
 public typealias SignatureEncoding = HWCoreFFI.SignatureEncoding
 public typealias MessageSignatureEncoding = SignatureEncoding
+public typealias SignTypedDataRequest = HWCoreFFI.SignTypedDataRequest
+public typealias SignTypedDataResult = HWCoreFFI.SignTypedDataResult
 public typealias SignMessageRequest = HWCoreFFI.SignMessageRequest
 public typealias SignMessageResult = HWCoreFFI.SignMessageResult
 public typealias BitcoinSignTxRequest = HWCoreFFI.BitcoinSignTxRequest

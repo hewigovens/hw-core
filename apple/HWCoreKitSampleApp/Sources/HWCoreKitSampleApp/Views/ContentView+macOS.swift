@@ -41,9 +41,22 @@ struct MacContentView: View {
                     .accessibilityLabel("Status")
                     .accessibilityIdentifier("status.text")
 
+                Picker("Wallet", selection: $viewModel.selectedVendor) {
+                    ForEach(WalletVendor.allCases, id: \.self) { vendor in
+                        Text(vendor.rawValue).tag(vendor)
+                    }
+                }
+                .disabled(viewModel.isBusy)
+                .accessibilityIdentifier("picker.wallet")
+                if viewModel.selectedVendor.isLedger {
+                    Text("Open Ethereum or Solana on Ledger to match the selected chain. BTC and Trezor pairing controls are unavailable.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Picker("Chain", selection: $viewModel.selectedChain) {
                     Text("ETH").tag(Chain.ethereum)
-                    Text("BTC").tag(Chain.bitcoin)
+                    if !viewModel.selectedVendor.isLedger {
+                        Text("BTC").tag(Chain.bitcoin)
+                    }
                     Text("SOL").tag(Chain.solana)
                 }
                 .pickerStyle(.segmented)
@@ -96,7 +109,7 @@ struct MacContentView: View {
                 Button("Nonce") {
                     Task { await viewModel.fetchNonce() }
                 }
-                .disabled(!viewModel.canGetAddress)
+                .disabled(!viewModel.canGetNonce)
                 .accessibilityLabel("Get nonce")
                 .accessibilityIdentifier("action.nonce")
 
@@ -113,6 +126,10 @@ struct MacContentView: View {
                 .disabled(!viewModel.canSignMessage)
                 .accessibilityLabel("Sign message")
                 .accessibilityIdentifier("action.sign_message")
+
+                Button("Cancel Request") { viewModel.cancelOperation() }
+                .disabled(!viewModel.canCancel)
+                .accessibilityIdentifier("action.cancel")
 
                 Button("Disconnect") {
                     Task { await viewModel.disconnect() }
@@ -134,7 +151,10 @@ struct MacContentView: View {
 
     private var deviceCard: some View {
         GroupBox("Device") {
-            Picker("Device", selection: $viewModel.selectedDeviceIndex) {
+            Picker("Device", selection: Binding(
+                get: { viewModel.selectedDeviceIndex },
+                set: { index in Task { await viewModel.selectDevice(index) } }
+            )) {
                 ForEach(Array(viewModel.devices.enumerated()), id: \.offset) { index, device in
                     Text("\(device.name ?? "Unknown") (\(device.id))").tag(index)
                 }
@@ -142,6 +162,7 @@ struct MacContentView: View {
             .pickerStyle(.menu)
             .accessibilityLabel("Device")
             .accessibilityIdentifier("picker.device")
+            .disabled(viewModel.isBusy)
         }
     }
 
@@ -160,6 +181,7 @@ struct MacContentView: View {
                                 .accessibilityIdentifier("toggle.address.include_public_key")
                             Toggle("Chunkify", isOn: $viewModel.addressChunkify)
                                 .accessibilityIdentifier("toggle.address.chunkify")
+                                .disabled(viewModel.selectedVendor.isLedger)
                         }
                     }
                 }
@@ -312,6 +334,7 @@ struct MacContentView: View {
                 .accessibilityIdentifier("input.sign.eth.data")
             Toggle("Chunkify", isOn: $viewModel.ethChunkify)
                 .accessibilityIdentifier("toggle.sign.eth.chunkify")
+                .disabled(viewModel.selectedVendor.isLedger)
         case .solana:
             TextField("Path (SOL)", text: $viewModel.solSignPathInput)
                 .textFieldStyle(.roundedBorder)
@@ -321,6 +344,7 @@ struct MacContentView: View {
                 .accessibilityIdentifier("input.sign.sol.tx_hex")
             Toggle("Chunkify", isOn: $viewModel.solChunkify)
                 .accessibilityIdentifier("toggle.sign.sol.chunkify")
+                .disabled(viewModel.selectedVendor.isLedger)
         case .bitcoin:
             Text("Transaction JSON")
                 .font(.footnote)
@@ -359,14 +383,30 @@ struct MacContentView: View {
         TextField("Path (\(viewModel.chainLabel(viewModel.selectedChain)))", text: $viewModel.messageSignPathInput)
             .textFieldStyle(.roundedBorder)
             .accessibilityIdentifier("input.message.path")
-        TextField("Message", text: $viewModel.messageSignPayload)
-            .textFieldStyle(.roundedBorder)
-            .accessibilityIdentifier("input.message.payload")
-        HStack(spacing: 8) {
-            Toggle("Message is hex", isOn: $viewModel.messageSignIsHex)
-                .accessibilityIdentifier("toggle.message.hex")
-            Toggle("Chunkify", isOn: $viewModel.messageSignChunkify)
-                .accessibilityIdentifier("toggle.message.chunkify")
+        if viewModel.selectedChain == .ethereum {
+            Toggle("EIP-712 typed data", isOn: $viewModel.messageSignTypedData)
+                .accessibilityIdentifier("toggle.message.typed_data")
+                .disabled(viewModel.isBusy)
+        }
+        if viewModel.messageSignTypedData && viewModel.selectedChain == .ethereum {
+            Text("EIP-712 JSON (review domain and message before signing)")
+                .font(.caption)
+            TextEditor(text: $viewModel.typedDataJson)
+                .font(.system(.caption, design: .monospaced))
+                .frame(minHeight: 140)
+                .accessibilityIdentifier("input.message.typed_data")
+                .disabled(viewModel.isBusy)
+        } else {
+            TextField("Message", text: $viewModel.messageSignPayload)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("input.message.payload")
+            HStack(spacing: 8) {
+                Toggle("Message is hex", isOn: $viewModel.messageSignIsHex)
+                    .accessibilityIdentifier("toggle.message.hex")
+                Toggle("Chunkify", isOn: $viewModel.messageSignChunkify)
+                    .accessibilityIdentifier("toggle.message.chunkify")
+                    .disabled(viewModel.selectedVendor.isLedger)
+            }
         }
     }
 }
