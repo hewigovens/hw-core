@@ -48,7 +48,7 @@ The THP/BLE stack works end to end against Trezor Safe 7: discovery, pairing, se
 ## Non-Goals
 
 - Transports beyond BLE, or new transport abstractions.
-- Multi-vendor wallet support (the stack is designed to allow it later).
+- Broad multi-vendor parity. An experimental direct Ledger BLE path for Ethereum, EIP-712, and Solana is available in the SDK, CLI, and sample apps; see [Ledger support](ledger.md).
 - Chain expansion beyond gaps that block current developer adoption.
 - Sample-app UX polish that does not improve integration reliability.
 - Large refactors that do not materially reduce consumer risk.

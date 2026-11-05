@@ -6,6 +6,7 @@ hw-core is a Rust workspace for host-to-hardware crypto wallet communication. Th
 
 ```
 hw-core          Public Rust SDK facade over wallet, chain, Trezor, and transport crates
+ledger-connect   Direct Ledger BLE/APDU transport and Ethereum/Solana clients
 thp-proto        Prost-generated protobuf types from vendored messages-thp.proto
 ble-transport    BLE primitives via btleplug (scanning, connection, I/O)
 trezor-connect   Host-facing THP workflow API + BLE backend
@@ -29,6 +30,7 @@ ble-transport ────────────┘                           
 
 - `hw-core` re-exports the shared Rust APIs for SDK consumers; keep implementation in the owning crates below.
 - `ble-transport` owns BLE discovery, connection, and byte I/O; keep wallet orchestration out of the transport layer.
+- `ledger-connect` owns Ledger BLE framing, APDU exchanges, active-app checks, and Ethereum/Solana commands; it does not use THP.
 - `trezor-connect` owns Trezor protocol requests, THP state transitions, and the protocol backend.
 - `hw-wallet` owns shared wallet session orchestration and retry policy used by CLI and FFI consumers; put shared flow fixes here rather than duplicating them in adapters.
 - `hw-chain` owns chain metadata and default derivation paths; `thp-proto` owns generated wire types, not workflow policy.
@@ -49,7 +51,7 @@ Async results must still belong to the active connection/session when applied. C
 - **Workflow state machine** (`trezor-connect/src/thp/workflow/`): `ThpWorkflow<B: ThpBackend>` drives Handshake → Pairing → Paired lifecycle. State held in a `ThpState` field on the workflow.
 - **`PairingController` trait** (`trezor-connect/src/thp/types/pairing.rs`): Async trait for custom pairing UX. CLI implements `CliPairingController`.
 - **`ThpStorage` trait** (`trezor-connect/src/thp/storage/`): `FileStorage` persists host credentials as JSON. Tests use `InMemoryStorage`.
-- **`BleProfile`** (`ble-transport`): Pluggable wallet vendor support (currently Trezor Safe 7).
+- **`BleProfile`** (`ble-transport`): Pluggable wallet profiles for Trezor Safe 7 and Ledger Stax, Nano X, and Flex.
 
 ## License
 

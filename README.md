@@ -126,6 +126,12 @@ Current and planned milestones are tracked in:
 
 - [docs/roadmap.md](docs/roadmap.md)
 
+## Experimental Ledger support
+
+Direct Stax BLE discovery, connection, and Ethereum/Solana signing operations are available through
+Rust, CLI, Swift/Kotlin bindings, and Apple/Android sample apps. See [Ledger setup and validation limits](docs/ledger.md).
+
+
 ## License
 
 `hw-core` is licensed under the **Apache License 2.0** ([LICENSE](LICENSE)).
