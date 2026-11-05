@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/ble-transport",
+    "crates/ledger-connect",
     "crates/thp-proto",
     "crates/trezor-connect",
     "crates/hw-ffi",
@@ -33,6 +34,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 hex = "0.4"
 hw-chain = { version = "0.1.2", path = "crates/hw-chain" }
 hw-wallet = { version = "0.1.2", path = "crates/hw-wallet" }
+ledger-connect = { version = "0.1.2", path = "crates/ledger-connect" }
 log = "0.4"
 parking_lot = "0.13"
 prost = "0.14.3"

@@ -2,6 +2,7 @@ uniffi::setup_scaffolding!();
 
 mod ble;
 mod errors;
+mod ledger;
 mod platform;
 mod types;
 mod version;
@@ -24,3 +25,8 @@ pub use crate::types::{
     WorkflowEventKind, chain_config, host_config_new, session_retry_policy_default,
 };
 pub use crate::version::hw_core_version;
+
+pub use ledger::{
+    LedgerAppInfo, LedgerDiscoveredDevice, LedgerEthereumAddress, LedgerEthereumSignature,
+    LedgerModel, LedgerSessionHandle, LedgerSigningResult,
+};

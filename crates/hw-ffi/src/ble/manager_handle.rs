@@ -36,4 +36,18 @@ impl BleManagerHandle {
             .map(|device| Arc::new(BleDiscoveredDevice::new(device, profile)))
             .collect())
     }
+    pub async fn discover_ledger(
+        &self,
+        model: crate::LedgerModel,
+        duration_ms: u64,
+    ) -> Result<Vec<Arc<crate::LedgerDiscoveredDevice>>, HWCoreError> {
+        let devices = self
+            .manager
+            .scan_profile(model.profile(), Duration::from_millis(duration_ms))
+            .await?;
+        Ok(devices
+            .into_iter()
+            .map(|device| Arc::new(crate::LedgerDiscoveredDevice::new(device, model)))
+            .collect())
+    }
 }

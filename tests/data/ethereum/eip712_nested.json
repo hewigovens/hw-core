@@ -1,0 +1,45 @@
+{
+  "types": {
+    "EIP712Domain": [],
+    "Nested": [
+      {
+        "name": "scores",
+        "type": "int16[2][]"
+      },
+      {
+        "name": "fixed",
+        "type": "bytes4"
+      },
+      {
+        "name": "payload",
+        "type": "bytes"
+      },
+      {
+        "name": "enabled",
+        "type": "bool"
+      },
+      {
+        "name": "text",
+        "type": "string"
+      }
+    ]
+  },
+  "primaryType": "Nested",
+  "domain": {},
+  "message": {
+    "scores": [
+      [
+        -1,
+        32767
+      ],
+      [
+        0,
+        -32768
+      ]
+    ],
+    "fixed": "0x01020304",
+    "payload": "0x0001ff",
+    "enabled": true,
+    "text": "Hello 🌍"
+  }
+}

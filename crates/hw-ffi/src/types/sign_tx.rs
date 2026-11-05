@@ -47,6 +47,7 @@ pub struct SignTxResult {
     pub s: Vec<u8>,
     /// Per-input Bitcoin signatures, indexed by the device's `signature_index`.
     pub signatures: Vec<Vec<u8>>,
+    /// Ethereum signing hash of the unsigned payload, not the broadcast transaction ID.
     pub tx_hash: Option<Vec<u8>>,
     pub recovered_address: Option<String>,
 }

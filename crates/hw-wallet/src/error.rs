@@ -28,6 +28,8 @@ pub enum WalletErrorKind {
 
 #[derive(Debug, Error)]
 pub enum WalletError {
+    #[error(transparent)]
+    Ledger(#[from] ledger_connect::LedgerError),
     #[error("invalid BIP32 path: {0}")]
     InvalidBip32Path(String),
     #[error(
@@ -60,6 +62,7 @@ pub type WalletResult<T> = std::result::Result<T, WalletError>;
 impl WalletError {
     pub fn kind(&self) -> WalletErrorKind {
         match self {
+            Self::Ledger(error) => error.into(),
             Self::InvalidBip32Path(_)
             | Self::Signing(_)
             | Self::SolanaTxTooShort { .. }
@@ -117,6 +120,22 @@ impl From<&BackendError> for WalletErrorKind {
             | BackendError::DeviceError { .. } => Self::Device,
             BackendError::UnsupportedPairingMethod => Self::Validation,
             BackendError::Transport(_) => Self::Workflow,
+        }
+    }
+}
+
+impl From<&ledger_connect::LedgerError> for WalletErrorKind {
+    fn from(error: &ledger_connect::LedgerError) -> Self {
+        use ledger_connect::LedgerError;
+        match error {
+            LedgerError::Ble(error) => error.into(),
+            LedgerError::Timeout => Self::Timeout,
+            LedgerError::Disconnected => Self::Disconnected,
+            LedgerError::Protocol(_) | LedgerError::Status(_) => Self::Device,
+            LedgerError::InvalidInput(_) => Self::Validation,
+            LedgerError::Rejected => Self::ActionCancelled,
+            LedgerError::Locked => Self::DeviceLocked,
+            LedgerError::WrongApp { .. } | LedgerError::Unsupported => Self::Unsupported,
         }
     }
 }
