@@ -5,6 +5,7 @@ mod channel;
 mod credential;
 mod device_event;
 mod eip712;
+mod eip712_type_name;
 mod eth_definitions;
 mod eth_definitions_version;
 mod eth_sign_tx;
@@ -29,6 +30,7 @@ pub use channel::{CreateChannelRequest, CreateChannelResponse, ThpProperties};
 pub use credential::{CredentialRequest, CredentialResponse, KnownCredential};
 pub use device_event::{ButtonRequest, ButtonRequestCode, DeviceEvent, DeviceEventSink};
 pub use eip712::{Eip712StructMember, Eip712TypedData};
+pub use eip712_type_name::Eip712TypeName;
 pub use eth_definitions::{
     ETH_ADDRESS_LEN, ETH_FUNC_SIG_LEN, EthDefinitionCatalog, EthDefinitions,
     EthDisplayFormatDefinition, EthTokenDefinition,

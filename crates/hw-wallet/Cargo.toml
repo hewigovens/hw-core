@@ -8,11 +8,14 @@ repository.workspace = true
 readme.workspace = true
 
 [dependencies]
+bitcoin = { workspace = true }
+ledger_bitcoin_client = { workspace = true }
 base64 = "0.23"
 ble-transport = { workspace = true }
 bs58 = { workspace = true }
 hex = { workspace = true }
 hw-chain = { workspace = true }
+ledger-connect = { workspace = true }
 k256 = { version = "0.14", features = ["ecdsa"] }
 rlp = "0.6.1"
 serde = { workspace = true }
@@ -23,7 +26,9 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 trezor-connect = { workspace = true, features = ["ble"] }
 tracing = { workspace = true }
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std"] }
 
 [dev-dependencies]
+ledger-connect = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 trezor-connect = { workspace = true, features = ["ble", "test-support"] }

@@ -5,9 +5,6 @@ use tracing::debug;
 use crate::notifications::Notifications;
 use crate::{BleProfile, BleResult, DeviceInfo};
 
-#[cfg(not(target_os = "android"))]
-const PROOF_OF_CONNECTION: &[u8] = b"Proof of connection";
-
 const DEFAULT_MTU: usize = 244;
 
 pub struct BleLink {
@@ -17,6 +14,7 @@ pub struct BleLink {
     push_char: Option<Characteristic>,
     notifications: Notifications,
     mtu: usize,
+    write_type: WriteType,
 }
 
 impl BleLink {
@@ -60,9 +58,11 @@ impl BleLink {
         );
 
         #[cfg(not(target_os = "android"))]
-        peripheral
-            .write(&write_char, PROOF_OF_CONNECTION, WriteType::WithResponse)
-            .await?;
+        if let Some(probe) = profile.connection_probe {
+            peripheral
+                .write(&write_char, probe, WriteType::WithResponse)
+                .await?;
+        }
 
         peripheral.subscribe(&notify_char).await?;
         if let Some(push_char) = &push_char {
@@ -79,6 +79,11 @@ impl BleLink {
             push_char,
             notifications,
             mtu,
+            write_type: if profile.write_with_response {
+                WriteType::WithResponse
+            } else {
+                WriteType::WithoutResponse
+            },
         })
     }
 
@@ -125,7 +130,7 @@ impl BleLink {
     }
 
     pub async fn write(&mut self, chunk: &[u8]) -> BleResult<()> {
-        let write_type = WriteType::WithoutResponse;
+        let write_type = self.write_type;
         debug!(bytes = chunk.len(), write_type = ?write_type, "BLE write chunk");
         self.peripheral
             .write(&self.write_char, chunk, write_type)

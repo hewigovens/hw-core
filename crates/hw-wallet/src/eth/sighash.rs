@@ -8,11 +8,16 @@ use crate::hex::decode;
 const EIP1559_TX_TYPE: u8 = 0x02;
 
 pub trait EthSignTxExt {
+    fn eip1559_payload(&self) -> WalletResult<Vec<u8>>;
     fn eip1559_sighash(&self) -> WalletResult<[u8; 32]>;
 }
 
 impl EthSignTxExt for EthSignTx {
     fn eip1559_sighash(&self) -> WalletResult<[u8; 32]> {
+        Ok(Keccak256::digest(self.eip1559_payload()?).into())
+    }
+
+    fn eip1559_payload(&self) -> WalletResult<Vec<u8>> {
         let mut rlp = RlpStream::new_list(9);
         rlp.append_quantity(&self.chain_id.to_be_bytes());
         rlp.append_quantity(&self.nonce);
@@ -30,7 +35,7 @@ impl EthSignTxExt for EthSignTx {
 
         let mut typed_payload = vec![EIP1559_TX_TYPE];
         typed_payload.extend_from_slice(&rlp.out());
-        Ok(Keccak256::digest(typed_payload).into())
+        Ok(typed_payload)
     }
 }
 

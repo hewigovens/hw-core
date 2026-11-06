@@ -14,13 +14,16 @@ pub struct VerifiedSignature {
 impl VerifiedSignature {
     /// Recovers the signer of `request` from the device's signature.
     pub fn recover(request: &EthSignTx, signature: &EthTxSignature) -> WalletResult<Self> {
+        Self::recover_hash(request.eip1559_sighash()?, signature)
+    }
+
+    pub fn recover_hash(tx_hash: [u8; 32], signature: &EthTxSignature) -> WalletResult<Self> {
         if signature.r.len() != 32 || signature.s.len() != 32 {
             return Err(WalletError::Signing(
                 "invalid signature length (expected 32-byte r/s)".into(),
             ));
         }
 
-        let tx_hash = request.eip1559_sighash()?;
         let recovery_id = recovery_id(signature.v)?;
         let mut sig_bytes = [0u8; 64];
         sig_bytes[..32].copy_from_slice(&signature.r);

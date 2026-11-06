@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/ble-transport",
+    "crates/ledger-connect",
     "crates/thp-proto",
     "crates/trezor-connect",
     "crates/hw-ffi",
@@ -29,10 +30,13 @@ async-trait = "0.1"
 btleplug = "0.13.4"
 ble-transport = { version = "0.1.2", path = "crates/ble-transport" }
 bs58 = "0.5"
+bitcoin = { version = "0.32", features = ["secp-recovery"] }
+ledger_bitcoin_client = "=0.7.0"
 clap = { version = "4.6.7", features = ["derive"] }
 hex = "0.4"
 hw-chain = { version = "0.1.2", path = "crates/hw-chain" }
 hw-wallet = { version = "0.1.2", path = "crates/hw-wallet" }
+ledger-connect = { version = "0.1.2", path = "crates/ledger-connect" }
 log = "0.4"
 parking_lot = "0.13"
 prost = "0.14.3"

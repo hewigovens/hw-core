@@ -1,0 +1,3 @@
+# Ledger EIP-712 reference vectors
+
+Files `6.json`, `6.apdus`, `13.json`, and `13.apdus` are copied unchanged from [Ledger Live hw-app-eth fixtures](https://github.com/LedgerHQ/ledger-live/tree/438b8b4903d4c99f71e0cb8cc6f2da26005456d2/libs/ledgerjs/packages/hw-app-eth/tests/fixtures) at commit `438b8b4903d4c99f71e0cb8cc6f2da26005456d2` (Apache-2.0; license retained here). Fixture 6 exercises arrays of structs and multiple dependent structs; fixture 13 exercises negative int32 through int256 boundaries. Expected signing hashes were independently calculated with ethers `TypedDataEncoder.hash`; APDU expectations come directly from Ledger's recorded streams.

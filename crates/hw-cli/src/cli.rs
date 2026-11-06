@@ -2,11 +2,11 @@ use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use crate::commands::{AddressArgs, PairArgs, ScanArgs, SignArgs, SignMessageArgs};
+use crate::commands::{AddressArgs, LedgerArgs, PairArgs, ScanArgs, SignArgs, SignMessageArgs};
 
 #[derive(Parser, Debug)]
 #[command(name = "hw-cli")]
-#[command(about = "Trezor Safe 7 CLI over BLE")]
+#[command(about = "Hardware wallet CLI over BLE")]
 pub struct Cli {
     #[arg(short, long, action = ArgAction::Count, global = true)]
     pub verbose: u8,
@@ -20,6 +20,8 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     Scan(ScanArgs),
+    /// Connect directly to Ledger over Bluetooth (open the corresponding chain app).
+    Ledger(LedgerArgs),
     Pair(PairArgs),
     Address(AddressArgs),
     Sign(SignArgs),
@@ -47,6 +49,7 @@ impl Cli {
     pub async fn run(self) -> Result<()> {
         let skip_pairing = self.skip_pairing;
         match self.command {
+            Command::Ledger(args) => args.run().await,
             Command::Scan(args) => args.run().await,
             Command::Pair(args) => args.run(skip_pairing).await,
             Command::Address(args) => args.run(skip_pairing).await,
@@ -59,6 +62,45 @@ impl Cli {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ledger_typed_data_requires_one_complete_payload_mode() {
+        for args in [
+            vec!["--data", "@typed-data.json"],
+            vec!["--domain-separator-hash", "00", "--message-hash", "11"],
+        ] {
+            assert!(
+                Cli::try_parse_from(
+                    ["hw-cli", "ledger", "sign-typed-data"]
+                        .into_iter()
+                        .chain(args)
+                )
+                .is_ok()
+            );
+        }
+        for args in [
+            vec![],
+            vec!["--domain-separator-hash", "00"],
+            vec!["--message-hash", "11"],
+            vec![
+                "--data",
+                "{}",
+                "--domain-separator-hash",
+                "00",
+                "--message-hash",
+                "11",
+            ],
+        ] {
+            assert!(
+                Cli::try_parse_from(
+                    ["hw-cli", "ledger", "sign-typed-data"]
+                        .into_iter()
+                        .chain(args)
+                )
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     fn connect_args_apply_defaults_and_overrides() {

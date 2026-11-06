@@ -1,0 +1,22 @@
+[package]
+name = "ledger-connect"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Direct Ledger BLE/APDU client for Ethereum, Solana, and Bitcoin"
+
+[features]
+test-support = []
+
+[dependencies]
+async-trait = { workspace = true }
+bitcoin = { workspace = true }
+ledger_bitcoin_client = { workspace = true }
+ble-transport = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["time", "sync"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }

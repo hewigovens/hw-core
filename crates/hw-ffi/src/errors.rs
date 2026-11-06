@@ -127,6 +127,12 @@ impl From<WalletError> for HWCoreError {
     }
 }
 
+impl From<ledger_connect::LedgerError> for HWCoreError {
+    fn from(error: ledger_connect::LedgerError) -> Self {
+        WalletError::from(error).into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

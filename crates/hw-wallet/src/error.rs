@@ -27,7 +27,14 @@ pub enum WalletErrorKind {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum WalletError {
+    #[error(transparent)]
+    Ledger(ledger_connect::LedgerError),
+    #[error("device verification failed: {0}")]
+    Verification(String),
+    #[error("unsupported request: {0}")]
+    Unsupported(String),
     #[error("invalid BIP32 path: {0}")]
     InvalidBip32Path(String),
     #[error(
@@ -41,7 +48,7 @@ pub enum WalletError {
     #[error("signing error: {0}")]
     Signing(String),
     #[error(
-        "solana serialized tx is too short ({len} bytes, minimum {min}); provide full serialized transaction bytes"
+        "solana serialized tx is too short ({len} bytes, minimum {min}); provide serialized transaction message bytes"
     )]
     SolanaTxTooShort { len: usize, min: usize },
     #[error("Solana transaction version {0} is not supported by firmware")]
@@ -57,9 +64,23 @@ pub enum WalletError {
 
 pub type WalletResult<T> = std::result::Result<T, WalletError>;
 
+impl From<ledger_connect::LedgerError> for WalletError {
+    fn from(error: ledger_connect::LedgerError) -> Self {
+        match error {
+            ledger_connect::LedgerError::InvalidBip32Path(message) => {
+                Self::InvalidBip32Path(message.into())
+            }
+            error => Self::Ledger(error),
+        }
+    }
+}
+
 impl WalletError {
     pub fn kind(&self) -> WalletErrorKind {
         match self {
+            Self::Ledger(error) => error.into(),
+            Self::Verification(_) => WalletErrorKind::Device,
+            Self::Unsupported(_) => WalletErrorKind::Unsupported,
             Self::InvalidBip32Path(_)
             | Self::Signing(_)
             | Self::SolanaTxTooShort { .. }
@@ -117,6 +138,25 @@ impl From<&BackendError> for WalletErrorKind {
             | BackendError::DeviceError { .. } => Self::Device,
             BackendError::UnsupportedPairingMethod => Self::Validation,
             BackendError::Transport(_) => Self::Workflow,
+        }
+    }
+}
+
+impl From<&ledger_connect::LedgerError> for WalletErrorKind {
+    fn from(error: &ledger_connect::LedgerError) -> Self {
+        use ledger_connect::LedgerError;
+        match error {
+            LedgerError::Ble(error) => error.into(),
+            LedgerError::Timeout => Self::Timeout,
+            LedgerError::Disconnected => Self::Disconnected,
+            LedgerError::Protocol(_) | LedgerError::Status(_) => Self::Device,
+            LedgerError::InvalidInput(_) | LedgerError::InvalidBip32Path(_) => Self::Validation,
+            LedgerError::Rejected => Self::ActionCancelled,
+            LedgerError::Locked => Self::DeviceLocked,
+            LedgerError::WrongApp { .. }
+            | LedgerError::Unsupported
+            | LedgerError::SolanaMessageHeaderUnsupported
+            | LedgerError::SolanaBlindSigningRequired => Self::Unsupported,
         }
     }
 }

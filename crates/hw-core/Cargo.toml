@@ -13,4 +13,5 @@ categories = ["cryptography", "hardware-support"]
 ble-transport = { workspace = true }
 hw-chain = { workspace = true }
 hw-wallet = { workspace = true }
+ledger-connect = { workspace = true }
 trezor-connect = { workspace = true, features = ["ble"] }

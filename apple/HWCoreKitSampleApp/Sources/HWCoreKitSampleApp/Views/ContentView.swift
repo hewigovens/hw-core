@@ -9,6 +9,9 @@ struct ContentView: View {
         .task {
             await viewModel.bootstrap()
         }
+        .onChange(of: viewModel.selectedVendor) { _ in
+            Task { await viewModel.selectedVendorDidChange() }
+        }
         .onChange(of: viewModel.selectedChain) { _ in
             viewModel.selectedChainDidChange()
         }
